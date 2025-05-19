@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+You have acess to the backend of the ai tutor in the folder agent_t and you have acess to the frontend in the folder @frontend_agent, given that we are in a workspace
