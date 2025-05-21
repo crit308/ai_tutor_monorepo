@@ -2,6 +2,7 @@
 
 import React, { createContext, useState, useEffect, useContext, ReactNode, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { convex } from '@/lib/convex';
 import { Session, User } from '@supabase/supabase-js';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { useSessionStore } from '@/store/sessionStore'; // Import zustand store
@@ -29,6 +30,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     useEffect(() => {
         console.log("AuthProvider: useEffect started. Attempting to get session...");
         setLoading(true); // Ensure loading starts true
+
+        // Provide Supabase JWTs to Convex for authentication
+        convex.setAuth(async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            return session?.access_token ?? null;
+        });
 
         const getSession = async () => {
             try {
@@ -87,6 +94,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const signOut = useCallback(async () => {
         console.log("AuthProvider: Signing out...");
         const { error } = await supabase.auth.signOut();
+        convex.clearAuth();
         if (error) {
             console.error("AuthProvider: Error signing out:", error);
             // Consider adding user-facing feedback here (e.g., toast notification)

@@ -12,6 +12,8 @@ import {
   FolderResponse,
 } from './types';
 import { supabase } from './supabaseClient'; // Import Supabase client
+import { convex } from './convex';
+import { api as convexApi } from '../../convex/_generated/api';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api/v1'; // Use environment variable
 
@@ -54,15 +56,10 @@ apiClient.interceptors.response.use(
 
 export const startSession = async (folderId: string): Promise<StartSessionResponse> => {
   try {
-    console.log(`Starting new session for folder ${folderId}...`);
-    const response = await apiClient.post<StartSessionResponse>(
-        '/sessions',
-        { folder_id: folderId } // Pass folder_id in the request body (ensure backend expects this)
-    );
-    console.log('Session started:', response.data.session_id);
-    return response.data;
+    console.log(`Starting new session for folder ${folderId} via Convex...`);
+    return await convex.mutation(convexApi.functions.startSession, { folderId });
   } catch (error) {
-    console.error('Error starting session:', error);
+    console.error('Error starting session via Convex:', error);
     throw error; // Re-throw for handling in UI
   }
 };
@@ -262,25 +259,20 @@ export const logUserSummary = async (sessionId: string, summaryData: any): Promi
 
 export const createFolder = async (folderData: FolderCreateRequest): Promise<FolderResponse> => {
     try {
-        console.log('Creating new folder:', folderData.name);
-        const response = await apiClient.post<FolderResponse>('/folders', folderData);
-        console.log('Folder created:', response.data);
-        return response.data;
+        console.log('Creating new folder via Convex:', folderData.name);
+        return await convex.mutation(convexApi.functions.createFolder, { name: folderData.name });
     } catch (error) {
-        console.error('Error creating folder:', error);
+        console.error('Error creating folder via Convex:', error);
         throw error;
     }
 };
 
 export const getFolders = async (): Promise<FolderResponse[]> => {
     try {
-        console.log('Fetching folders...');
-        const response = await apiClient.get<{ folders: FolderResponse[] }>('/folders');
-        console.log('Folders fetched:', response.data.folders.length);
-        return response.data.folders;
+        console.log('Fetching folders via Convex...');
+        return await convex.query(convexApi.functions.getFolders, {});
     } catch (error) {
-        console.error('Error fetching folders:', error);
-        // Return empty array or throw error based on preference
+        console.error('Error fetching folders via Convex:', error);
         return [];
     }
 };
@@ -330,12 +322,10 @@ export interface ChatHistoryMessage {
 
 export async function fetchSessionMessages(sessionId: string, beforeMessageId?: string, limit: number = 30): Promise<ChatHistoryMessage[]> {
   try {
-      const params: any = { limit };
-      if (beforeMessageId) params.before = beforeMessageId;
-      const response = await apiClient.get<ChatHistoryMessage[]>(`/sessions/${sessionId}/messages`, { params });
-      return response.data;
+      console.log('Fetching session messages via Convex...');
+      return await convex.query(convexApi.functions.fetchSessionMessages, { sessionId });
   } catch (error) {
-      console.error('Error fetching session messages:', error);
+      console.error('Error fetching session messages via Convex:', error);
       throw error;
   }
-} 
+}
