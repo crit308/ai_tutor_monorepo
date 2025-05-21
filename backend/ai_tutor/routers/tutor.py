@@ -7,8 +7,14 @@ import time
 import json
 import traceback  # Add traceback import
 import logging  # Add logging import
-from supabase import Client
-from gotrue.types import User # To type hint the user object
+try:
+    from supabase import Client
+except Exception:  # pragma: no cover - optional dependency
+    from typing import Any as Client
+try:
+    from gotrue.types import User  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    from typing import Any as User
 from uuid import UUID
 
 from ai_tutor.session_manager import SessionManager

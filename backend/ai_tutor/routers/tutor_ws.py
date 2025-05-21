@@ -4,8 +4,16 @@ from typing import Any, Dict, Optional, List
 import os
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
-from supabase import Client
-from postgrest.exceptions import APIError
+try:
+    from supabase import Client
+except Exception:  # pragma: no cover - optional dependency
+    from typing import Any as Client
+try:
+    from postgrest.exceptions import APIError
+except Exception:  # pragma: no cover - optional dependency
+    class APIError(Exception):
+        code: str = ""
+        message: str = ""
 
 from ai_tutor.dependencies import get_supabase_client
 from ai_tutor.session_manager import SessionManager

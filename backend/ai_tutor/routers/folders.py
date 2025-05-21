@@ -1,7 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from supabase import Client, PostgrestAPIResponse
-from gotrue.types import User
-from typing import List
+from typing import List, Any
+try:
+    from supabase import Client, PostgrestAPIResponse
+except Exception:  # pragma: no cover - optional dependency
+    Client = Any  # type: ignore
+    PostgrestAPIResponse = Any  # type: ignore
+try:
+    from gotrue.types import User
+except Exception:  # pragma: no cover
+    User = Any  # type: ignore
 from uuid import UUID
 
 from ai_tutor.dependencies import get_supabase_client

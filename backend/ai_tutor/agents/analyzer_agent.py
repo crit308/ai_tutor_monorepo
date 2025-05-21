@@ -2,7 +2,10 @@ import os
 from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, Field, model_validator, field_validator
 from uuid import UUID
-from supabase import Client
+try:
+    from supabase import Client
+except Exception:  # pragma: no cover - optional dependency
+    from typing import Any as Client
 import structlog
 
 # Attempt to import Runner and RunConfig from the top-level 'agents' module (likely in src/agents)

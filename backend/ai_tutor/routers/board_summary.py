@@ -41,7 +41,10 @@ from typing import Any, Dict, List, Tuple
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from supabase import Client
+try:
+    from supabase import Client
+except Exception:  # pragma: no cover - optional dependency
+    from typing import Any as Client
 from redis.asyncio import Redis  # type: ignore
 from y_py import YDoc, apply_update  # type: ignore
 

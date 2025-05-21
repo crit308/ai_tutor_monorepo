@@ -1,7 +1,10 @@
 from __future__ import annotations
 from typing import Optional, List, Dict, Any
 from uuid import UUID
-from supabase import Client
+try:
+    from supabase import Client
+except Exception:  # pragma: no cover - optional dependency
+    from typing import Any as Client
 from agents.run_context import RunContextWrapper
 from ai_tutor.core.llm import LLMClient
 

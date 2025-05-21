@@ -11,7 +11,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Depends, HTTPException, status
 from dotenv import load_dotenv
-from supabase import Client # Keep Client if used directly, otherwise remove if only through dependency
+try:
+    from supabase import Client  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    from typing import Any as Client
 
 # Load environment variables from .env file
 load_dotenv()

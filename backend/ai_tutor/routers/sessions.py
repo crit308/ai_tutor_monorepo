@@ -1,6 +1,12 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
-from supabase import Client
-from gotrue.types import User  # To type hint the user object
+try:
+    from supabase import Client
+except Exception:  # pragma: no cover - optional dependency
+    from typing import Any as Client
+try:
+    from gotrue.types import User  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    from typing import Any as User
 from uuid import UUID
 from typing import Optional, List, Dict as TDict
 
