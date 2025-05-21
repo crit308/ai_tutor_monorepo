@@ -7,6 +7,7 @@ from openai import AsyncOpenAI
 from openai._base_client import AsyncHttpxClientWrapper  # type: ignore
 from redis.asyncio import Redis as _Redis  # type: ignore
 import redis.asyncio as _redis_asyncio
+from ai_tutor.convex_client import ConvexClient
 
 # Load environment variables specifically for dependencies if needed,
 # though they should be loaded by the main app process already.
@@ -97,4 +98,23 @@ async def get_redis_client() -> _Redis:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Redis client is not available. Check backend configuration and logs.",
         )
-    return REDIS_CLIENT 
+    return REDIS_CLIENT
+
+# --- Convex Client Initialization (Task E) ---
+convex_url = os.environ.get("CONVEX_URL", "http://localhost:4000")
+CONVEX_CLIENT: ConvexClient | None = None
+try:
+    CONVEX_CLIENT = ConvexClient(convex_url)
+    print(f"Convex client initialized (url={convex_url}).")
+except Exception as _e:  # pragma: no cover
+    CONVEX_CLIENT = None
+    print(f"ERROR: Failed to initialise Convex client: {_e}")
+
+async def get_convex_client() -> ConvexClient:
+    """FastAPI dependency providing the Convex client."""
+    if CONVEX_CLIENT is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Convex client is not available. Check backend configuration and logs.",
+        )
+    return CONVEX_CLIENT

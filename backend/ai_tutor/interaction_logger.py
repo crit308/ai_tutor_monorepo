@@ -1,7 +1,7 @@
 import logging
 from uuid import UUID
 from typing import Optional, Dict, Any
-from ai_tutor.dependencies import get_supabase_client # Or pass client as arg
+from ai_tutor.dependencies import get_convex_client  # Use Convex for logging
 from ai_tutor.context import TutorContext # For type hinting
 
 logger = logging.getLogger(__name__)
@@ -29,11 +29,14 @@ async def log_interaction(
         # "trace_id": ctx.current_trace_id # If tracking trace IDs
     }
     try:
-        supabase = await get_supabase_client()
-        response = supabase.table("interaction_logs").insert(log_data).execute()
-        if response.data:
-            logger.debug(f"Interaction logged successfully for session {ctx.session_id}")
-        else:
-            logger.error(f"Failed to log interaction for session {ctx.session_id}: Supabase response indicates potential issue. Response: {response}")
+        convex = await get_convex_client()
+        await convex.mutation("logInteraction", log_data)
+        logger.debug(
+            f"Interaction logged successfully for session {ctx.session_id}"
+        )
     except Exception as e:
-        logger.error(f"Exception while logging interaction for session {ctx.session_id}: {e}", exc_info=True) 
+        logger.error(
+            f"Exception while logging interaction for session {ctx.session_id}: {e}",
+            exc_info=True,
+        )
+

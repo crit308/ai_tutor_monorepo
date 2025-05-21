@@ -7,6 +7,7 @@ import uuid
 from pathlib import Path
 from supabase import Client, PostgrestAPIResponse
 from fastapi import HTTPException # For raising errors
+from ai_tutor.convex_client import ConvexClient
 from uuid import UUID # Import UUID
 import structlog # Add structlog
 
@@ -224,6 +225,49 @@ class SessionManager:
             log.error("Unexpected error updating session context in Supabase", session_id=str(session_id), error=str(e), exc_info=True)
             # Raise a specific exception
             raise HTTPException(status_code=500, detail=f"Internal error updating session context")
+
+    async def update_session_context_convex(
+        self,
+        convex: "ConvexClient",
+        session_id: UUID,
+        user_id: UUID,
+        context: TutorContext,
+    ) -> bool:
+        """Update TutorContext using Convex."""
+        log.debug(
+            "Attempting to update session context in Convex",
+            session_id=str(session_id),
+            user_id=str(user_id),
+        )
+        try:
+            context_dict = context.lean_dict()
+        except (ValidationError, TypeError) as serialization_err:
+            log.error(
+                "Failed to serialize TutorContext before update",
+                session_id=str(session_id),
+                error=str(serialization_err),
+                exc_info=True,
+            )
+            return False
+
+        try:
+            update_data = {
+                "session_id": str(session_id),
+                "user_id": str(user_id),
+                "context_data": context_dict,
+                "folder_id": str(context.folder_id) if context.folder_id else None,
+            }
+            await convex.mutation("updateSessionContext", update_data)
+            log.info("Session context updated successfully in Convex", session_id=str(session_id))
+            return True
+        except Exception as e:
+            log.error(
+                "Unexpected error updating session context in Convex",
+                session_id=str(session_id),
+                error=str(e),
+                exc_info=True,
+            )
+            raise HTTPException(status_code=500, detail="Internal error updating session context")
 
     # session_exists might not be needed if get_session handles the lookup failure
 

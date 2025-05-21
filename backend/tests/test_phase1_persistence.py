@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from ai_tutor.context import TutorContext
 from ai_tutor.routers.tutor_ws import _persist_user_message, _persist_assistant_message
+from ai_tutor.convex_client import ConvexClient
 
 
 class _DummyResp:
@@ -50,30 +51,31 @@ class _DummyTable:
         return _DummyResp()
 
 
-class DummySupabase:
+class DummyConvex:
     def __init__(self):
-        self._storage: dict[str, list] = {}
+        self.storage: dict[str, list] = {"session_messages": [], "whiteboard_snapshots": []}
 
-    def table(self, name: str):
-        return _DummyTable(name, self._storage)
+    async def mutation(self, name: str, data: dict):
+        if name == "insertSessionMessage":
+            self.storage["session_messages"].append(data)
+        elif name == "insertWhiteboardSnapshot":
+            self.storage["whiteboard_snapshots"].append(data)
+        elif name == "updateSessionContext":
+            self.storage.setdefault("sessions", []).append(data)
 
-    # expose storage for assertions
-    @property
-    def storage(self):
-        return self._storage
 
 
 @pytest.mark.asyncio
 async def test_persist_user_and_assistant_message_order():
-    supabase = DummySupabase()
+    convex = DummyConvex()
     ctx = TutorContext(session_id=uuid4(), user_id=uuid4())
 
     # Persist two user messages
-    await _persist_user_message(supabase, ctx, "hello")
-    await _persist_user_message(supabase, ctx, "world")
+    await _persist_user_message(convex, ctx, "hello")
+    await _persist_user_message(convex, ctx, "world")
 
     assert ctx.latest_turn_no == 2
-    user_rows = supabase.storage["session_messages"]
+    user_rows = convex.storage["session_messages"]
     assert len(user_rows) == 2
     assert [r["turn_no"] for r in user_rows] == [1, 2]
     assert all(r["role"] == "user" for r in user_rows)
@@ -81,7 +83,7 @@ async def test_persist_user_and_assistant_message_order():
     # Persist assistant with whiteboard snapshot
     wb_actions = [{"type": "ADD_OBJECTS", "objects": []}]
     await _persist_assistant_message(
-        supabase,
+        convex,
         ctx,
         text_summary="answer",
         payload={"foo": "bar"},
@@ -90,14 +92,14 @@ async def test_persist_user_and_assistant_message_order():
     assert ctx.latest_turn_no == 3
     assert ctx.latest_snapshot_index == 3
 
-    rows = supabase.storage["session_messages"]
+    rows = convex.storage["session_messages"]
     assert len(rows) == 3
     last = rows[-1]
     assert last["role"] == "assistant"
     assert last["whiteboard_snapshot_index"] == 3
     # Snapshot stored
-    assert len(supabase.storage["whiteboard_snapshots"]) == 1
-    snap = supabase.storage["whiteboard_snapshots"][0]
+    assert len(convex.storage["whiteboard_snapshots"]) == 1
+    snap = convex.storage["whiteboard_snapshots"][0]
     assert snap["snapshot_index"] == 3
 
 
