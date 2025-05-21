@@ -4,10 +4,14 @@ from typing import Any, Dict, Optional, List
 import os
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
-from supabase import Client
+from supabase import Client  # noqa: F401
 from postgrest.exceptions import APIError
 
-from ai_tutor.dependencies import get_supabase_client
+from ai_tutor.dependencies import (
+    get_supabase_client,
+    get_convex_client,
+    ConvexClient,
+)
 from ai_tutor.session_manager import SessionManager
 from ai_tutor.context import TutorContext, UserModelState
 import json
@@ -177,6 +181,7 @@ async def tutor_stream(
     ws: WebSocket,
     session_id: UUID,
     supabase: Client = Depends(get_supabase_client),
+    convex: ConvexClient = Depends(get_convex_client),
 ):
     """Stream tutor interaction events for a session via WebSocket.
 
@@ -361,7 +366,7 @@ async def tutor_stream(
                 # --- Phase-1 Persistence: Record user chat message --- #
                 if event_type == 'user_message' and user_input_text is not None:
                     try:
-                        await _persist_user_message(supabase, ctx, user_input_text)
+                        await _persist_user_message(convex, ctx, user_input_text)
                     except Exception as persist_err:
                         log.error(f"Failed to persist user message for session {session_id}: {persist_err}")
                 # ----------------------------------------------------- #
@@ -898,7 +903,7 @@ async def _dispatch_tool_call(call: ToolCall, ctx: TutorContext, ws: WebSocket):
                         text_summary = _persist_target.error_message
 
                     await _persist_assistant_message(
-                        supabase_client,
+                        convex,
                         ctx,
                         text_summary=text_summary or content_type,
                         payload=response_obj.model_dump(mode="json"),
@@ -948,7 +953,7 @@ async def _dispatch_tool_call(call: ToolCall, ctx: TutorContext, ws: WebSocket):
                     text_summary = _persist_target.error_message
 
                 await _persist_assistant_message(
-                    supabase_client,
+                    convex,
                     ctx,
                     text_summary=text_summary,
                     payload=response.model_dump(mode="json"),
@@ -1058,7 +1063,7 @@ async def _dispatch_tool_call(call: ToolCall, ctx: TutorContext, ws: WebSocket):
             try:
                 supabase = await get_supabase_client()
                 await _persist_assistant_message(
-                    supabase,
+                    convex,
                     ctx,
                     text_summary="draw",
                     payload=response.model_dump(mode="json"),
@@ -1101,7 +1106,7 @@ async def _dispatch_tool_call(call: ToolCall, ctx: TutorContext, ws: WebSocket):
                         summary = d.error_message
 
                     await _persist_assistant_message(
-                        supabase_client,
+                        convex,
                         ctx,
                         text_summary=summary or tool_result.content_type,
                         payload=tool_result.model_dump(mode="json"),
@@ -1149,7 +1154,7 @@ async def _dispatch_tool_call(call: ToolCall, ctx: TutorContext, ws: WebSocket):
 
                             summary = getattr(payload_obj, 'message_text', None) or getattr(payload_obj, 'explanation_text', None) or 'assistant'
                             await _persist_assistant_message(
-                                supabase_client,
+                                convex,
                                 ctx,
                                 text_summary=summary,
                                 payload=wrapped.model_dump(mode="json"),
@@ -1369,7 +1374,7 @@ async def _run_executor_turn(ctx: TutorContext, objective: "FocusObjective", ws:
 # Phase-1 Persistence Helpers
 # ===============================
 
-async def _persist_user_message(supabase: Client, ctx: TutorContext, text: str):
+async def _persist_user_message(convex: ConvexClient, ctx: TutorContext, text: str):
     """Insert a user chat turn into session_messages and update ctx.latest_turn_no."""
     try:
         next_turn = (ctx.latest_turn_no or 0) + 1
@@ -1379,7 +1384,7 @@ async def _persist_user_message(supabase: Client, ctx: TutorContext, text: str):
             "role": "user",
             "text": text,
         }
-        supabase.table("session_messages").insert(insert_data).execute()
+        await convex.mutation("insert_session_message", insert_data)
         ctx.latest_turn_no = next_turn
     except Exception as e:
         log.error(f"_persist_user_message: Failed to insert chat turn for session {ctx.session_id}: {e}")
@@ -1387,7 +1392,7 @@ async def _persist_user_message(supabase: Client, ctx: TutorContext, text: str):
 from typing import Optional, List, Dict as TDict
 
 async def _persist_assistant_message(
-    supabase: Client,
+    convex: ConvexClient,
     ctx: TutorContext,
     text_summary: str,
     payload: Optional[dict] = None,
@@ -1402,16 +1407,18 @@ async def _persist_assistant_message(
         if whiteboard_actions:
             snapshot_index_val = next_turn  # align with turn_no
             # Persist snapshot first
-            supabase.table("whiteboard_snapshots").insert(
+            await convex.mutation(
+                "insert_snapshot",
                 {
                     "session_id": str(ctx.session_id),
                     "snapshot_index": snapshot_index_val,
                     "actions_json": whiteboard_actions,
-                }
-            ).execute()
+                },
+            )
             ctx.latest_snapshot_index = snapshot_index_val
 
-        supabase.table("session_messages").insert(
+        await convex.mutation(
+            "insert_session_message",
             {
                 "session_id": str(ctx.session_id),
                 "turn_no": next_turn,
@@ -1419,8 +1426,8 @@ async def _persist_assistant_message(
                 "text": text_summary,
                 "payload_json": payload,
                 "whiteboard_snapshot_index": snapshot_index_val,
-            }
-        ).execute()
+            },
+        )
 
         ctx.latest_turn_no = next_turn
     except Exception as e:

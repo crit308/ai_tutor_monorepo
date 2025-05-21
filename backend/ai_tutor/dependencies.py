@@ -2,6 +2,7 @@
 import os
 from fastapi import HTTPException, status
 from supabase import create_client, Client
+from typing import Any
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from openai._base_client import AsyncHttpxClientWrapper  # type: ignore
@@ -97,4 +98,27 @@ async def get_redis_client() -> _Redis:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Redis client is not available. Check backend configuration and logs.",
         )
-    return REDIS_CLIENT 
+    return REDIS_CLIENT
+
+
+# --- Convex Client Stub & Dependency ------------------------------------ #
+
+class ConvexClient:
+    """Minimal Convex client placeholder used by the backend."""
+
+    async def query(self, name: str, args: dict[str, Any]):  # pragma: no cover - runtime impl will override
+        raise NotImplementedError
+
+    async def mutation(self, name: str, args: dict[str, Any]):  # pragma: no cover
+        raise NotImplementedError
+
+
+CONVEX_CLIENT: ConvexClient | None = None
+
+
+async def get_convex_client() -> ConvexClient:
+    """FastAPI dependency providing the Convex client instance."""
+    global CONVEX_CLIENT
+    if CONVEX_CLIENT is None:
+        CONVEX_CLIENT = ConvexClient()
+    return CONVEX_CLIENT
