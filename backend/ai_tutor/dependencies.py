@@ -1,12 +1,13 @@
 # ai_tutor/dependencies.py
 import os
-from fastapi import HTTPException, status
+from fastapi import HTTPException, status, Request
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from openai._base_client import AsyncHttpxClientWrapper  # type: ignore
 from redis.asyncio import Redis as _Redis  # type: ignore
 import redis.asyncio as _redis_asyncio
+from ai_tutor.services.convex_client import ConvexClient
 
 # Load environment variables specifically for dependencies if needed,
 # though they should be loaded by the main app process already.
@@ -97,4 +98,27 @@ async def get_redis_client() -> _Redis:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Redis client is not available. Check backend configuration and logs.",
         )
-    return REDIS_CLIENT 
+    return REDIS_CLIENT
+
+# --- Convex Client Initialization ---
+convex_url = os.environ.get("CONVEX_URL")
+
+CONVEX_BASE_CLIENT: ConvexClient | None = None
+if convex_url:
+    CONVEX_BASE_CLIENT = ConvexClient(convex_url)
+    print("Convex client configured.")
+else:
+    print("WARNING: CONVEX_URL environment variable not set; Convex disabled.")
+
+
+async def get_convex_client(request: Request) -> ConvexClient:
+    """Return a ConvexClient bound to the incoming auth token."""
+    if CONVEX_BASE_CLIENT is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Convex client is not available."
+        )
+
+    auth = request.headers.get("Authorization", "")
+    token = auth.split(" ", 1)[1] if auth.lower().startswith("bearer ") else None
+    return ConvexClient(CONVEX_BASE_CLIENT.base_url, token=token)
