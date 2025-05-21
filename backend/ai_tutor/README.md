@@ -213,10 +213,21 @@ AI Tutor is a multi-agent intelligent tutoring system built on top of the OpenAI
 
     Once launched, type your questions or messages at the prompt. Enter `exit` or `quit` to end the session.
 
+
 3.  Integrate into your FastAPI app:
 
     - Use `TutorFSM` in your REST `/interact` endpoint or WebSocket handler (see `ai_tutor/routers` for examples).
     - Persist `TutorContext` after each `on_user_message` call to maintain session state.
+
+### Environment Variables
+
+Create a `.env` file in `backend/` using `.env.example` as a template. At minimum set:
+
+```bash
+OPENAI_API_KEY=<your OpenAI API key>
+CONVEX_URL=<your Convex deployment URL>
+CONVEX_ADMIN_KEY=<your Convex admin key>
+```
 
 ## Running Tests & Linting
 

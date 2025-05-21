@@ -1,7 +1,6 @@
 # ai_tutor/dependencies.py
 import os
 from fastapi import HTTPException, status
-from supabase import create_client, Client
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from openai._base_client import AsyncHttpxClientWrapper  # type: ignore
@@ -12,34 +11,20 @@ import redis.asyncio as _redis_asyncio
 # though they should be loaded by the main app process already.
 load_dotenv()
 
-# --- Supabase Client Initialization ---
-supabase_url = os.environ.get("SUPABASE_URL")
-supabase_key = os.environ.get("SUPABASE_SERVICE_KEY") # Use Service Key for backend operations
-
-SUPABASE_CLIENT: Client | None = None
-if supabase_url and supabase_key:
-    try:
-        SUPABASE_CLIENT = create_client(supabase_url, supabase_key)
-        print("Supabase client initialized successfully in dependencies module.")
-    except Exception as e:
-        print(f"ERROR: Failed to initialize Supabase client in dependencies module: {e}")
-        # Depending on severity, you might want to prevent app startup
-else:
-    print("ERROR: SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables must be set for Supabase client.")
+# --- Convex Configuration ---
+CONVEX_URL = os.environ.get("CONVEX_URL")
+CONVEX_ADMIN_KEY = os.environ.get("CONVEX_ADMIN_KEY")
 
 
-# --- Dependency Function ---
-async def get_supabase_client() -> Client:
-    """FastAPI dependency to get the initialized Supabase client."""
-    if SUPABASE_CLIENT is None:
-        # This condition should ideally not be met if env vars are set correctly
-        # and initialization succeeded above.
-        print("ERROR: get_supabase_client called but client is not initialized.")
+
+def get_convex_config() -> dict[str, str]:
+    """Return Convex configuration values from the environment."""
+    if not CONVEX_URL or not CONVEX_ADMIN_KEY:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Supabase client is not available. Check backend configuration and logs."
+            detail="Convex configuration is not available. Check backend environment variables."
         )
-    return SUPABASE_CLIENT 
+    return {"url": CONVEX_URL, "admin_key": CONVEX_ADMIN_KEY}
 
 # Create a single global AsyncOpenAI client and share it with the `agents`
 # package so that all model providers use the exact same instance.
