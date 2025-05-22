@@ -1,17 +1,15 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
-try:
-    from supabase import Client
-except Exception:  # pragma: no cover - optional dependency
-    from typing import Any as Client
-try:
-    from gotrue.types import User  # type: ignore
-except Exception:  # pragma: no cover - optional dependency
-    from typing import Any as User
+from supabase import Client  # noqa: F401  # Supabase used by other endpoints
+from ai_tutor.dependencies import (
+    get_supabase_client,
+    get_convex_client,
+    ConvexClient,
+)
+from gotrue.types import User  # To type hint the user object
 from uuid import UUID
 from typing import Optional, List, Dict as TDict
 
 from ai_tutor.session_manager import SessionManager
-from ai_tutor.dependencies import get_supabase_client  # Get supabase client dependency
 from ai_tutor.auth import verify_token  # Get auth dependency
 from ai_tutor.api_models import SessionResponse
 
@@ -82,7 +80,7 @@ async def get_session_messages(
     session_id: UUID,
     before_turn_no: Optional[int] = None,
     limit: int = 50,
-    supabase: Client = Depends(get_supabase_client),
+    convex: ConvexClient = Depends(get_convex_client),
 ):
     """Return up to ``limit`` chat messages *before* ``before_turn_no``.
 
@@ -108,25 +106,14 @@ async def get_session_messages(
     # to request.state for parity with other endpoints that rely on it.
     user = request.state.user  # populated by verify_token dependency
 
-    query = (
-        supabase.table("session_messages")
-        .select("turn_no, role, text, payload_json, whiteboard_snapshot_index")
-        .eq("session_id", str(session_id))
+    rows: List[TDict] = await convex.query(
+        "list_session_messages",
+        {
+            "session_id": str(session_id),
+            "before_turn_no": before_turn_no,
+            "limit": limit,
+        },
     )
-
-    if before_turn_no is not None:
-        query = query.lt("turn_no", before_turn_no)  # STRICTLY before
-
-    # Fetch newest first so that LIMIT works as expected, then reverse so the
-    # list is chronological (oldest→newest) for the FE.
-    resp = (
-        query.order("turn_no", desc=True)  # newest → oldest
-        .limit(limit)
-        .execute()
-    )
-
-    rows: List[TDict] = resp.data or []
-    rows.reverse()  # chronological order
 
     # For user rows we only return text; for assistant include payload_json.
     for r in rows:
@@ -144,7 +131,7 @@ async def get_whiteboard_state(
     request: Request,
     session_id: UUID,
     target_snapshot_index: int,
-    supabase: Client = Depends(get_supabase_client),
+    convex: ConvexClient = Depends(get_convex_client),
 ):
     """Return concatenated whiteboard actions for all snapshots with
     ``snapshot_index`` ≤ *target_snapshot_index*.
@@ -155,16 +142,13 @@ async def get_whiteboard_state(
 
     user = request.state.user  # Access to ensure verify_token populated it
 
-    resp = (
-        supabase.table("whiteboard_snapshots")
-        .select("snapshot_index, actions_json")
-        .eq("session_id", str(session_id))
-        .lte("snapshot_index", target_snapshot_index)
-        .order("snapshot_index", desc=False)
-        .execute()
+    rows = await convex.query(
+        "list_whiteboard_snapshots",
+        {
+            "session_id": str(session_id),
+            "target_snapshot_index": target_snapshot_index,
+        },
     )
-
-    rows = resp.data or []
     actions: List[TDict] = []
     for row in rows:
         actions.extend(row.get("actions_json") or [])

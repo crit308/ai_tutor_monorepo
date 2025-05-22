@@ -3,124 +3,52 @@ from fastapi.testclient import TestClient
 from uuid import uuid4
 
 
-# --- Dummy Supabase Client ---------------------------------------------- #
+# --- Dummy Convex Client ------------------------------------------------- #
 
 
-class _DummyResp:
-    """Mimics Supabase query result object with .data attr."""
-
-    def __init__(self, data=None):
-        self._data = data
-
-    @property
-    def data(self):
-        return self._data
-
-
-class _DummyTable:
-    def __init__(self, name: str, store: dict):
-        self._name = name
-        self._store = store.setdefault(name, [])
-
-        # Query-building state
-        self._pending_insert = None
-        self._select_fields = None
-        self._filters = []  # list[callable]
-        self._order_key = None
-        self._order_desc = False
-        self._limit = None
-
-    # --------------- Insert chain --------------- #
-    def insert(self, record: dict):
-        self._pending_insert = record
-        return self
-
-    # --------------- Select chain --------------- #
-    def select(self, *_cols, **_kwargs):
-        # Supabase passes column string, possibly with commas; we ignore kwargs
-        if _cols:
-            # Join together, then split by comma and trim
-            cols_str = _cols[0]
-            self._select_fields = [c.strip() for c in cols_str.split(",")]
-        return self
-
-    # Filters
-    def eq(self, col: str, val):
-        self._filters.append(lambda r, c=col, v=val: r.get(c) == v)
-        return self
-
-    def lt(self, col: str, val):
-        self._filters.append(lambda r, c=col, v=val: r.get(c, 0) < v)
-        return self
-
-    def lte(self, col: str, val):
-        self._filters.append(lambda r, c=col, v=val: r.get(c, 0) <= v)
-        return self
-
-    # Order/limit
-    def order(self, key: str, desc: bool = False):
-        self._order_key = key
-        self._order_desc = desc
-        return self
-
-    def limit(self, n: int):
-        self._limit = n
-        return self
-
-    # --------------- Execute --------------- #
-    def execute(self):
-        # Handle insert.
-        if self._pending_insert is not None:
-            self._store.append(self._pending_insert)
-            self._pending_insert = None
-            return _DummyResp()  # insert returns object with data=None
-
-        # Handle select chain.
-        records = [r for r in self._store]
-
-        # Apply filters
-        for f in self._filters:
-            records = [r for r in records if f(r)]
-
-        # Ordering
-        if self._order_key is not None:
-            records = sorted(records, key=lambda r: r.get(self._order_key), reverse=self._order_desc)
-
-        # Limit
-        if self._limit is not None:
-            records = records[: self._limit]
-
-        # Field selection
-        if self._select_fields is not None:
-            records = [
-                {k: v for k, v in r.items() if k in self._select_fields}
-                for r in records
-            ]
-
-        return _DummyResp(records)
-
-
-class DummySupabase:
-    """Crude in-memory imitation of Supabase client (subset)."""
+class DummyConvex:
+    """In-memory imitation of Convex client."""
 
     def __init__(self):
-        self._storage: dict[str, list] = {}
+        self.storage: dict[str, list] = {
+            "session_messages": [],
+            "whiteboard_snapshots": [],
+        }
 
-    def table(self, name: str):
-        return _DummyTable(name, self._storage)
+    async def query(self, name: str, args: dict):
+        if name == "list_session_messages":
+            rows = [r for r in self.storage["session_messages"] if r["session_id"] == args["session_id"]]
+            if args.get("before_turn_no") is not None:
+                rows = [r for r in rows if r.get("turn_no", 0) < args["before_turn_no"]]
+            rows = sorted(rows, key=lambda r: r["turn_no"], reverse=True)
+            rows = rows[: args.get("limit", len(rows))]
+            rows.reverse()
+            return rows
+        elif name == "list_whiteboard_snapshots":
+            rows = [
+                r
+                for r in self.storage["whiteboard_snapshots"]
+                if r["session_id"] == args["session_id"] and r["snapshot_index"] <= args["target_snapshot_index"]
+            ]
+            rows.sort(key=lambda r: r["snapshot_index"])
+            return rows
+        return []
 
-    # For inspection in assertions
-    @property
-    def storage(self):
-        return self._storage
+    async def mutation(self, name: str, args: dict):
+        if name == "insert_session_message":
+            self.storage["session_messages"].append(args)
+        elif name == "insert_snapshot":
+            self.storage["whiteboard_snapshots"].append(args)
+        else:
+            raise ValueError(name)
 
 
 # ------------------------------------------------------------------------- #
 
 
 @pytest.fixture
-def client_with_dummy_supabase(monkeypatch):
-    """Provides FastAPI TestClient with Supabase + auth deps overridden."""
+def client_with_dummy_convex(monkeypatch):
+    """Provides FastAPI TestClient with Convex + auth deps overridden."""
 
     # --- Patch 'openai' to a minimal stub before importing backend modules --- #
     import sys, types
@@ -154,14 +82,14 @@ def client_with_dummy_supabase(monkeypatch):
     sys.modules.setdefault("openai._base_client", base_client)
 
     from ai_tutor.api import app
-    from ai_tutor.dependencies import get_supabase_client
+    from ai_tutor.dependencies import get_convex_client
     from ai_tutor.auth import verify_token
     from fastapi import Request
 
-    dummy = DummySupabase()
+    dummy = DummyConvex()
 
-    # Override Supabase dependency
-    app.dependency_overrides[get_supabase_client] = lambda: dummy
+    # Override Convex dependency
+    app.dependency_overrides[get_convex_client] = lambda: dummy
 
     # Override auth dependency to inject fake user into request.state
     async def _fake_verify_token(request: Request, supabase=None):
@@ -182,13 +110,13 @@ def client_with_dummy_supabase(monkeypatch):
 # ------------------------------------------------------------------------- #
 
 
-def _seed_data(dummy: DummySupabase, session_id):
+def _seed_data(dummy: DummyConvex, session_id):
     """Populate dummy DB with deterministic message & snapshot rows."""
 
     # Seed session_messages (turn 1-5)
     for turn in range(1, 6):
         role = "user" if turn % 2 == 1 else "assistant"
-        dummy.table("session_messages").insert(
+        dummy.storage["session_messages"].append(
             {
                 "session_id": str(session_id),
                 "turn_no": turn,
@@ -197,24 +125,24 @@ def _seed_data(dummy: DummySupabase, session_id):
                 "payload_json": {"key": turn} if role == "assistant" else None,
                 "whiteboard_snapshot_index": None,
             }
-        ).execute()
+        )
 
     # Seed whiteboard snapshots at 1 and 3
     for idx in [1, 3]:
-        dummy.table("whiteboard_snapshots").insert(
+        dummy.storage["whiteboard_snapshots"].append(
             {
                 "session_id": str(session_id),
                 "snapshot_index": idx,
                 "actions_json": [{"action": f"a{idx}"}],
             }
-        ).execute()
+        )
 
 
 # ------------------------------------------------------------------------- #
 
 
-def test_chat_history_pagination(client_with_dummy_supabase):
-    client, dummy = client_with_dummy_supabase
+def test_chat_history_pagination(client_with_dummy_convex):
+    client, dummy = client_with_dummy_convex
 
     session_id = uuid4()
     _seed_data(dummy, session_id)
@@ -236,8 +164,8 @@ def test_chat_history_pagination(client_with_dummy_supabase):
     assert msgs[1]["role"] == "assistant" and msgs[1]["payload_json"] == {"key": 4}
 
 
-def test_whiteboard_state_at_turn(client_with_dummy_supabase):
-    client, dummy = client_with_dummy_supabase
+def test_whiteboard_state_at_turn(client_with_dummy_convex):
+    client, dummy = client_with_dummy_convex
 
     session_id = uuid4()
     _seed_data(dummy, session_id)

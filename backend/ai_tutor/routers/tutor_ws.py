@@ -4,19 +4,14 @@ from typing import Any, Dict, Optional, List
 import os
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
-try:
-    from supabase import Client
-except Exception:  # pragma: no cover - optional dependency
-    from typing import Any as Client
-try:
-    from postgrest.exceptions import APIError
-except Exception:  # pragma: no cover - optional dependency
-    class APIError(Exception):
-        code: str = ""
-        message: str = ""
+from supabase import Client  # noqa: F401
+from postgrest.exceptions import APIError
 
-from ai_tutor.dependencies import get_supabase_client, get_convex_client
-from ai_tutor.convex_client import ConvexClient
+from ai_tutor.dependencies import (
+    get_supabase_client,
+    get_convex_client,
+    ConvexClient,
+)
 from ai_tutor.session_manager import SessionManager
 from ai_tutor.context import TutorContext, UserModelState
 import json
@@ -1388,7 +1383,7 @@ async def _persist_user_message(convex: ConvexClient, ctx: TutorContext, text: s
             "role": "user",
             "text": text,
         }
-        await convex.mutation("insertSessionMessage", insert_data)
+        await convex.mutation("insert_session_message", insert_data)
         ctx.latest_turn_no = next_turn
     except Exception as e:
         log.error(f"_persist_user_message: Failed to insert chat turn for session {ctx.session_id}: {e}")
@@ -1412,7 +1407,7 @@ async def _persist_assistant_message(
             snapshot_index_val = next_turn  # align with turn_no
             # Persist snapshot first
             await convex.mutation(
-                "insertWhiteboardSnapshot",
+                "insert_snapshot",
                 {
                     "session_id": str(ctx.session_id),
                     "snapshot_index": snapshot_index_val,
@@ -1422,7 +1417,7 @@ async def _persist_assistant_message(
             ctx.latest_snapshot_index = snapshot_index_val
 
         await convex.mutation(
-            "insertSessionMessage",
+            "insert_session_message",
             {
                 "session_id": str(ctx.session_id),
                 "turn_no": next_turn,

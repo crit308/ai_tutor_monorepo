@@ -7,67 +7,25 @@ from ai_tutor.routers.tutor_ws import _persist_user_message, _persist_assistant_
 from ai_tutor.convex_client import ConvexClient
 
 
-class _DummyResp:
-    def execute(self):
-        return self
-
-    @property
-    def data(self):
-        return None
-
-
-class _DummyTable:
-    def __init__(self, name: str, store: dict):
-        self._name = name
-        self._store = store.setdefault(name, [])
-        self._pending = None
-
-    # Mimic Supabase ``insert`` chaining API
-    def insert(self, record: dict):
-        self._pending = record
-        return self
-
-    # For select/order/limit in hydrate we ignore; only used in persist tests
-    def select(self, *_args, **_kwargs):
-        return self
-
-    def order(self, *_args, **_kwargs):
-        return self
-
-    def lte(self, *_args, **_kwargs):
-        return self
-
-    def limit(self, *_args, **_kwargs):
-        return self
-
-    def eq(self, *_args, **_kwargs):
-        return self
-
-    def execute(self):
-        if self._pending is not None:
-            self._store.append(self._pending)
-            self._pending = None
-        # return minimal supabase-python like dict
-        return _DummyResp()
-
-
 class DummyConvex:
     def __init__(self):
-        self.storage: dict[str, list] = {"session_messages": [], "whiteboard_snapshots": []}
+        self.storage: dict[str, list] = {
+            "session_messages": [],
+            "whiteboard_snapshots": [],
+        }
 
-    async def mutation(self, name: str, data: dict):
-        if name == "insertSessionMessage":
-            self.storage["session_messages"].append(data)
-        elif name == "insertWhiteboardSnapshot":
-            self.storage["whiteboard_snapshots"].append(data)
-        elif name == "updateSessionContext":
-            self.storage.setdefault("sessions", []).append(data)
-
+    async def mutation(self, name: str, args: dict):
+        if name == "insert_session_message":
+            self.storage["session_messages"].append(args)
+        elif name == "insert_snapshot":
+            self.storage["whiteboard_snapshots"].append(args)
+        else:
+            raise ValueError(name)
 
 
 @pytest.mark.asyncio
 async def test_persist_user_and_assistant_message_order():
-    convex = DummyConvex()
+    supabase = DummyConvex()
     ctx = TutorContext(session_id=uuid4(), user_id=uuid4())
 
     # Persist two user messages

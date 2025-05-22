@@ -2,6 +2,7 @@
 import os
 from fastapi import HTTPException, status
 from supabase import create_client, Client
+from typing import Any
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from openai._base_client import AsyncHttpxClientWrapper  # type: ignore
@@ -100,21 +101,25 @@ async def get_redis_client() -> _Redis:
         )
     return REDIS_CLIENT
 
-# --- Convex Client Initialization (Task E) ---
-convex_url = os.environ.get("CONVEX_URL", "http://localhost:4000")
+
+# --- Convex Client Stub & Dependency ------------------------------------ #
+
+class ConvexClient:
+    """Minimal Convex client placeholder used by the backend."""
+
+    async def query(self, name: str, args: dict[str, Any]):  # pragma: no cover - runtime impl will override
+        raise NotImplementedError
+
+    async def mutation(self, name: str, args: dict[str, Any]):  # pragma: no cover
+        raise NotImplementedError
+
+
 CONVEX_CLIENT: ConvexClient | None = None
-try:
-    CONVEX_CLIENT = ConvexClient(convex_url)
-    print(f"Convex client initialized (url={convex_url}).")
-except Exception as _e:  # pragma: no cover
-    CONVEX_CLIENT = None
-    print(f"ERROR: Failed to initialise Convex client: {_e}")
+
 
 async def get_convex_client() -> ConvexClient:
-    """FastAPI dependency providing the Convex client."""
+    """FastAPI dependency providing the Convex client instance."""
+    global CONVEX_CLIENT
     if CONVEX_CLIENT is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Convex client is not available. Check backend configuration and logs.",
-        )
+        CONVEX_CLIENT = ConvexClient()
     return CONVEX_CLIENT
