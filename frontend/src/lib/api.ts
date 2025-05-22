@@ -53,7 +53,8 @@ apiClient.interceptors.response.use(
 export const startSession = async (folderId: string): Promise<StartSessionResponse> => {
   try {
     console.log(`Starting new session for folder ${folderId} via Convex...`);
-    return await convex.mutation(convexApi.functions.startSession, { folderId });
+    const res = await convex.mutation(convexApi.functions.startSession, { folderId });
+    return { session_id: res.id as string, message: 'Session started' };
   } catch (error) {
     console.error('Error starting session via Convex:', error);
     throw error; // Re-throw for handling in UI
