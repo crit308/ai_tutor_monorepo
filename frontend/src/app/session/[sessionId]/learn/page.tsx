@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSessionStore } from '@/store/sessionStore';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAuthToken } from '@convex-dev/auth/react';
 import { useTutorStream } from '../../../../../lib/useTutorStream';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -63,8 +64,8 @@ function InnerLearnPage() {
     }))
   );
 
-  const { session, loading: authLoading } = useAuth();
-  const jwt = session?.access_token || '';
+  const { isLoading: authLoading } = useAuth();
+  const jwt = useAuthToken();
 
   const { dispatchWhiteboardAction } = useWhiteboard();
 
@@ -99,7 +100,7 @@ function InnerLearnPage() {
     }
   }), [dispatchWhiteboardAction, toast]);
 
-  const { latency } = useTutorStream(sessionId || '', jwt, streamHandlers);
+  const { latency } = useTutorStream(sessionId || '', streamHandlers);
 
   useEffect(() => {
     return () => {

@@ -57,7 +57,7 @@ const FolderList = React.memo(({ folders, selectedFolderId, loadingState, onSele
 export default function HomePage() {
   const router = useRouter();
   const { toast } = useToast();
-  const { user, loading: authLoading } = useAuth();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [folders, setFolders] = useState<FolderResponse[] | null>(null);
   const selectedFolderId = useSessionStore((state) => state.folderId);
@@ -82,7 +82,7 @@ export default function HomePage() {
       return;
     }
 
-    if (user) {
+    if (isAuthenticated) {
       setPageLoading(true);
       setFolders(null);
       api.getFolders()
@@ -102,7 +102,7 @@ export default function HomePage() {
       setFolders(null);
       setPageLoading(false);
     }
-  }, [user, authLoading, toast, setSelectedFolderId]);
+  }, [isAuthenticated, authLoading, toast, setSelectedFolderId]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
@@ -111,7 +111,7 @@ export default function HomePage() {
   };
 
   const handleStartLearning = useCallback(async (isNewFolder: boolean = false) => {
-    if (!user) {
+    if (!isAuthenticated) {
       toast({ title: "Not Authenticated", description: "Please log in to start a session.", variant: "destructive" });
       return;
     }
@@ -177,7 +177,7 @@ export default function HomePage() {
       setLoadingMessage('An error occurred.');
       toast({ title: "Upload Failed", description: errorMessage, variant: "destructive" });
     }
-  }, [user, selectedFolderId, selectedFiles, router, setLoading, setSessionId, setVectorStoreId, setSelectedFolderId, setError, toast, setLoadingMessage, resetSession]);
+  }, [isAuthenticated, selectedFolderId, selectedFiles, router, setLoading, setSessionId, setVectorStoreId, setSelectedFolderId, setError, toast, setLoadingMessage, resetSession]);
 
   const handleCreateFolder = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -211,7 +211,7 @@ export default function HomePage() {
 
   return (
     <div className="flex justify-center items-center min-h-screen">
-      {!user ? (
+      {!isAuthenticated ? (
         <AuthForm />
       ) : (
         pageLoading ? (
