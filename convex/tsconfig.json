@@ -6,6 +6,10 @@
     "jsx": "react-jsx",
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
+    "baseUrl": ".",
+    "paths": {
+      "convex/*": ["../frontend/node_modules/convex/*"]
+    },
     "target": "ESNext",
     "lib": ["ES2021", "dom"],
     "forceConsistentCasingInFileNames": true,
