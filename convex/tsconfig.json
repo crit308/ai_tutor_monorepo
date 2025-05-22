@@ -9,7 +9,7 @@
     "baseUrl": ".",
     "paths": {
       "convex/*": ["../frontend/node_modules/convex/*"],
-      "@convex-dev/auth/*": ["../frontend/node_modules/@convex-dev/auth/*"]
+      "@convex-dev/auth/*": ["../frontend/node_modules/@convex-dev/auth/dist/*"]
     },
     "target": "ESNext",
     "lib": ["ES2021", "dom"],

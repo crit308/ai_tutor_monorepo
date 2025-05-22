@@ -14,7 +14,7 @@
     "baseUrl": ".",
     "paths": {
       "convex/*": ["../node_modules/convex/*"],
-      "@convex-dev/auth/*": ["../node_modules/@convex-dev/auth/*"],
+      "@convex-dev/auth/*": ["../node_modules/@convex-dev/auth/dist/*"],
       "backend-convex/*": ["../../convex/*"]
     },
 
