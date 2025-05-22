@@ -2,12 +2,10 @@
 
 import { ConvexAuthNextjsProvider } from "@convex-dev/auth/nextjs";
 import { useAuthToken } from "@convex-dev/auth/react";
-import { ConvexReactClient } from "convex/react";
 import { ReactNode, useEffect } from "react";
 import { setAuthToken } from "@/lib/authToken";
 import { AuthProvider } from "@/contexts/AuthContext";
-
-const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+import { convex } from "@/lib/convex";
 
 function TokenSync() {
   const token = useAuthToken();
