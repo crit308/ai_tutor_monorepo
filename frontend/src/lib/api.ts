@@ -256,7 +256,12 @@ export const logUserSummary = async (sessionId: string, summaryData: any): Promi
 export const createFolder = async (folderData: FolderCreateRequest): Promise<FolderResponse> => {
     try {
         console.log('Creating new folder via Convex:', folderData.name);
-        return await convex.mutation(convexApi.functions.createFolder, { name: folderData.name });
+        const folder = await convex.mutation(convexApi.functions.createFolder, { name: folderData.name });
+        return {
+            id: folder._id as string,
+            name: folder.name,
+            created_at: new Date(folder.created_at).toISOString(),
+        };
     } catch (error) {
         console.error('Error creating folder via Convex:', error);
         throw error;
@@ -266,7 +271,12 @@ export const createFolder = async (folderData: FolderCreateRequest): Promise<Fol
 export const getFolders = async (): Promise<FolderResponse[]> => {
     try {
         console.log('Fetching folders via Convex...');
-        return await convex.query(convexApi.functions.getFolders, {});
+        const folders = await convex.query(convexApi.functions.getFolders, {});
+        return folders.map(folder => ({
+            id: folder._id as string,
+            name: folder.name,
+            created_at: new Date(folder.created_at).toISOString(),
+        }));
     } catch (error) {
         console.error('Error fetching folders via Convex:', error);
         return [];
