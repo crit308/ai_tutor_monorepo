@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { useAuthActions } from '@convex-dev/auth/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,26 +15,19 @@ const AuthForm: React.FC = () => {
     const [password, setPassword] = useState('');
     const { toast } = useToast();
     const [isSignUp, setIsSignUp] = useState(false);
+    const { signIn } = useAuthActions();
 
     const handleAuth = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         setLoading(true);
         try {
-            let error;
             if (isSignUp) {
-                ({ error } = await supabase.auth.signUp({ email, password }));
-                 if (!error) {
-                     toast({ title: "Check your email!", description: "Sign up successful. Please check your email for verification."});
-                 }
+                await signIn('password', { email, password, signup: true });
+                toast({ title: "Check your email!", description: "Sign up successful. Please check your email for verification."});
             } else {
-                ({ error } = await supabase.auth.signInWithPassword({ email, password }));
-                 if (!error) {
-                     toast({ title: "Signed In", description: "Successfully logged in."});
-                     // AuthProvider listener will handle state update
-                 }
+                await signIn('password', { email, password });
+                toast({ title: "Signed In", description: "Successfully logged in."});
             }
-
-            if (error) throw error;
         } catch (error: any) {
             console.error("Auth error:", error);
             toast({ title: "Authentication Error", description: error.error_description || error.message, variant: "destructive" });
@@ -44,17 +37,15 @@ const AuthForm: React.FC = () => {
     };
 
     // Example provider login (e.g., Google)
-    const handleOAuthLogin = async (provider: 'google' | 'github') => {
+    const handleOAuthLogin = async (provider: 'github' | 'google') => {
          setLoading(true);
-         const { error } = await supabase.auth.signInWithOAuth({
-             provider: provider,
-             // options: { redirectTo: window.location.origin } // Optional redirect
-         });
-         if (error) {
-            toast({ title: "OAuth Error", description: error.message, variant: "destructive" });
-            setLoading(false);
+         try {
+             await signIn('oauth', { provider });
+         } catch (error: any) {
+             toast({ title: "OAuth Error", description: error.message, variant: "destructive" });
+         } finally {
+             setLoading(false);
          }
-         // Redirect happens automatically, or handled by listener
      };
 
     return (

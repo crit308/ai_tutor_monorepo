@@ -4,7 +4,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/toaster";
-import { AuthProvider } from "@/contexts/AuthContext";
+import { ConvexClientProvider } from "./ConvexClientProvider";
 import { cn } from "@/lib/utils";
 import 'katex/dist/katex.min.css';
 
@@ -18,7 +18,7 @@ export default function ClientLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={cn(inter.className, "h-screen w-screen flex flex-col overflow-hidden bg-background")} suppressHydrationWarning>
-        <AuthProvider>
+        <ConvexClientProvider>
           <ThemeProvider
             attribute="class"
             defaultTheme="system"
@@ -30,7 +30,7 @@ export default function ClientLayout({
             </main>
             <Toaster />
           </ThemeProvider>
-        </AuthProvider>
+        </ConvexClientProvider>
       </body>
     </html>
   );

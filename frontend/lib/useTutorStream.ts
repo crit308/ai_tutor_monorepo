@@ -46,11 +46,13 @@ export interface TutorStreamHandlers {
   getFabricCanvasInstance?: () => Canvas | null;
 }
 
+import { useAuthToken } from '@convex-dev/auth/react';
+
 export function useTutorStream(
   sessionId: string,
-  jwt: string,
   handlers: TutorStreamHandlers = {}
 ) {
+  const jwt = useAuthToken();
   const wsRef = useRef<WebSocket | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
   const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);

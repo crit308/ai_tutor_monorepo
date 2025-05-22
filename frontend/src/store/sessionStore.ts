@@ -17,7 +17,6 @@ import {
   ErrorResponse,
   WhiteboardAction
 } from '@/lib/types';
-import type { User } from '@supabase/supabase-js';
 import * as api from '@/lib/api';
 import type { Canvas } from 'fabric'; // Import Canvas type
 
@@ -57,7 +56,6 @@ export interface SessionState {
   loadingState: LoadingState;
   loadingMessage: string;
   error: StructuredError | null;
-  user: User | null;
   sessionAnalysis: SessionAnalysis | null;
   isSubmittingQuiz: boolean;
 
@@ -96,7 +94,6 @@ export interface SessionState {
   setIsSubmittingQuiz: (isSubmitting: boolean) => void;
   resetSession: () => void;
   setLoadingMessage: (message: string) => void;
-  setUser: (user: User | null) => void;
   setFocusObjective: (focus: FocusObjective) => void;
   setWhiteboardMode: (mode: SessionState['whiteboardMode']) => void;
   setFabricCanvasInstance: (canvas: Canvas | null) => void;
@@ -124,7 +121,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   loadingState: 'idle',
   error: null,
   loadingMessage: '',
-  user: null,
 
   // WebSocket state
   webSocketSendFunction: null,
@@ -157,7 +153,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setVectorStoreId: (vectorStoreId) => set({ vectorStoreId }),
   setLoading: (state, message = '') => set({ loadingState: state, loadingMessage: message, error: state === 'error' ? { message: message || 'An error occurred' } : null }),
   setError: (error) => set({ error: error, loadingState: error ? 'error' : 'idle' }),
-  setUser: (user) => set({ user }),
   setSessionAnalysis: (analysis) => set({ sessionAnalysis: analysis }),
   setIsSubmittingQuiz: (isSubmitting) => set({ isSubmittingQuiz: isSubmitting }),
   setLoadingMessage: (message) => set({ loadingMessage: message }),
@@ -250,7 +245,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     loadingMessage: '',
     currentInteractionContent: null,
     messages: [],
-    user: null,
     userModelState: { concepts: {}, overall_progress: 0, current_topic: null, session_summary: "Session reset." },
     isLessonComplete: false,
     focusObjective: null,

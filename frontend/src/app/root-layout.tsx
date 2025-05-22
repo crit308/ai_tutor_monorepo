@@ -1,5 +1,6 @@
 import { metadata } from './metadata';
 import ClientLayout from './layout';
+import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
 
 export { metadata };
 
@@ -8,5 +9,9 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return <ClientLayout>{children}</ClientLayout>;
-} 
+  return (
+    <ConvexAuthNextjsServerProvider>
+      <ClientLayout>{children}</ClientLayout>
+    </ConvexAuthNextjsServerProvider>
+  );
+}

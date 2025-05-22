@@ -11,7 +11,7 @@ import {
   FolderCreateRequest,
   FolderResponse,
 } from './types';
-import { supabase } from './supabaseClient'; // Import Supabase client
+import { getAuthToken } from './authToken';
 import { convex } from './convex';
 import { api as convexApi } from '../../convex/_generated/api';
 
@@ -25,14 +25,10 @@ const apiClient = axios.create({
 });
 
 // --- Axios interceptor to add Auth token ---
-apiClient.interceptors.request.use(async (config) => {
-  const { data: { session } } = await supabase.auth.getSession();
-
-  if (session?.access_token) {
-    config.headers.Authorization = `Bearer ${session.access_token}`;
-    console.log("Attaching Supabase token to request to:", config.url); // Debug log
-  } else {
-    console.log("No Supabase session found, request sent without token to:", config.url); // Debug log
+apiClient.interceptors.request.use((config) => {
+  const token = getAuthToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 }, (error) => {

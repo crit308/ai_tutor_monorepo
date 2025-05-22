@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import * as Y from 'yjs';
 import { useSessionStore } from '@/store/sessionStore';
+import { useAuthToken } from '@convex-dev/auth/react';
 import { CanvasObjectSpec, WhiteboardAction } from '@/lib/types';
 
 /**
@@ -22,8 +23,7 @@ export function useYjsWhiteboard(
   dispatchWhiteboardAction: (action: WhiteboardAction | WhiteboardAction[]) => void
 ): UseYjsWhiteboardReturnType {
   const sessionId = useSessionStore(s => s.sessionId);
-  const user = useSessionStore(s => s.user);
-  const token = user ? (user as any).access_token ?? (user as any).accessToken : undefined;
+  const token = useAuthToken();
 
   const wsRef = useRef<WebSocket | null>(null);
   const docRef = useRef<Y.Doc | null>(null);

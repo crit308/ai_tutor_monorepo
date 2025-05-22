@@ -2,13 +2,13 @@ export type StreamEvent = Record<string, any>;
 
 export function connectTutorStream(
   sessionId: string,
-  jwt: string
+  token: string
 ): WebSocket {
   const base =
     process.env.NEXT_PUBLIC_API_WS_URL ||
     `${window.location.protocol.replace('http', 'ws')}//${window.location.host}`;
   const url = new URL(`/api/v1/ws/session/${sessionId}`, base);
-  url.searchParams.set('token', jwt);
+  url.searchParams.set('token', token);
 
   const ws = new WebSocket(url.toString());
 
