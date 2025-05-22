@@ -20,6 +20,16 @@ const AuthForm: React.FC = () => {
     const handleAuth = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         setLoading(true);
+
+        if (password.length < 8) {
+            toast({
+                title: "Password too short",
+                description: "Password must be at least 8 characters long.",
+                variant: "destructive",
+            });
+            setLoading(false);
+            return;
+        }
         try {
             if (isSignUp) {
                 await signIn('password', { flow: 'signUp', email, password });
