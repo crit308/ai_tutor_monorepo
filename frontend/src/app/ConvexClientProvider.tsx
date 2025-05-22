@@ -5,6 +5,7 @@ import { useAuthToken } from "@convex-dev/auth/react";
 import { ConvexReactClient } from "convex/react";
 import { ReactNode, useEffect } from "react";
 import { setAuthToken } from "@/lib/authToken";
+import { AuthProvider } from "@/contexts/AuthContext";
 
 const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
@@ -19,8 +20,10 @@ function TokenSync() {
 export function ConvexClientProvider({ children }: { children: ReactNode }) {
   return (
     <ConvexAuthNextjsProvider client={convex}>
-      <TokenSync />
-      {children}
+      <AuthProvider>
+        <TokenSync />
+        {children}
+      </AuthProvider>
     </ConvexAuthNextjsProvider>
   );
 }
