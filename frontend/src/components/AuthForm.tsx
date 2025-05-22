@@ -22,10 +22,10 @@ const AuthForm: React.FC = () => {
         setLoading(true);
         try {
             if (isSignUp) {
-                await signIn('password', { email, password, signup: true });
+                await signIn('password', { flow: 'signUp', email, password });
                 toast({ title: "Check your email!", description: "Sign up successful. Please check your email for verification."});
             } else {
-                await signIn('password', { email, password });
+                await signIn('password', { flow: 'signIn', email, password });
                 toast({ title: "Signed In", description: "Successfully logged in."});
             }
         } catch (error: any) {
