@@ -53,6 +53,7 @@
     "embla-carousel-react": "^8.6.0",
     "fabric": "^6.6.4",
     "input-otp": "^1.4.2",
+    "jose": "^6.0.11",
     "katex": "^0.16.22",
     "lodash.throttle": "^4.1.1",
     "lucide-react": "^0.485.0",
