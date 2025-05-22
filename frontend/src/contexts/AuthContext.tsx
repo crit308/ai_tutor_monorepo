@@ -1,7 +1,8 @@
 'use client';
 
 import React, { createContext, useContext, ReactNode } from 'react';
-import { useConvexAuth, useAuthActions } from '@convex-dev/auth/react';
+import { useAuthActions } from '@convex-dev/auth/react';
+import { useConvexAuth } from 'convex/react';
 
 interface AuthContextType {
   isAuthenticated: boolean;
