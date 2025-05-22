@@ -8,14 +8,17 @@
     "allowSyntheticDefaultImports": true,
     "baseUrl": ".",
     "paths": {
-      "convex/*": ["../frontend/node_modules/convex/*"]
+      "convex/*": ["../frontend/node_modules/convex/*"],
+      "@convex-dev/auth/*": ["../frontend/node_modules/@convex-dev/auth/*"]
     },
     "target": "ESNext",
     "lib": ["ES2021", "dom"],
     "forceConsistentCasingInFileNames": true,
     "module": "ESNext",
     "isolatedModules": true,
-    "noEmit": true
+    "noEmit": true,
+    "types": ["node"],
+    "typeRoots": ["../frontend/node_modules/@types"]
   },
   "include": ["./**/*"],
   "exclude": ["./_generated"]
