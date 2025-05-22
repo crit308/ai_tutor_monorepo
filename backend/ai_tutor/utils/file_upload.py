@@ -5,7 +5,10 @@ import openai
 import asyncio
 import time
 from pydantic import BaseModel
-from supabase import Client
+try:
+    from supabase import Client
+except Exception:  # pragma: no cover - optional dependency
+    from typing import Any as Client
 from uuid import UUID
 
 if TYPE_CHECKING:

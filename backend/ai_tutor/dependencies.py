@@ -1,10 +1,19 @@
 # ai_tutor/dependencies.py
 import os
-from fastapi import HTTPException, status, Request
-from supabase import create_client, Client
+from fastapi import HTTPException, status
+try:
+    from supabase import create_client, Client  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    create_client = None
+    from typing import Any as Client
 from dotenv import load_dotenv
-from openai import AsyncOpenAI
-from openai._base_client import AsyncHttpxClientWrapper  # type: ignore
+try:
+    from openai import AsyncOpenAI
+    from openai._base_client import AsyncHttpxClientWrapper  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    AsyncOpenAI = None
+    class AsyncHttpxClientWrapper:
+        pass
 from redis.asyncio import Redis as _Redis  # type: ignore
 import redis.asyncio as _redis_asyncio
 from ai_tutor.services.convex_client import ConvexClient
@@ -13,15 +22,29 @@ from ai_tutor.services.convex_client import ConvexClient
 # though they should be loaded by the main app process already.
 load_dotenv()
 
-# --- Convex Configuration ---
-CONVEX_URL = os.environ.get("CONVEX_URL")
-CONVEX_ADMIN_KEY = os.environ.get("CONVEX_ADMIN_KEY")
+# --- Supabase Client Initialization ---
+supabase_url = os.environ.get("SUPABASE_URL")
+supabase_key = os.environ.get("SUPABASE_SERVICE_KEY") # Use Service Key for backend operations
+
+SUPABASE_CLIENT: Client | None = None
+if create_client and supabase_url and supabase_key:
+    try:
+        SUPABASE_CLIENT = create_client(supabase_url, supabase_key)
+        print("Supabase client initialized successfully in dependencies module.")
+    except Exception as e:
+        print(f"ERROR: Failed to initialize Supabase client in dependencies module: {e}")
+        SUPABASE_CLIENT = None
+else:
+    print("WARNING: Supabase client not configured or 'supabase' package missing.")
 
 
-
-def get_convex_config() -> dict[str, str]:
-    """Return Convex configuration values from the environment."""
-    if not CONVEX_URL or not CONVEX_ADMIN_KEY:
+# --- Dependency Function ---
+async def get_supabase_client() -> Client:
+    """FastAPI dependency to get the initialized Supabase client."""
+    if SUPABASE_CLIENT is None:
+        # This condition should ideally not be met if env vars are set correctly
+        # and initialization succeeded above.
+        print("ERROR: get_supabase_client called but client is not initialized.")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Convex configuration is not available. Check backend environment variables."
@@ -30,7 +53,13 @@ def get_convex_config() -> dict[str, str]:
 
 # Create a single global AsyncOpenAI client and share it with the `agents`
 # package so that all model providers use the exact same instance.
-openai_client = AsyncOpenAI()
+if AsyncOpenAI is not None and os.environ.get("OPENAI_API_KEY"):
+    openai_client = AsyncOpenAI()
+else:  # pragma: no cover - fallback dummy
+    class _DummyOpenAI:
+        async def aclose(self):
+            pass
+    openai_client = _DummyOpenAI()
 
 # Note: we register this client with the agents SDK in `ai_tutor.api` *after*
 # `agents` has been fully imported, to avoid a circular‑import crash.
@@ -41,7 +70,7 @@ def get_openai():
 
 # Monkey‑patch OpenAI client wrapper to avoid AttributeError at program exit
 # Preserve original __del__
-_orig_del = AsyncHttpxClientWrapper.__del__
+_orig_del = getattr(AsyncHttpxClientWrapper, "__del__", lambda self: None)
 
 
 def _safe_del(self):  # noqa: D401
@@ -61,9 +90,9 @@ def _safe_del(self):  # noqa: D401
 
 
 # Install the patch only once
-if getattr(AsyncHttpxClientWrapper.__del__, "_patched", False) is False:  # type: ignore[attr-defined]
+if hasattr(AsyncHttpxClientWrapper, "__del__") and getattr(AsyncHttpxClientWrapper.__del__, "_patched", False) is False:  # type: ignore[attr-defined]
     AsyncHttpxClientWrapper.__del__ = _safe_del  # type: ignore[assignment]
-    AsyncHttpxClientWrapper.__del__._patched = True  # type: ignore[attr-defined] 
+    AsyncHttpxClientWrapper.__del__._patched = True  # type: ignore[attr-defined]
 
 # --- Redis Client Initialization (Phase-1) ---
 _REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
@@ -84,27 +113,27 @@ async def get_redis_client() -> _Redis:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Redis client is not available. Check backend configuration and logs.",
         )
-    return REDIS_CLIENT
-
+    return REDIS_CLIENT 
 # --- Convex Client Initialization ---
+from ai_tutor.convex_client import ConvexClient
+
 convex_url = os.environ.get("CONVEX_URL")
+convex_admin_key = os.environ.get("CONVEX_ADMIN_KEY")
 
-CONVEX_BASE_CLIENT: ConvexClient | None = None
-if convex_url:
-    CONVEX_BASE_CLIENT = ConvexClient(convex_url)
-    print("Convex client configured.")
+CONVEX_CLIENT: ConvexClient | None = None
+if convex_url and convex_admin_key:
+    try:
+        CONVEX_CLIENT = ConvexClient(convex_url, convex_admin_key)
+        print("Convex client initialized successfully in dependencies module.")
+    except Exception as e:
+        print(f"ERROR: Failed to initialize Convex client in dependencies module: {e}")
 else:
-    print("WARNING: CONVEX_URL environment variable not set; Convex disabled.")
+    print("WARNING: CONVEX_URL and CONVEX_ADMIN_KEY not provided. Convex client disabled.")
 
-
-async def get_convex_client(request: Request) -> ConvexClient:
-    """Return a ConvexClient bound to the incoming auth token."""
-    if CONVEX_BASE_CLIENT is None:
+async def get_convex_client() -> ConvexClient:
+    if CONVEX_CLIENT is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Convex client is not available."
+            detail="Convex client is not available. Check backend configuration and logs.",
         )
-
-    auth = request.headers.get("Authorization", "")
-    token = auth.split(" ", 1)[1] if auth.lower().startswith("bearer ") else None
-    return ConvexClient(CONVEX_BASE_CLIENT.base_url, token=token)
+    return CONVEX_CLIENT

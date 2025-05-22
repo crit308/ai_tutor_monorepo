@@ -32,7 +32,10 @@ from typing import Dict, Set
 import time
 
 from ai_tutor.dependencies import get_supabase_client, get_redis_client
-from supabase import Client
+try:
+    from supabase import Client
+except Exception:  # pragma: no cover - optional dependency
+    from typing import Any as Client
 from redis.asyncio import Redis  # type: ignore
 
 # We reuse the private helper from the chat WebSocket router for JWT validation.

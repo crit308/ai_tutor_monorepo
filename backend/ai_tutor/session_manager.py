@@ -2,14 +2,10 @@ from __future__ import annotations
 from typing import Dict, Any, Optional, TYPE_CHECKING
 import json
 import re # Import re for parsing KB
-import time
 import uuid
-from pathlib import Path
-from supabase import Client, PostgrestAPIResponse
-from fastapi import HTTPException # For raising errors
-from ai_tutor.convex_client import ConvexClient
-from uuid import UUID # Import UUID
-import structlog # Add structlog
+from fastapi import HTTPException  # For raising errors
+from uuid import UUID
+import structlog
 
 from ai_tutor.context import TutorContext, UserModelState # Import UserModelState
 from pydantic import ValidationError # Import ValidationError
@@ -22,7 +18,7 @@ from ai_tutor.agents.analyzer_agent import AnalysisResult # Import AnalysisResul
 # from ai_tutor.fsm import TutorFSM
 
 if TYPE_CHECKING:
-    from supabase import Client
+    from ai_tutor.convex_client import ConvexClient
 
 # In-memory storage for session data.
 # WARNING: This will lose state on server restart and doesn't scale horizontally.
@@ -38,8 +34,8 @@ class SessionManager:
         """Initialize the session manager."""
         pass
 
-    async def create_session(self, supabase: Client, user_id: UUID, folder_id: Optional[UUID] = None) -> UUID:
-        """Creates a new session in Supabase DB and returns its ID.
+    async def create_session(self, convex: "ConvexClient", user_id: UUID, folder_id: Optional[UUID] = None) -> UUID:
+        """Creates a new session in Convex DB and returns its ID.
 
         If folder_id is provided, attempts to load initial context from the folder.
         """
@@ -54,9 +50,9 @@ class SessionManager:
 
         if folder_id:
             try:
-                folder_response: PostgrestAPIResponse = supabase.table("folders").select("knowledge_base, vector_store_id, name").eq("id", str(folder_id)).eq("user_id", user_id).maybe_single().execute()
-                if folder_response.data:
-                    folder_data = folder_response.data
+                folder_response = await convex.get_folder(folder_id, user_id)
+                if folder_response:
+                    folder_data = folder_response
                     initial_vector_store_id = folder_data.get("vector_store_id")
                     kb_text = folder_data.get("knowledge_base")
                     folder_name = folder_data.get("name", folder_name) # Use folder name if available
@@ -105,46 +101,30 @@ class SessionManager:
         )
         context_dict = context.lean_dict()
 
-        # --- Insert into Supabase ---
+        # --- Insert into Convex ---
         try:
-            insert_data = {
-                "id": str(session_id),
-                "user_id": user_id,
-                "context_data": context_dict,
-                "folder_id": str(folder_id) if folder_id else None # Store folder_id or NULL
-                # "name": folder_name # Optionally add a name field to sessions table
-            }
-            response: PostgrestAPIResponse = supabase.table("sessions").insert(insert_data).execute()
-
-            if response.data:
-                print(f"Created session {session_id} for user {user_id} in Supabase.")
-                return session_id
-            else:
-                print(f"Error creating session {session_id} in Supabase: {response.error}")
-                raise HTTPException(status_code=500, detail=f"Failed to create session in database: {response.error.message if response.error else 'Unknown error'}")
+            created_id = await convex.create_session(user_id, context_dict, folder_id)
+            print(f"Created session {created_id} for user {user_id} in Convex.")
+            return created_id
         except Exception as e:
             print(f"Exception creating session {session_id}: {e}")
-            # Check if the error is due to nullable constraint on folder_id if it's not nullable
-            if "violates not-null constraint" in str(e) and "folder_id" in str(e):
-                 raise HTTPException(status_code=500, detail="Database configuration error: sessions.folder_id cannot be null.")
             raise HTTPException(status_code=500, detail=f"Database error during session creation: {e}")
 
-    async def get_session_context(self, supabase: Client, session_id: UUID, user_id: UUID) -> Optional[TutorContext]:
-        """Retrieves and validates the TutorContext from Supabase."""
+    async def get_session_context(self, convex: "ConvexClient", session_id: UUID, user_id: UUID) -> Optional[TutorContext]:
+        """Retrieves and validates the TutorContext from Convex."""
         log.debug("Attempting to fetch session context from DB", session_id=str(session_id), user_id=str(user_id))
         try:
-            response: PostgrestAPIResponse = supabase.table("sessions").select("context_data").eq("id", str(session_id)).eq("user_id", str(user_id)).maybe_single().execute()
+            context_data = await convex.get_session_context(session_id, user_id)
 
-            if not response.data:
-                log.info("No session found or context_data is null", session_id=str(session_id), user_id=str(user_id))
-                return None # No session found for this user/id
-
-            context_data = response.data.get("context_data")
             if not context_data:
-                 log.warning("Session found but context_data field is null or empty.", session_id=str(session_id))
-                 # Decide if this should return None or initialize a default context
-                 # Returning None for now, assuming FE/caller handles initialization
-                 return None
+                log.info("No session found or context_data is null", session_id=str(session_id), user_id=str(user_id))
+                return None  # No session found for this user/id
+            if not context_data:
+                log.warning(
+                    "Session found but context_data field is null or empty.",
+                    session_id=str(session_id),
+                )
+                return None
 
             # --- Parse and Validate --- #
             try:
@@ -177,17 +157,18 @@ class SessionManager:
                  # This indicates corrupted data in the DB.
                  return None # Treat validation failure as if context doesn't exist or is unusable
 
-        except APIError as api_err:
-            log.error("Supabase APIError fetching session context", session_id=str(session_id), code=api_err.code, message=api_err.message, exc_info=True)
-            # Propagate a generic error upwards
-            raise HTTPException(status_code=503, detail=f"Database error fetching session: {api_err.code}") # 503 Service Unavailable might be appropriate
         except Exception as e:
-            log.error("Unexpected error fetching session context from Supabase", session_id=str(session_id), error=str(e), exc_info=True)
+            log.error(
+                "Unexpected error fetching session context from Convex",
+                session_id=str(session_id),
+                error=str(e),
+                exc_info=True,
+            )
             # Propagate a generic error upwards
             raise HTTPException(status_code=500, detail=f"Internal error fetching session context")
 
-    async def update_session_context(self, supabase: Client, session_id: UUID, user_id: UUID, context: TutorContext) -> bool:
-        """Updates the TutorContext for a given session ID in Supabase."""
+    async def update_session_context(self, convex: "ConvexClient", session_id: UUID, user_id: UUID, context: TutorContext) -> bool:
+        """Updates the TutorContext for a given session ID in Convex."""
         log.debug("Attempting to update session context in DB", session_id=str(session_id), user_id=str(user_id))
         try:
             # Serialize the *lean* TutorContext (drops bulky histories)
@@ -200,31 +181,17 @@ class SessionManager:
              return False
 
         try:
-            update_data = {
-                "context_data": context_dict,
-                "folder_id": str(context.folder_id) if context.folder_id else None
-                # Add updated_at? Supabase trigger should handle this automatically.
-            }
-            log.info("Executing Supabase update for session context", session_id=str(session_id))
-            response: PostgrestAPIResponse = supabase.table("sessions").update(update_data).eq("id", str(session_id)).eq("user_id", str(user_id)).execute()
-
-            # Check if the update actually affected any rows (although .execute() might raise error on failure)
-            # Supabase python client v1/v2 behaviour might differ here. Assuming execute raises on DB error.
-            # if not response.data: # This check might be unreliable depending on Supabase version/return
-            #    log.warning("Supabase update command executed but reported no data change.", session_id=str(session_id))
-            #    # Consider this a soft failure?
-            #    # return False
-
+            success = await convex.update_session_context(session_id, user_id, context_dict)
             log.info("Session context updated successfully in DB", session_id=str(session_id))
-            return True
-        except APIError as api_err:
-            log.error("Supabase APIError updating session context", session_id=str(session_id), code=api_err.code, message=api_err.message, data_sent=str(update_data)[:200], exc_info=True)
-            # Raise a specific exception to be caught by the caller (e.g., tutor_ws)
-            raise HTTPException(status_code=503, detail=f"Database error updating session: {api_err.code}")
+            return success
         except Exception as e:
-            log.error("Unexpected error updating session context in Supabase", session_id=str(session_id), error=str(e), exc_info=True)
-            # Raise a specific exception
-            raise HTTPException(status_code=500, detail=f"Internal error updating session context")
+            log.error(
+                "Unexpected error updating session context in Convex",
+                session_id=str(session_id),
+                error=str(e),
+                exc_info=True,
+            )
+            raise HTTPException(status_code=500, detail="Internal error updating session context")
 
     async def update_session_context_convex(
         self,
@@ -251,15 +218,9 @@ class SessionManager:
             return False
 
         try:
-            update_data = {
-                "session_id": str(session_id),
-                "user_id": str(user_id),
-                "context_data": context_dict,
-                "folder_id": str(context.folder_id) if context.folder_id else None,
-            }
-            await convex.mutation("updateSessionContext", update_data)
-            log.info("Session context updated successfully in Convex", session_id=str(session_id))
-            return True
+            success = await convex.update_session_context(session_id, user_id, context_dict)
+            log.info("Session context updated successfully in DB", session_id=str(session_id))
+            return success
         except Exception as e:
             log.error(
                 "Unexpected error updating session context in Convex",

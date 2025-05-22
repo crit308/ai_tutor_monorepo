@@ -1,7 +1,10 @@
 # """
 import os
 from fastapi import Request, HTTPException, status, Depends
-from supabase import Client
+try:
+    from supabase import Client
+except Exception:  # pragma: no cover - optional dependency
+    from typing import Any as Client
 # from ai_tutor.api import get_supabase_client # Import from main api module
 from ai_tutor.dependencies import get_supabase_client # Import from dependencies module
 
