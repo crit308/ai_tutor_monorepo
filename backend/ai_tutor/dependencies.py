@@ -6,6 +6,7 @@ from openai import AsyncOpenAI
 from openai._base_client import AsyncHttpxClientWrapper  # type: ignore
 from redis.asyncio import Redis as _Redis  # type: ignore
 import redis.asyncio as _redis_asyncio
+from ai_tutor.convex_client import ConvexClient
 
 # Load environment variables specifically for dependencies if needed,
 # though they should be loaded by the main app process already.

@@ -9,42 +9,24 @@ export const hello = query({
   },
 });
 
-// Placeholder folder creation mutation
-export const createFolder = mutation({
-  args: { name: v.string() },
-  handler: async (ctx, { name }) => {
-    const id = await ctx.db.insert("folders", { name });
-    return { id };
+export const logInteraction = mutation({
+  args: {
+    session_id: v.string(),
+    user_id: v.string(),
+    role: v.string(),
+    content: v.string(),
+    content_type: v.string(),
+    event_type: v.optional(v.string()),
   },
-});
-
-// Fetch all folders for the current user
-export const getFolders = query({
-  args: {},
-  handler: async (ctx) => {
-    return await ctx.db.query("folders").collect();
-  },
-});
-
-// Start a new session record
-export const startSession = mutation({
-  args: { folderId: v.id("folders") },
-  handler: async (ctx, { folderId }) => {
-    const sessionId = await ctx.db.insert("sessions", {
-      folderId,
-      createdAt: Date.now(),
+  handler: async (ctx, args) => {
+    await ctx.db.insert("interaction_logs", {
+      session_id: args.session_id,
+      user_id: args.user_id,
+      role: args.role,
+      content: args.content,
+      content_type: args.content_type,
+      event_type: args.event_type,
+      created_at: Date.now(),
     });
-    return { session_id: sessionId };
-  },
-});
-
-// Fetch messages for a session
-export const fetchSessionMessages = query({
-  args: { sessionId: v.id("sessions") },
-  handler: async (ctx, { sessionId }) => {
-    return await ctx.db
-      .query("session_messages")
-      .withIndex("by_session", (q) => q.eq("sessionId", sessionId))
-      .collect();
   },
 });

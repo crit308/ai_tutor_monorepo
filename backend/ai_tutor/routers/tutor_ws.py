@@ -5,9 +5,9 @@ import os
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from supabase import Client
-from postgrest.exceptions import APIError
 
-from ai_tutor.dependencies import get_supabase_client
+from ai_tutor.dependencies import get_supabase_client, get_convex_client
+from ai_tutor.convex_client import ConvexClient
 from ai_tutor.session_manager import SessionManager
 from ai_tutor.context import TutorContext, UserModelState
 import json
@@ -177,6 +177,7 @@ async def tutor_stream(
     ws: WebSocket,
     session_id: UUID,
     supabase: Client = Depends(get_supabase_client),
+    convex: ConvexClient = Depends(get_convex_client),
 ):
     """Stream tutor interaction events for a session via WebSocket.
 
@@ -206,25 +207,26 @@ async def tutor_stream(
     try:
         row: Optional[Dict] = None
         try:
-            log.info(f"WebSocket: Fetching context from DB for session {session_id}")
-            select_resp = supabase.table("sessions").select("context_data").eq("id", str(session_id)).eq("user_id", str(user.id)).maybe_single().execute()
-            row = select_resp.data
-            log.info(f"WebSocket: DB fetch completed for session {session_id}. Data found: {'Yes' if row else 'No'}")
+            log.info(f"WebSocket: Fetching context from Convex for session {session_id}")
+            row = await convex.query(
+                "getSessionContext",
+                {"session_id": str(session_id), "user_id": str(user.id)},
+            )
+            log.info(
+                f"WebSocket: Convex fetch completed for session {session_id}. Data found: {'Yes' if row else 'No'}"
+            )
             if row:
-                 log.debug(f"WebSocket: Raw data dict from DB for {session_id}: {row}")
-
-        except APIError as api_err:
-            if api_err.code == "204":
-                log.info(f"WebSocket: No existing context found for session {session_id} (APIError code 204). Initializing fresh context.")
-                row = None
-            else:
-                log.error(f"WebSocket: Supabase APIError fetching context for {session_id}: Code={api_err.code}, Message={api_err.message}, Details={api_err.details}", exc_info=True)
-                await safe_send_json(ws, {"type": "error", "detail": "Internal server error fetching context."}, "DB APIError")
-                await safe_close(ws, code=1011)
-                return
+                log.debug(f"WebSocket: Raw data dict from Convex for {session_id}: {row}")
         except Exception as db_err:
-            log.error(f"WebSocket: Unexpected error fetching context from DB for {session_id}: {db_err}\n{traceback.format_exc()}", exc_info=True)
-            await safe_send_json(ws, {"type": "error", "detail": "Internal server error fetching context."}, "DB Error")
+            log.error(
+                f"WebSocket: Error fetching context from Convex for {session_id}: {db_err}\n{traceback.format_exc()}",
+                exc_info=True,
+            )
+            await safe_send_json(
+                ws,
+                {"type": "error", "detail": "Internal server error fetching context."},
+                "DB Error",
+            )
             await safe_close(ws, code=1011)
             return
 
@@ -258,7 +260,7 @@ async def tutor_stream(
         log.info(f"WebSocket: Connection accepted for session {session_id}")
 
         # --- Phase-1: Hydrate initial state from DB ---
-        await _hydrate_initial_state(ws, supabase, ctx)
+        await _hydrate_initial_state(ws, convex, ctx)
 
         if not ctx:
              log.error(f"WebSocket: CRITICAL - Context object is None after loading/initialization for session {session_id}.")
@@ -305,7 +307,7 @@ async def tutor_stream(
                         new_objective = await determine_session_focus(ctx)
                         ctx.current_focus_objective = new_objective
                         planner_run_complete = True
-                        await session_manager.update_session_context(supabase, session_id, user.id, ctx)
+                        await session_manager.update_session_context_convex(convex, session_id, user.id, ctx)
                         log.info(f"Planner determined objective '{new_objective.topic}' for session {session_id}.")
                     except Exception as plan_err:
                         log.error(f"Planner failed for session {session_id}: {plan_err}")
@@ -350,7 +352,7 @@ async def tutor_stream(
                             ctx.interaction_mode = new_mode
                             # Persist this change immediately
                             if user:
-                                await session_manager.update_session_context(supabase, session_id, user.id, ctx)
+                                await session_manager.update_session_context_convex(convex, session_id, user.id, ctx)
                                 log.info(f"WebSocket ({session_id}): Persisted interaction_mode='{new_mode}'.")
                             else:
                                 log.warning(f"WebSocket ({session_id}): Cannot persist interaction_mode, user object is missing.")
@@ -361,7 +363,7 @@ async def tutor_stream(
                 # --- Phase-1 Persistence: Record user chat message --- #
                 if event_type == 'user_message' and user_input_text is not None:
                     try:
-                        await _persist_user_message(supabase, ctx, user_input_text)
+                        await _persist_user_message(convex, ctx, user_input_text)
                     except Exception as persist_err:
                         log.error(f"Failed to persist user message for session {session_id}: {persist_err}")
                 # ----------------------------------------------------- #
@@ -408,7 +410,7 @@ async def tutor_stream(
 
                     # Save context
                     try:
-                        save_ok = await session_manager.update_session_context(supabase, session_id, user.id, ctx)
+                        save_ok = await session_manager.update_session_context_convex(convex, session_id, user.id, ctx)
                         log.info(f"WebSocket ({session_id}): Context saved after canvas_click? {save_ok}")
                     except Exception as save_exc:
                         log.error(f"WebSocket ({session_id}): Error saving context after canvas_click: {save_exc}")
@@ -502,7 +504,7 @@ async def tutor_stream(
                     # persist context
                     save_ok = False
                     try:
-                        save_ok = await session_manager.update_session_context(supabase, session_id, user.id, ctx)
+                        save_ok = await session_manager.update_session_context_convex(convex, session_id, user.id, ctx)
                         log.info(f"WebSocket ({session_id}): Context saved successfully? {save_ok}")
                     except Exception as save_exc:
                         log.error(f"WebSocket ({session_id}): Error saving context in finally block: {save_exc}")
@@ -535,7 +537,7 @@ async def tutor_stream(
                 log.info(f"WebSocket ({session_id}): Saving final context state to DB before potential disconnect trigger.")
                 # Ensure the context is saved before triggering analysis (attempt again)
                 try:
-                    await session_manager.update_session_context(supabase, session_id, user.id, ctx)
+                    await session_manager.update_session_context_convex(convex, session_id, user.id, ctx)
                 except Exception as save_exc:
                     log.error(f"WebSocket ({session_id}): Final save attempt failed: {save_exc}")
 
@@ -880,8 +882,7 @@ async def _dispatch_tool_call(call: ToolCall, ctx: TutorContext, ws: WebSocket):
 
                 # Persist context (best-effort)
                 try:
-                    supabase = await get_supabase_client()
-                    await session_manager.update_session_context(supabase, ctx.session_id, ctx.user_id, ctx)
+                    await session_manager.update_session_context_convex(convex, ctx.session_id, ctx.user_id, ctx)
                 except Exception as persist_err:
                     log.warning(f"Failed to persist context after ask_question: {persist_err}")
 
@@ -898,7 +899,7 @@ async def _dispatch_tool_call(call: ToolCall, ctx: TutorContext, ws: WebSocket):
                         text_summary = _persist_target.error_message
 
                     await _persist_assistant_message(
-                        supabase_client,
+                        convex,
                         ctx,
                         text_summary=text_summary or content_type,
                         payload=response_obj.model_dump(mode="json"),
@@ -948,7 +949,7 @@ async def _dispatch_tool_call(call: ToolCall, ctx: TutorContext, ws: WebSocket):
                     text_summary = _persist_target.error_message
 
                 await _persist_assistant_message(
-                    supabase_client,
+                    convex,
                     ctx,
                     text_summary=text_summary,
                     payload=response.model_dump(mode="json"),
@@ -1056,9 +1057,8 @@ async def _dispatch_tool_call(call: ToolCall, ctx: TutorContext, ws: WebSocket):
 
             # Persist assistant message
             try:
-                supabase = await get_supabase_client()
                 await _persist_assistant_message(
-                    supabase,
+                    convex,
                     ctx,
                     text_summary="draw",
                     payload=response.model_dump(mode="json"),
@@ -1101,7 +1101,7 @@ async def _dispatch_tool_call(call: ToolCall, ctx: TutorContext, ws: WebSocket):
                         summary = d.error_message
 
                     await _persist_assistant_message(
-                        supabase_client,
+                        convex,
                         ctx,
                         text_summary=summary or tool_result.content_type,
                         payload=tool_result.model_dump(mode="json"),
@@ -1149,7 +1149,7 @@ async def _dispatch_tool_call(call: ToolCall, ctx: TutorContext, ws: WebSocket):
 
                             summary = getattr(payload_obj, 'message_text', None) or getattr(payload_obj, 'explanation_text', None) or 'assistant'
                             await _persist_assistant_message(
-                                supabase_client,
+                                convex,
                                 ctx,
                                 text_summary=summary,
                                 payload=wrapped.model_dump(mode="json"),
@@ -1369,7 +1369,7 @@ async def _run_executor_turn(ctx: TutorContext, objective: "FocusObjective", ws:
 # Phase-1 Persistence Helpers
 # ===============================
 
-async def _persist_user_message(supabase: Client, ctx: TutorContext, text: str):
+async def _persist_user_message(convex: ConvexClient, ctx: TutorContext, text: str):
     """Insert a user chat turn into session_messages and update ctx.latest_turn_no."""
     try:
         next_turn = (ctx.latest_turn_no or 0) + 1
@@ -1379,7 +1379,7 @@ async def _persist_user_message(supabase: Client, ctx: TutorContext, text: str):
             "role": "user",
             "text": text,
         }
-        supabase.table("session_messages").insert(insert_data).execute()
+        await convex.mutation("insertSessionMessage", insert_data)
         ctx.latest_turn_no = next_turn
     except Exception as e:
         log.error(f"_persist_user_message: Failed to insert chat turn for session {ctx.session_id}: {e}")
@@ -1387,7 +1387,7 @@ async def _persist_user_message(supabase: Client, ctx: TutorContext, text: str):
 from typing import Optional, List, Dict as TDict
 
 async def _persist_assistant_message(
-    supabase: Client,
+    convex: ConvexClient,
     ctx: TutorContext,
     text_summary: str,
     payload: Optional[dict] = None,
@@ -1402,16 +1402,18 @@ async def _persist_assistant_message(
         if whiteboard_actions:
             snapshot_index_val = next_turn  # align with turn_no
             # Persist snapshot first
-            supabase.table("whiteboard_snapshots").insert(
+            await convex.mutation(
+                "insertWhiteboardSnapshot",
                 {
                     "session_id": str(ctx.session_id),
                     "snapshot_index": snapshot_index_val,
                     "actions_json": whiteboard_actions,
-                }
-            ).execute()
+                },
+            )
             ctx.latest_snapshot_index = snapshot_index_val
 
-        supabase.table("session_messages").insert(
+        await convex.mutation(
+            "insertSessionMessage",
             {
                 "session_id": str(ctx.session_id),
                 "turn_no": next_turn,
@@ -1419,26 +1421,21 @@ async def _persist_assistant_message(
                 "text": text_summary,
                 "payload_json": payload,
                 "whiteboard_snapshot_index": snapshot_index_val,
-            }
-        ).execute()
+            },
+        )
 
         ctx.latest_turn_no = next_turn
     except Exception as e:
         log.error(f"_persist_assistant_message: Failed to persist assistant message for session {ctx.session_id}: {e}")
 
-async def _hydrate_initial_state(ws: WebSocket, supabase: Client, ctx: TutorContext):
+async def _hydrate_initial_state(ws: WebSocket, convex: ConvexClient, ctx: TutorContext):
     """Fetch recent chat & whiteboard data from DB and send SESSION_INIT_STATE to client."""
     try:
         # --- Chat History --- #
-        chat_resp = (
-            supabase.table("session_messages")
-            .select("turn_no, role, text, whiteboard_snapshot_index")
-            .eq("session_id", str(ctx.session_id))
-            .order("turn_no", desc=False)
-            .limit(50)
-            .execute()
-        )
-        chat_rows = chat_resp.data or []
+        chat_rows = await convex.query(
+            "getSessionMessages",
+            {"session_id": str(ctx.session_id), "limit": 50},
+        ) or []
         chat_history: list[dict] = [
             {"role": row["role"], "text": row.get("text", ""), "turn_no": row["turn_no"]}
             for row in chat_rows
@@ -1453,15 +1450,10 @@ async def _hydrate_initial_state(ws: WebSocket, supabase: Client, ctx: TutorCont
         ) if chat_rows else 0
 
         # --- Whiteboard Actions --- #
-        snapshot_resp = (
-            supabase.table("whiteboard_snapshots")
-            .select("snapshot_index, actions_json")
-            .eq("session_id", str(ctx.session_id))
-            .lte("snapshot_index", max_snapshot_index)
-            .order("snapshot_index", desc=False)
-            .execute()
-        )
-        snapshot_rows = snapshot_resp.data or []
+        snapshot_rows = await convex.query(
+            "getWhiteboardSnapshots",
+            {"session_id": str(ctx.session_id), "max_index": max_snapshot_index},
+        ) or []
         whiteboard_actions_to_replay: list[dict] = []
         for row in snapshot_rows:
             actions_list = row.get("actions_json") or []
