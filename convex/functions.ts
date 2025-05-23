@@ -306,3 +306,121 @@ export const getWhiteboardSnapshots = query({
     return await q.collect();
   },
 });
+
+export const uploadSessionDocuments = mutation({
+  args: {
+    sessionId: v.id('sessions'),
+    filenames: v.array(v.string()),
+  },
+  handler: async (ctx, { sessionId, filenames }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error('Not authenticated');
+    const session = await ctx.db.get(sessionId);
+    if (!session || session.user_id !== identity.subject) {
+      throw new Error('Session not found');
+    }
+    for (const name of filenames) {
+      await ctx.db.insert('uploaded_files', {
+        supabase_path: name,
+        user_id: identity.subject,
+        folder_id: session.folder_id ?? '',
+        embedding_status: 'pending',
+        created_at: Date.now(),
+        updated_at: Date.now(),
+      });
+    }
+    await ctx.db.patch(sessionId, {
+      analysis_status: 'queued',
+      updated_at: Date.now(),
+    });
+    return {
+      vector_store_id: null,
+      files_received: filenames,
+      analysis_status: 'queued',
+      message: 'Upload recorded',
+    };
+  },
+});
+
+export const getSessionAnalysis = query({
+  args: { sessionId: v.id('sessions') },
+  handler: async (ctx, { sessionId }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error('Not authenticated');
+    const session = await ctx.db.get(sessionId);
+    if (!session || session.user_id !== identity.subject) {
+      throw new Error('Session not found');
+    }
+    const context = (session.context_data as any) || {};
+    return {
+      status: session.analysis_status ?? (context.analysis_result ? 'completed' : 'pending'),
+      analysis: context.analysis_result ?? null,
+    };
+  },
+});
+
+export const logMiniQuizAttempt = mutation({
+  args: {
+    sessionId: v.id('sessions'),
+    question: v.string(),
+    selectedOption: v.string(),
+    correctOption: v.string(),
+    isCorrect: v.boolean(),
+    relatedSection: v.optional(v.string()),
+    topic: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error('Not authenticated');
+    const session = await ctx.db.get(args.sessionId);
+    if (!session || session.user_id !== identity.subject) {
+      throw new Error('Session not found');
+    }
+    await ctx.db.insert('interaction_logs', {
+      session_id: args.sessionId,
+      user_id: identity.subject,
+      role: 'user',
+      content: JSON.stringify({
+        question: args.question,
+        selectedOption: args.selectedOption,
+        correctOption: args.correctOption,
+        isCorrect: args.isCorrect,
+        relatedSection: args.relatedSection,
+        topic: args.topic,
+      }),
+      content_type: 'mini_quiz',
+      event_type: 'mini_quiz',
+      created_at: Date.now(),
+    });
+  },
+});
+
+export const logUserSummary = mutation({
+  args: {
+    sessionId: v.id('sessions'),
+    section: v.string(),
+    topic: v.string(),
+    summary: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error('Not authenticated');
+    const session = await ctx.db.get(args.sessionId);
+    if (!session || session.user_id !== identity.subject) {
+      throw new Error('Session not found');
+    }
+    await ctx.db.insert('interaction_logs', {
+      session_id: args.sessionId,
+      user_id: identity.subject,
+      role: 'user',
+      content: JSON.stringify({
+        section: args.section,
+        topic: args.topic,
+        summary: args.summary,
+      }),
+      content_type: 'user_summary',
+      event_type: 'user_summary',
+      created_at: Date.now(),
+    });
+  },
+});
