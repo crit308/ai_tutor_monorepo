@@ -179,8 +179,9 @@ export const getSessionContext = query({
     return { context: session.context_data };
   },
 });
-import { createClient } from 'redis';
-import * as Y from 'yjs';
+// Use the local Redis stub and Yjs from the frontend dependency
+import { createClient } from './redis';
+import * as Y from '../frontend/node_modules/yjs';
 
 const REDIS_KEY_PREFIX = 'yjs:snapshot:';
 
