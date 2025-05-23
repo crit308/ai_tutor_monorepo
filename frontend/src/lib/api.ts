@@ -77,12 +77,12 @@ export const uploadDocuments = async (
     console.log(
       `Recording ${filenames.length} document(s) for session ${sessionId} via Convex...`,
     );
-    const response = await apiClient.post<UploadDocumentsResponse>(
-      '/uploadSessionDocuments',
-      { sessionId, filenames },
+    const result = await convex.mutation(
+      convexApi.functions.uploadSessionDocuments,
+      { sessionId, filenames }
     );
-    console.log('Upload recorded:', response.data);
-    return response.data;
+    console.log('Upload recorded:', result);
+    return result as UploadDocumentsResponse;
   } catch (error) {
     console.error('Error uploading documents:', error);
     throw error;
