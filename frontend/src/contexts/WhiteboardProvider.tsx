@@ -649,8 +649,12 @@ export const WhiteboardProvider: React.FC<{ children: ReactNode }> = ({ children
              // @ts-expect-error - handle CLEAR_CANVAS variant
              case 'CLEAR_CANVAS':
                console.log("[WhiteboardProvider] Clearing whiteboard (CLEAR_CANVAS)");
-               fabricCanvasInternalState.clear();
-               requiresRender = true;
+               if ((fabricCanvasInternalState as any).contextContainer) {
+                 fabricCanvasInternalState.clear();
+                 requiresRender = true;
+               } else {
+                 console.warn('[WhiteboardProvider] CLEAR_CANVAS attempted but canvas context is not available.');
+               }
                break;
              case 'GROUP_OBJECTS': {
                 const objectsToGroup = fabricCanvasInternalState.getObjects().filter((obj: any) => 
