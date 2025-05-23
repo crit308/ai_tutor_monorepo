@@ -155,4 +155,49 @@ http.route({
   }),
 });
 
+http.route({
+  path: "/uploadSessionDocuments",
+  method: "POST",
+  handler: httpAction(async ({ runMutation }, request) => {
+    const body = await request.json();
+    const result = await runMutation(api.functions.uploadSessionDocuments, {
+      sessionId: body.sessionId,
+      filenames: body.filenames ?? [],
+    });
+    return new Response(JSON.stringify(result), { status: 200 });
+  }),
+});
+
+http.route({
+  path: "/getSessionAnalysis",
+  method: "GET",
+  handler: httpAction(async ({ runQuery }, request) => {
+    const url = new URL(request.url);
+    const sessionId = url.searchParams.get("sessionId");
+    if (!sessionId) return new Response("Missing sessionId", { status: 400 });
+    const result = await runQuery(api.functions.getSessionAnalysis, { sessionId });
+    return new Response(JSON.stringify(result), { status: 200 });
+  }),
+});
+
+http.route({
+  path: "/logMiniQuizAttempt",
+  method: "POST",
+  handler: httpAction(async ({ runMutation }, request) => {
+    const body = await request.json();
+    await runMutation(api.functions.logMiniQuizAttempt, body);
+    return new Response(null, { status: 200 });
+  }),
+});
+
+http.route({
+  path: "/logUserSummary",
+  method: "POST",
+  handler: httpAction(async ({ runMutation }, request) => {
+    const body = await request.json();
+    await runMutation(api.functions.logUserSummary, body);
+    return new Response(null, { status: 200 });
+  }),
+});
+
 export default http;
