@@ -113,6 +113,9 @@ export const createSession = mutation({
   },
 });
 
+// Alias for backwards compatibility with existing frontend calls
+export const startSession = createSession;
+
 export const getSessionMessages = query({
   args: {
     sessionId: v.id("sessions"),
