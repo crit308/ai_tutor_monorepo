@@ -5,9 +5,9 @@ export function connectTutorStream(
   token: string
 ): WebSocket {
   const base =
-    process.env.NEXT_PUBLIC_API_WS_URL ||
+    process.env.NEXT_PUBLIC_BACKEND_WS_ORIGIN ||
     `${window.location.protocol.replace('http', 'ws')}//${window.location.host}`;
-  const url = new URL(`/api/v1/ws/session/${sessionId}`, base);
+  const url = new URL(`/ws/v2/session/${sessionId}`, base);
   url.searchParams.set('token', token);
 
   const ws = new WebSocket(url.toString());
