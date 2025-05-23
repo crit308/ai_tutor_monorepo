@@ -27,10 +27,16 @@ A simple proxy server is provided to forward requests to your Convex deployment.
 cp convex/.env.example convex/.env
 ```
 
-Edit `CONVEX_URL` to point at your Convex deployment. Then run the server with your preferred TypeScript runner:
+Edit `CONVEX_URL` to point at your Convex deployment. Two helpers are provided:
 
-```
-node convex/server.ts
+* `server.ts` – HTTP proxy to Convex
+* `wsServer.ts` – simple WebSocket broadcast server
+
+Run them with a TypeScript runner:
+
+```bash
+node convex/server.ts   # listens on `PORT` (default 4000)
+node convex/wsServer.ts # listens on `WS_PORT` (default 8080)
 ```
 
-The server listens on the port specified in the `PORT` variable (default `4000`).
+Ports can be overridden via environment variables.
