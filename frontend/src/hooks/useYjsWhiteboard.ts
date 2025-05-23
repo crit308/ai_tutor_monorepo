@@ -38,7 +38,7 @@ export function useYjsWhiteboard(
   useEffect(() => {
     if (!enabled || !sessionId || !token) return;
 
-    const backendOrigin = process.env.NEXT_PUBLIC_BACKEND_WS_ORIGIN || 'ws://localhost:8001';
+    const backendOrigin = process.env.NEXT_PUBLIC_BACKEND_WS_ORIGIN || 'ws://localhost:8080';
     const wsUrl = `${backendOrigin}/ws/v2/session/${sessionId}/whiteboard?token=${token}`;
 
     const ws = new WebSocket(wsUrl);
