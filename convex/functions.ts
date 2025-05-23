@@ -1,5 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import path from "path";
+import { FileUploadManager } from "./fileUploadManager";
 
 export const hello = query({
   args: {},
@@ -338,25 +340,48 @@ export const uploadSessionDocuments = mutation({
     if (!session || session.user_id !== identity.subject) {
       throw new Error('Session not found');
     }
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error('Missing OPENAI_API_KEY');
+
+    const manager = new FileUploadManager(apiKey);
+    const uploadDir = process.env.UPLOAD_DIR || '/tmp';
+    const processed: string[] = [];
     for (const name of filenames) {
+      const filePath = path.join(uploadDir, name);
+      const info = await manager.uploadAndProcessFile(
+        filePath,
+        identity.subject,
+        session.folder_id ?? '',
+        manager.getVectorStoreId(),
+      );
       await ctx.db.insert('uploaded_files', {
-        supabase_path: name,
+        supabase_path: info.supabasePath,
         user_id: identity.subject,
         folder_id: session.folder_id ?? '',
-        embedding_status: 'pending',
+        embedding_status: 'completed',
         created_at: Date.now(),
         updated_at: Date.now(),
       });
+      processed.push(info.filename);
     }
+
+    if (session.folder_id) {
+      await ctx.db.patch(session.folder_id as any, {
+        vector_store_id: manager.getVectorStoreId(),
+        updated_at: Date.now(),
+      });
+    }
+
     await ctx.db.patch(sessionId, {
-      analysis_status: 'queued',
+      analysis_status: 'completed',
       updated_at: Date.now(),
     });
+
     return {
-      vector_store_id: null,
-      files_received: filenames,
-      analysis_status: 'queued',
-      message: 'Upload recorded',
+      vector_store_id: manager.getVectorStoreId(),
+      files_received: processed,
+      analysis_status: 'completed',
+      message: 'Files processed',
     };
   },
 });

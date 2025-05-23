@@ -40,3 +40,12 @@ node convex/wsServer.ts # listens on `WS_PORT` (default 8080)
 ```
 
 Ports can be overridden via environment variables.
+
+## Document Upload Pipeline
+
+`uploadSessionDocuments` now processes files using OpenAI vector stores.
+Place uploaded documents in the directory specified by `UPLOAD_DIR` (defaults to `/tmp`).
+Set `OPENAI_API_KEY` in `.env` so the backend can create vector stores and embed
+the files. The mutation reads the filenames from the request, looks for the
+files in `UPLOAD_DIR`, uploads them to OpenAI and records the resulting
+`vector_store_id` on the associated folder.
