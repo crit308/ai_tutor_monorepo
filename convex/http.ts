@@ -113,4 +113,46 @@ http.route({
   }),
 });
 
+http.route({
+  path: "/getBoardSummary",
+  method: "GET",
+  handler: httpAction(async ({ runQuery }, request) => {
+    const url = new URL(request.url);
+    const sessionId = url.searchParams.get("sessionId");
+    if (!sessionId) return new Response("Missing sessionId", { status: 400 });
+    const summary = await runQuery(api.functions.getBoardSummary, { sessionId });
+    return new Response(JSON.stringify(summary), { status: 200 });
+  }),
+});
+
+http.route({
+  path: "/insertSnapshot",
+  method: "POST",
+  handler: httpAction(async ({ runMutation }, request) => {
+    const body = await request.json();
+    await runMutation(api.functions.insertSnapshot, {
+      sessionId: body.sessionId,
+      snapshotIndex: body.snapshotIndex,
+      actionsJson: body.actionsJson,
+    });
+    return new Response(null, { status: 200 });
+  }),
+});
+
+http.route({
+  path: "/getWhiteboardSnapshots",
+  method: "GET",
+  handler: httpAction(async ({ runQuery }, request) => {
+    const url = new URL(request.url);
+    const sessionId = url.searchParams.get("sessionId");
+    if (!sessionId) return new Response("Missing sessionId", { status: 400 });
+    const maxIndex = url.searchParams.get("maxIndex");
+    const rows = await runQuery(api.functions.getWhiteboardSnapshots, {
+      sessionId,
+      maxIndex: maxIndex ? Number(maxIndex) : undefined,
+    });
+    return new Response(JSON.stringify(rows), { status: 200 });
+  }),
+});
+
 export default http;
