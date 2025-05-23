@@ -6,6 +6,7 @@ declare module 'redis' {
   };
 }
 
+
 declare module 'ws' {
   export type RawData = Buffer | ArrayBuffer | Buffer[];
   export class WebSocket {
