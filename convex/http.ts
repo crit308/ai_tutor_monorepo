@@ -1,6 +1,7 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { api } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { auth } from "./auth";
 
 const http = httpRouter();
@@ -31,7 +32,10 @@ http.route({
   method: "POST",
   handler: httpAction(async ({ runMutation }, request) => {
     const { folderId, name } = await request.json();
-    await runMutation(api.functions.renameFolder, { folderId, name });
+    await runMutation(api.functions.renameFolder, {
+      folderId: folderId as Id<'folders'>,
+      name,
+    });
     return new Response(null, { status: 200 });
   }),
 });
@@ -41,7 +45,9 @@ http.route({
   method: "POST",
   handler: httpAction(async ({ runMutation }, request) => {
     const { folderId } = await request.json();
-    await runMutation(api.functions.deleteFolder, { folderId });
+    await runMutation(api.functions.deleteFolder, {
+      folderId: folderId as Id<'folders'>,
+    });
     return new Response(null, { status: 200 });
   }),
 });
@@ -53,7 +59,9 @@ http.route({
     const url = new URL(request.url);
     const folderId = url.searchParams.get("folderId");
     if (!folderId) return new Response("Missing folderId", { status: 400 });
-    const folder = await runQuery(api.functions.getFolder, { folderId });
+    const folder = await runQuery(api.functions.getFolder, {
+      folderId: folderId as Id<'folders'>,
+    });
     if (!folder) return new Response("Not found", { status: 404 });
     return new Response(JSON.stringify(folder), { status: 200 });
   }),
@@ -64,7 +72,9 @@ http.route({
   method: "POST",
   handler: httpAction(async ({ runMutation }, request) => {
     const body = await request.json();
-    const result = await runMutation(api.functions.createSession, { folderId: body.folderId ?? undefined });
+    const result = await runMutation(api.functions.createSession, {
+      folderId: body.folderId as Id<'folders'> | undefined,
+    });
     return new Response(JSON.stringify(result), { status: 201 });
   }),
 });
@@ -79,7 +89,7 @@ http.route({
     const beforeTurnNo = url.searchParams.get("beforeTurnNo");
     const limit = url.searchParams.get("limit");
     const rows = await runQuery(api.functions.getSessionMessages, {
-      sessionId,
+      sessionId: sessionId as Id<'sessions'>,
       beforeTurnNo: beforeTurnNo ? Number(beforeTurnNo) : undefined,
       limit: limit ? Number(limit) : undefined,
     });
@@ -93,7 +103,7 @@ http.route({
   handler: httpAction(async ({ runMutation }, request) => {
     const body = await request.json();
     await runMutation(api.functions.updateSessionContext, {
-      sessionId: body.sessionId,
+      sessionId: body.sessionId as Id<'sessions'>,
       context: body.context,
     });
     return new Response(null, { status: 200 });
@@ -107,7 +117,9 @@ http.route({
     const url = new URL(request.url);
     const sessionId = url.searchParams.get("sessionId");
     if (!sessionId) return new Response("Missing sessionId", { status: 400 });
-    const data = await runQuery(api.functions.getSessionContext, { sessionId });
+    const data = await runQuery(api.functions.getSessionContext, {
+      sessionId: sessionId as Id<'sessions'>,
+    });
     if (!data) return new Response("Not found", { status: 404 });
     return new Response(JSON.stringify(data), { status: 200 });
   }),
@@ -120,7 +132,9 @@ http.route({
     const url = new URL(request.url);
     const sessionId = url.searchParams.get("sessionId");
     if (!sessionId) return new Response("Missing sessionId", { status: 400 });
-    const summary = await runQuery(api.functions.getBoardSummary, { sessionId });
+    const summary = await runQuery(api.functions.getBoardSummary, {
+      sessionId: sessionId as Id<'sessions'>,
+    });
     return new Response(JSON.stringify(summary), { status: 200 });
   }),
 });
@@ -131,7 +145,7 @@ http.route({
   handler: httpAction(async ({ runMutation }, request) => {
     const body = await request.json();
     await runMutation(api.functions.insertSnapshot, {
-      sessionId: body.sessionId,
+      sessionId: body.sessionId as Id<'sessions'>,
       snapshotIndex: body.snapshotIndex,
       actionsJson: body.actionsJson,
     });
@@ -148,7 +162,7 @@ http.route({
     if (!sessionId) return new Response("Missing sessionId", { status: 400 });
     const maxIndex = url.searchParams.get("maxIndex");
     const rows = await runQuery(api.functions.getWhiteboardSnapshots, {
-      sessionId,
+      sessionId: sessionId as Id<'sessions'>,
       maxIndex: maxIndex ? Number(maxIndex) : undefined,
     });
     return new Response(JSON.stringify(rows), { status: 200 });
@@ -161,7 +175,7 @@ http.route({
   handler: httpAction(async ({ runMutation }, request) => {
     const body = await request.json();
     const result = await runMutation(api.functions.uploadSessionDocuments, {
-      sessionId: body.sessionId,
+      sessionId: body.sessionId as Id<'sessions'>,
       filenames: body.filenames ?? [],
     });
     return new Response(JSON.stringify(result), { status: 200 });
@@ -175,7 +189,9 @@ http.route({
     const url = new URL(request.url);
     const sessionId = url.searchParams.get("sessionId");
     if (!sessionId) return new Response("Missing sessionId", { status: 400 });
-    const result = await runQuery(api.functions.getSessionAnalysis, { sessionId });
+    const result = await runQuery(api.functions.getSessionAnalysis, {
+      sessionId: sessionId as Id<'sessions'>,
+    });
     return new Response(JSON.stringify(result), { status: 200 });
   }),
 });

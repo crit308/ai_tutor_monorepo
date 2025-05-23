@@ -18,7 +18,7 @@
     "isolatedModules": true,
     "noEmit": true,
     "types": ["node"],
-    "typeRoots": ["../frontend/node_modules/@types"]
+    "typeRoots": ["../frontend/node_modules/@types", "../frontend/node_modules"]
   },
   "include": ["./**/*"],
   "exclude": ["./_generated"]
