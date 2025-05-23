@@ -126,10 +126,9 @@ export const getSessionMessages = query({
       .query("session_messages")
       .withIndex("by_session_turn", (q) => q.eq("session_id", sessionId));
     if (beforeTurnNo !== undefined) {
-      q = q.lt("turn_no", beforeTurnNo);
+      q = q.filter((f) => f.lt(f.field("turn_no"), beforeTurnNo));
     }
-    q = q.order("desc");
-    const rows = await q.take(limit ?? 50);
+    const rows = await q.order("desc").take(limit ?? 50);
     rows.reverse();
     return rows.map((r) => ({ ...r }));
   },
@@ -205,7 +204,7 @@ export const getBoardSummary = query({
     }
 
     const objMap = ydoc.getMap<any>('objects');
-    const objects = Array.from(objMap.values());
+    const objects = Array.from(objMap.values()) as any[];
     const byKind: Record<string, number> = {};
     const byOwner: Record<string, number> = {};
     const learnerTags: any[] = [];
@@ -240,7 +239,7 @@ export const getBoardSummary = query({
     });
 
     const ephMap = ydoc.getMap<any>('ephemeral');
-    const ephObjs = Array.from(ephMap.values());
+    const ephObjs = Array.from(ephMap.values()) as any[];
     const activeHighlights = ephObjs.filter((s) => s.kind === 'highlight_stroke').length;
     const activeQuestionTags = ephObjs
       .filter((s) => s.kind === 'question_tag')
@@ -298,12 +297,13 @@ export const getWhiteboardSnapshots = query({
     if (!session || session.user_id !== identity.subject) return [];
     let q = ctx.db
       .query('whiteboard_snapshots')
-      .withIndex('by_session_snapshot', (q) => q.eq('session_id', sessionId));
+      .withIndex('by_session_snapshot', (q) =>
+        q.eq('session_id', sessionId)
+      );
     if (maxIndex !== undefined) {
-      q = q.lte('snapshot_index', maxIndex);
+      q = q.filter((f) => f.lte(f.field('snapshot_index'), maxIndex));
     }
-    q = q.order('asc');
-    return await q.collect();
+    return await q.order('asc').collect();
   },
 });
 

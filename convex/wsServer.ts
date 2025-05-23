@@ -1,5 +1,5 @@
 import http from 'http';
-import { WebSocketServer, WebSocket } from 'ws';
+import { WebSocketServer, WebSocket, RawData } from 'ws';
 
 const port = Number(process.env.WS_PORT || 8080);
 const server = http.createServer();
@@ -7,7 +7,7 @@ const server = http.createServer();
 // Map sessionId -> set of WebSocket connections
 const sessions = new Map<string, Set<WebSocket>>();
 
-function broadcast(sessionId: string, data: WebSocket.RawData, origin: WebSocket) {
+function broadcast(sessionId: string, data: RawData, origin: WebSocket) {
   const peers = sessions.get(sessionId);
   if (!peers) return;
   for (const ws of peers) {
