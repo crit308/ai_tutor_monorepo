@@ -113,8 +113,23 @@ export const createSession = mutation({
   },
 });
 
-// Alias for backwards compatibility with existing frontend calls
-export const startSession = createSession;
+// Define startSession explicitly so the Convex codegen picks it up
+export const startSession = mutation({
+  args: { folderId: v.optional(v.id("folders")) },
+  handler: async (ctx, { folderId }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+    const now = Date.now();
+    const id = await ctx.db.insert("sessions", {
+      user_id: identity.subject,
+      folder_id: folderId ?? undefined,
+      context_data: {},
+      created_at: now,
+      updated_at: now,
+    });
+    return { id };
+  },
+});
 
 export const getSessionMessages = query({
   args: {
