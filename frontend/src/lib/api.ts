@@ -272,7 +272,7 @@ export const createFolder = async (folderData: FolderCreateRequest): Promise<Fol
 export const getFolders = async (): Promise<FolderResponse[]> => {
     try {
         console.log('Fetching folders via Convex...');
-        const folders = await convex.query(convexApi.functions.getFolders, {});
+        const folders = await convex.query(convexApi.functions.listFolders, {});
         return folders.map(folder => ({
             id: folder._id as string,
             name: folder.name,
@@ -330,7 +330,7 @@ export interface ChatHistoryMessage {
 export async function fetchSessionMessages(sessionId: string, beforeMessageId?: string, limit: number = 30): Promise<ChatHistoryMessage[]> {
   try {
       console.log('Fetching session messages via Convex...');
-      return await convex.query(convexApi.functions.fetchSessionMessages, { sessionId });
+      return await convex.query(convexApi.functions.getSessionMessages, { sessionId });
   } catch (error) {
       console.error('Error fetching session messages via Convex:', error);
       throw error;
