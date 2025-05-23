@@ -15,7 +15,9 @@ import { getAuthToken } from './authToken';
 import { convex } from './convex';
 import { api as convexApi } from '../../convex/_generated/api';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api/v1'; // Use environment variable
+// Default to the local Convex proxy if no environment variable is set.
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -63,25 +65,23 @@ export const startSession = async (folderId: string): Promise<StartSessionRespon
 
 // --- Document Upload ---
 
-export const uploadDocuments = async (sessionId: string, files: File[]): Promise<UploadDocumentsResponse> => {
-  const formData = new FormData();
-  files.forEach((file) => {
-    formData.append('files', file); // Backend expects field named 'files'
-  });
+export const uploadDocuments = async (
+  sessionId: string,
+  files: File[],
+): Promise<UploadDocumentsResponse> => {
+  // Convex currently expects a list of filenames rather than the raw file data.
+  // The actual upload to storage should be handled separately.
+  const filenames = files.map((f) => f.name);
 
   try {
-    console.log(`Uploading ${files.length} documents for session ${sessionId}...`);
-    const response = await apiClient.post<UploadDocumentsResponse>(
-      `/sessions/${sessionId}/documents`,
-      formData,
-      {
-        headers: {
-          'Content-Type': 'multipart/form-data', // Important for file uploads
-        },
-        // Optional: Add progress tracking here if needed
-      }
+    console.log(
+      `Recording ${filenames.length} document(s) for session ${sessionId} via Convex...`,
     );
-    console.log('Documents uploaded:', response.data);
+    const response = await apiClient.post<UploadDocumentsResponse>(
+      '/uploadSessionDocuments',
+      { sessionId, filenames },
+    );
+    console.log('Upload recorded:', response.data);
     return response.data;
   } catch (error) {
     console.error('Error uploading documents:', error);
