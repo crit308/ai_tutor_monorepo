@@ -44,6 +44,12 @@ export {
   getStorageUsage,
 } from "./databaseOptimization";
 
+export {
+  validateMigrationData,
+  generateMigrationReport,
+  testEnhancedFunction,
+} from "./migrationValidation";
+
 export const hello = query({
   args: {},
   handler: async () => {

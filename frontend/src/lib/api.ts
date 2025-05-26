@@ -52,14 +52,122 @@ apiClient.interceptors.response.use(
 
 // --- Session Management ---
 
-export const startSession = async (folderId: string): Promise<StartSessionResponse> => {
+export const startSession = async (folderId: string, metadata?: {
+  clientVersion?: string;
+  userAgent?: string;
+  timezone?: string;
+}): Promise<StartSessionResponse> => {
   try {
-    console.log(`Starting new session for folder ${folderId} via Convex...`);
-    const res = await convex.mutation(convexApi.functions.startSession, { folderId });
-    return { session_id: res.id as string, message: 'Session started' };
+    console.log(`Creating new session for folder ${folderId} via enhanced Convex...`);
+    
+    // Use the enhanced createSession function
+    const res = await convex.mutation(convexApi.functions.createSessionEnhanced, { 
+      folderId,
+      metadata: {
+        clientVersion: "2.0.0",
+        userAgent: typeof window !== 'undefined' ? window.navigator.userAgent : undefined,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        ...metadata
+      }
+    });
+    
+    console.log('Enhanced session created:', res);
+    return { session_id: res.id as string, message: 'Session started with enhanced features' };
   } catch (error) {
-    console.error('Error starting session via Convex:', error);
-    throw error; // Re-throw for handling in UI
+    console.error('Error creating enhanced session:', error);
+    
+    // Fallback to basic session creation if enhanced fails
+    try {
+      console.log('Falling back to basic session creation...');
+      const res = await convex.mutation(convexApi.functions.startSession, { folderId });
+      return { session_id: res.id as string, message: 'Session started (basic)' };
+    } catch (fallbackError) {
+      console.error('Both enhanced and basic session creation failed:', fallbackError);
+      throw fallbackError;
+    }
+  }
+};
+
+// Enhanced session listing
+export const listUserSessions = async (options?: {
+  folderId?: string;
+  limit?: number;
+  includeEnded?: boolean;
+  sortBy?: 'created_at' | 'updated_at';
+  sortOrder?: 'asc' | 'desc';
+}) => {
+  try {
+    console.log('Fetching user sessions with enhanced options...');
+    const sessions = await convex.query(convexApi.functions.listUserSessionsEnhanced, options || {});
+    console.log('Enhanced sessions fetched:', sessions);
+    return sessions;
+  } catch (error) {
+    console.error('Error fetching enhanced sessions:', error);
+    
+    // Fallback to basic session listing
+    try {
+      console.log('Falling back to basic session listing...');
+      const sessions = await convex.query(convexApi.functions.listUserSessions, { 
+        userId: 'current', // This will be handled by auth
+        limit: options?.limit || 50 
+      });
+      return { sessions: sessions.sessions };
+    } catch (fallbackError) {
+      console.error('Both enhanced and basic session listing failed:', fallbackError);
+      throw fallbackError;
+    }
+  }
+};
+
+// Enhanced session context management
+export const updateSessionContext = async (
+  sessionId: string, 
+  context: any, 
+  options?: {
+    expectedVersion?: number;
+    merge?: boolean;
+  }
+) => {
+  try {
+    console.log('Updating session context with enhanced features...');
+    const result = await convex.mutation(convexApi.functions.updateSessionContextEnhanced, {
+      sessionId,
+      context,
+      expectedVersion: options?.expectedVersion,
+      merge: options?.merge ?? true
+    });
+    console.log('Enhanced context update result:', result);
+    return result;
+  } catch (error) {
+    console.error('Error updating enhanced session context:', error);
+    
+    // Fallback to basic context update
+    try {
+      console.log('Falling back to basic context update...');
+      await convex.mutation(convexApi.functions.updateSessionContext, { sessionId, context });
+      return { success: true };
+    } catch (fallbackError) {
+      console.error('Both enhanced and basic context update failed:', fallbackError);
+      throw fallbackError;
+    }
+  }
+};
+
+// Enhanced session deletion
+export const deleteSession = async (sessionId: string, options?: {
+  deleteRelatedData?: boolean;
+}) => {
+  try {
+    console.log('Deleting session with enhanced cleanup...');
+    const result = await convex.mutation(convexApi.functions.deleteSessionEnhanced, {
+      sessionId,
+      deleteRelatedData: options?.deleteRelatedData ?? true
+    });
+    console.log('Enhanced session deletion result:', result);
+    return result;
+  } catch (error) {
+    console.error('Error with enhanced session deletion:', error);
+    throw error;
   }
 };
 
@@ -254,33 +362,131 @@ export const logUserSummary = async (sessionId: string, summaryData: any): Promi
 
 // --- Folder Management API Calls ---
 
-export const createFolder = async (folderData: FolderCreateRequest): Promise<FolderResponse> => {
+// Enhanced Folder Management
+export const createFolder = async (
+    folderData: FolderCreateRequest & {
+        metadata?: {
+            tags?: string[];
+            subject?: string;
+            difficulty?: 'beginner' | 'intermediate' | 'advanced';
+        };
+    }
+): Promise<FolderResponse> => {
     try {
-        console.log('Creating new folder via Convex:', folderData.name);
-        const folder = await convex.mutation(convexApi.functions.createFolder, { name: folderData.name });
+        console.log('Creating new folder via enhanced Convex:', folderData.name);
+        const folder = await convex.mutation(convexApi.functions.createFolderEnhanced, { 
+            name: folderData.name,
+            metadata: folderData.metadata
+        });
+        console.log('Enhanced folder created:', folder);
         return {
-            id: folder._id as string,
+            id: folder.id,
             name: folder.name,
             created_at: new Date(folder.created_at).toISOString(),
         };
     } catch (error) {
-        console.error('Error creating folder via Convex:', error);
+        console.error('Error creating enhanced folder:', error);
+        
+        // Fallback to basic folder creation
+        try {
+            console.log('Falling back to basic folder creation...');
+            const folder = await convex.mutation(convexApi.functions.createFolder, { name: folderData.name });
+            return {
+                id: folder._id as string,
+                name: folder.name,
+                created_at: new Date(folder.created_at).toISOString(),
+            };
+        } catch (fallbackError) {
+            console.error('Both enhanced and basic folder creation failed:', fallbackError);
+            throw fallbackError;
+        }
+    }
+};
+
+export const getFolders = async (options?: {
+    search?: string;
+    limit?: number;
+    includeStats?: boolean;
+    sortBy?: 'name' | 'created_at' | 'updated_at';
+    sortOrder?: 'asc' | 'desc';
+}): Promise<FolderResponse[]> => {
+    try {
+        console.log('Fetching folders via enhanced Convex...');
+        const result = await convex.query(convexApi.functions.listFoldersEnhanced, options || {});
+        console.log('Enhanced folders fetched:', result);
+        
+        return result.folders.map((folder: any) => ({
+            id: folder._id,
+            name: folder.name,
+            created_at: new Date(folder.created_at).toISOString(),
+            stats: folder.stats,
+        }));
+    } catch (error) {
+        console.error('Error fetching enhanced folders:', error);
+        
+        // Fallback to basic folder listing
+        try {
+            console.log('Falling back to basic folder listing...');
+            const folders = await convex.query(convexApi.functions.listFolders, {});
+            return folders.map(folder => ({
+                id: folder._id as string,
+                name: folder.name,
+                created_at: new Date(folder.created_at).toISOString(),
+            }));
+        } catch (fallbackError) {
+            console.error('Both enhanced and basic folder listing failed:', fallbackError);
+            return [];
+        }
+    }
+};
+
+// Enhanced folder operations
+export const getFolderStats = async (folderId?: string) => {
+    try {
+        console.log('Fetching folder statistics...');
+        const stats = await convex.query(convexApi.functions.getFolderStats, folderId ? { folderId } : {});
+        console.log('Folder stats fetched:', stats);
+        return stats;
+    } catch (error) {
+        console.error('Error fetching folder stats:', error);
         throw error;
     }
 };
 
-export const getFolders = async (): Promise<FolderResponse[]> => {
+export const deleteFolder = async (
+    folderId: string, 
+    options?: {
+        deleteRelatedData?: boolean;
+        reassignSessionsTo?: string;
+    }
+) => {
     try {
-        console.log('Fetching folders via Convex...');
-        const folders = await convex.query(convexApi.functions.listFolders, {});
-        return folders.map(folder => ({
-            id: folder._id as string,
-            name: folder.name,
-            created_at: new Date(folder.created_at).toISOString(),
-        }));
+        console.log('Deleting folder with enhanced cleanup...');
+        const result = await convex.mutation(convexApi.functions.deleteFolderEnhanced, {
+            folderId,
+            deleteRelatedData: options?.deleteRelatedData ?? false,
+            reassignSessionsTo: options?.reassignSessionsTo
+        });
+        console.log('Enhanced folder deletion result:', result);
+        return result;
     } catch (error) {
-        console.error('Error fetching folders via Convex:', error);
-        return [];
+        console.error('Error with enhanced folder deletion:', error);
+        throw error;
+    }
+};
+
+export const renameFolder = async (folderId: string, name: string) => {
+    try {
+        console.log('Renaming folder with enhanced validation...');
+        const result = await convex.mutation(convexApi.functions.renameFolderEnhanced, {
+            folderId,
+            name
+        });
+        console.log('Enhanced folder rename result:', result);
+        return result;
+    } catch (error) {
+        console.error('Error with enhanced folder rename:', error);
+        throw error;
     }
 };
 
