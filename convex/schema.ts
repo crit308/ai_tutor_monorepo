@@ -23,9 +23,13 @@ export default defineSchema({
     updated_at: v.number(),
     ended_at: v.optional(v.number()),
     analysis_status: v.optional(v.string()),
+    // Phase 4 additions
+    analytics: v.optional(v.any()),
+    context: v.optional(v.any()), // Alias for context_data compatibility
   })
     .index("by_user", ["user_id"])
-    .index("by_folder", ["folder_id"]),
+    .index("by_folder", ["folder_id"])
+    .index("by_user_id", ["user_id"]), // Additional index for Phase 4
 
   session_messages: defineTable({
     session_id: v.string(),
@@ -107,9 +111,14 @@ export default defineSchema({
     event_type: v.optional(v.string()),
     created_at: v.number(),
     trace_id: v.optional(v.string()),
+    // Phase 4 additions
+    interaction_type: v.optional(v.string()),
+    timestamp: v.optional(v.number()),
+    data: v.optional(v.any()),
   })
     .index("by_session_created", ["session_id", "created_at"])
-    .index("by_user", ["user_id"]),
+    .index("by_user", ["user_id"])
+    .index("by_session", ["session_id"]),
 
   uploaded_files: defineTable({
     supabase_path: v.string(),
@@ -118,9 +127,19 @@ export default defineSchema({
     embedding_status: v.string(),
     created_at: v.number(),
     updated_at: v.number(),
+    // Phase 4 additions
+    session_id: v.optional(v.string()),
+    filename: v.optional(v.string()),
+    mime_type: v.optional(v.string()),
+    vector_store_id: v.optional(v.string()),
+    file_id: v.optional(v.string()),
+    uploaded_at: v.optional(v.number()),
+    processed_at: v.optional(v.number()),
   })
     .index("by_user", ["user_id"])
-    .index("by_folder", ["folder_id"]),
+    .index("by_folder", ["folder_id"])
+    .index("by_session_id", ["session_id"])
+    .index("by_embedding_status", ["embedding_status"]),
 
   concept_graph: defineTable({
     prereq: v.string(),
@@ -128,4 +147,127 @@ export default defineSchema({
   })
     .index("by_prereq", ["prereq"])
     .index("by_concept", ["concept"]),
+
+  // Phase 4: Background Jobs and Complex Workflows
+  background_jobs: defineTable({
+    job_type: v.string(),
+    job_data: v.any(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("running"), 
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    priority: v.union(v.literal("low"), v.literal("medium"), v.literal("high")),
+    progress: v.number(),
+    created_at: v.number(),
+    started_at: v.optional(v.number()),
+    completed_at: v.optional(v.number()),
+    error_message: v.optional(v.string()),
+    scheduled_for: v.optional(v.number()),
+    metadata: v.optional(v.any()),
+  })
+    .index("by_status", ["status"])
+    .index("by_type", ["job_type"])
+    .index("by_priority", ["priority"])
+    .index("by_created", ["created_at"]),
+
+  // Analytics and Metrics Tables
+  tool_metrics: defineTable({
+    tool_name: v.string(),
+    latency_ms: v.number(),
+    success: v.boolean(),
+    session_id: v.optional(v.string()),
+    user_id: v.optional(v.string()),
+    agent_version: v.optional(v.string()),
+    timestamp: v.number(),
+  })
+    .index("by_tool", ["tool_name"])
+    .index("by_session", ["session_id"])
+    .index("by_timestamp", ["timestamp"]),
+
+  tool_aggregates: defineTable({
+    aggregate_key: v.string(), // tool_name:date
+    tool_name: v.string(),
+    date: v.string(), // YYYY-MM-DD
+    total_invocations: v.number(),
+    total_latency_ms: v.number(),
+    success_count: v.number(),
+    failure_count: v.number(),
+    average_latency_ms: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_key_date", ["aggregate_key"])
+    .index("by_tool_date", ["tool_name", "date"]),
+
+  token_usage: defineTable({
+    model: v.string(),
+    prompt_tokens: v.number(),
+    completion_tokens: v.number(),
+    total_tokens: v.number(),
+    phase: v.union(
+      v.literal("analysis"),
+      v.literal("planning"), 
+      v.literal("generation"),
+      v.literal("interaction")
+    ),
+    session_id: v.optional(v.string()),
+    user_id: v.optional(v.string()),
+    timestamp: v.number(),
+  })
+    .index("by_model", ["model"])
+    .index("by_session", ["session_id"])
+    .index("by_timestamp", ["timestamp"]),
+
+  token_aggregates: defineTable({
+    aggregate_key: v.string(), // model:phase:date
+    model: v.string(),
+    phase: v.string(),
+    date: v.string(), // YYYY-MM-DD
+    total_tokens: v.number(),
+    total_requests: v.number(),
+    average_tokens_per_request: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_key_date", ["aggregate_key"])
+    .index("by_model_phase", ["model", "phase"]),
+
+  // Performance and Monitoring
+  performance_metrics: defineTable({
+    operation: v.string(),
+    duration: v.number(),
+    success: v.boolean(),
+    timestamp: v.number(),
+    metadata: v.optional(v.any()),
+  })
+    .index("by_operation", ["operation"])
+    .index("by_timestamp", ["timestamp"]),
+
+  // Cache System
+  cache_entries: defineTable({
+    key: v.string(),
+    value: v.any(),
+    created_at: v.number(),
+    updated_at: v.number(),
+    expires_at: v.optional(v.number()),
+  }).index("by_key", ["key"]),
+
+  // Configuration Management
+  system_config: defineTable({
+    key: v.string(),
+    value: v.any(),
+    description: v.optional(v.string()),
+    created_at: v.number(),
+    updated_at: v.number(),
+  }).index("by_key", ["key"]),
+
+  // Feature Flags
+  feature_flags: defineTable({
+    name: v.string(),
+    enabled_globally: v.boolean(),
+    enabled_users: v.optional(v.array(v.string())),
+    rollout_percentage: v.optional(v.number()),
+    created_at: v.number(),
+    updated_at: v.number(),
+  }).index("by_name", ["name"]),
 });
