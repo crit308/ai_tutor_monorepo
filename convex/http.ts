@@ -172,9 +172,9 @@ http.route({
 http.route({
   path: "/uploadSessionDocuments",
   method: "POST",
-  handler: httpAction(async ({ runAction }, request) => {
+  handler: httpAction(async ({ runMutation }, request) => {
     const body = await request.json();
-    const result = await runAction(api.functions.uploadSessionDocuments, {
+    const result = await runMutation(api.functions.uploadSessionDocuments, {
       sessionId: body.sessionId as Id<'sessions'>,
       filenames: body.filenames ?? [],
     });

@@ -33,7 +33,7 @@ export interface UserSummaryLogData {
 }
 
 // --- Document Upload and Processing ---
-export const uploadSessionDocuments = action({
+export const uploadSessionDocuments = mutation({
   args: {
     sessionId: v.id("sessions"),
     files: v.array(v.object({
@@ -44,9 +44,7 @@ export const uploadSessionDocuments = action({
   },
   handler: async (ctx, args): Promise<DocumentUploadResponse> => {
     // Get session context
-    const session = await ctx.runQuery(api.tutorEndpoints.getSession, {
-      sessionId: args.sessionId,
-    });
+    const session = await ctx.db.get(args.sessionId);
 
     if (!session) {
       throw new Error("Session not found");
@@ -63,14 +61,17 @@ export const uploadSessionDocuments = action({
       // Process each file
       for (const file of args.files) {
         try {
-          // Store file metadata (using existing uploadSessionDocuments function)
-          await ctx.runMutation(api.functions.uploadSessionDocuments, {
-            sessionId: args.sessionId,
-            files: [{
-              fileName: file.filename,
-              contentType: file.mimeType,
-              fileData: file.content,
-            }],
+          // Store file metadata in uploaded_files table
+          await ctx.db.insert("uploaded_files", {
+            session_id: args.sessionId,
+            filename: file.filename,
+            mime_type: file.mimeType,
+            supabase_path: `uploads/${args.sessionId}/${file.filename}`,
+            user_id: session.user_id,
+            folder_id: session.folder_id || "default",
+            embedding_status: "pending",
+            created_at: Date.now(),
+            updated_at: Date.now(),
           });
 
           response.messages.push(`${file.filename} processed successfully.`);
@@ -290,7 +291,7 @@ export const logUserSummaryEvent = mutation({
 });
 
 // --- Quiz Generation Endpoint ---
-export const generateSessionQuiz = action({
+export const generateSessionQuiz = mutation({
   args: {
     sessionId: v.id("sessions"),
     topic: v.optional(v.string()),
@@ -343,7 +344,7 @@ export const generateSessionQuiz = action({
 });
 
 // --- Batch Analytics Processing ---
-export const processSessionAnalytics = action({
+export const processSessionAnalytics = mutation({
   args: {
     sessionId: v.id("sessions"),
   },
@@ -417,7 +418,7 @@ export const getInteractionLogs = query({
   handler: async (ctx, args) => {
     return await ctx.db
       .query("interaction_logs")
-      .withIndex("by_session", (q: any) => q.eq("session_id", args.sessionId))
+      .withIndex("by_session", (q) => q.eq("session_id", args.sessionId))
       .collect();
   },
 });
