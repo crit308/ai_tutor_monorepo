@@ -3,6 +3,13 @@ import { WebSocketServer } from 'ws';
 import * as jwt from 'jsonwebtoken';
 import { URL } from 'url';
 import { handleWhiteboardMessage, getInitialState, cleanupSession, startEphemeralGC } from './whiteboardWs';
+import { 
+  handleTutorMessage, 
+  hydrateInitialState, 
+  cleanupTutorSession, 
+  updateInteractionMode,
+  initializeTutorWs
+} from './tutorWs';
 
 // Configuration
 const port = Number(process.env.WS_PORT || 8080);
@@ -77,7 +84,7 @@ async function handleConnection(ws: any, sessionId: string, connectionType: stri
   
   console.log(`Added ${connectionType} connection for session ${sessionId}, user ${auth.userId}`);
 
-  // Send acknowledgment and initial state for whiteboard
+  // Send acknowledgment and initial state
   try {
     if (connectionType === 'whiteboard') {
       // For whiteboard connections, send initial Yjs state instead of JSON acknowledgment
@@ -85,6 +92,9 @@ async function handleConnection(ws: any, sessionId: string, connectionType: stri
       if (initialState) {
         ws.send(initialState);
       }
+    } else if (connectionType === 'tutor') {
+      // For tutor connections, hydrate initial session state
+      await hydrateInitialState(sessionId, auth.userId, ws);
     } else {
       // For other connections, send JSON acknowledgment
       ws.send(JSON.stringify({
@@ -97,7 +107,7 @@ async function handleConnection(ws: any, sessionId: string, connectionType: stri
   }
 
   // Handle messages
-  ws.on('message', (data: any) => {
+  ws.on('message', async (data: any) => {
     metadata.lastHeartbeat = Date.now();
     
     if (connectionType === 'whiteboard') {
@@ -111,8 +121,25 @@ async function handleConnection(ws: any, sessionId: string, connectionType: stri
       
       // Broadcast to peers
       broadcast(sessionId, data, ws, connectionType);
+    } else if (connectionType === 'tutor') {
+      // Handle tutor messages
+      try {
+        const message = JSON.parse(data.toString());
+        
+        // Handle whiteboard mode updates
+        if (message.whiteboard_mode) {
+          const success = updateInteractionMode(sessionId, message.whiteboard_mode);
+          if (success) {
+            console.log(`Updated interaction mode for session ${sessionId} to ${message.whiteboard_mode}`);
+          }
+        }
+        
+        await handleTutorMessage(sessionId, message, auth.userId, ws);
+      } catch (error) {
+        console.error(`Failed to handle tutor message for session ${sessionId}:`, error);
+      }
     } else {
-      // Handle other message types (tutor, etc.)
+      // Handle other message types
       try {
         const message = JSON.parse(data.toString());
         if (message.type === 'heartbeat') {
@@ -139,6 +166,7 @@ async function handleConnection(ws: any, sessionId: string, connectionType: stri
       if (sessionData.whiteboard.size === 0 && sessionData.tutor.size === 0) {
         sessions.delete(sessionId);
         cleanupSession(sessionId); // Clean up Yjs documents
+        cleanupTutorSession(sessionId); // Clean up tutor session data
         console.log(`Cleaned up empty session ${sessionId}`);
       }
     }
