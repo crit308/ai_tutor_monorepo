@@ -468,3 +468,229 @@ export const logUserSummary = mutation({
     });
   },
 });
+
+// New session management functions for enhanced SessionManager
+
+export const deleteSession = mutation({
+  args: { sessionId: v.id("sessions"), userId: v.string() },
+  handler: async (ctx, { sessionId, userId }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || identity.subject !== userId) {
+      throw new Error("Not authenticated");
+    }
+    
+    const session = await ctx.db.get(sessionId);
+    if (!session || session.user_id !== userId) {
+      throw new Error("Session not found");
+    }
+
+    // Delete related data first (messages, snapshots, etc.)
+    const messages = await ctx.db
+      .query("session_messages")
+      .withIndex("by_session_turn", (q) => q.eq("session_id", sessionId))
+      .collect();
+    
+    for (const message of messages) {
+      await ctx.db.delete(message._id);
+    }
+
+    const snapshots = await ctx.db
+      .query("whiteboard_snapshots")
+      .withIndex("by_session_snapshot", (q) => q.eq("session_id", sessionId))
+      .collect();
+    
+    for (const snapshot of snapshots) {
+      await ctx.db.delete(snapshot._id);
+    }
+
+    // Delete concept events
+    const conceptEvents = await ctx.db
+      .query("concept_events")
+      .withIndex("by_session", ["session_id"])
+      .filter((q) => q.eq(q.field("session_id"), sessionId))
+      .collect();
+    
+    for (const event of conceptEvents) {
+      await ctx.db.delete(event._id);
+    }
+
+    // Delete actions
+    const actions = await ctx.db
+      .query("actions")
+      .withIndex("by_session", ["session_id"])
+      .filter((q) => q.eq(q.field("session_id"), sessionId))
+      .collect();
+    
+    for (const action of actions) {
+      await ctx.db.delete(action._id);
+    }
+
+    // Delete edge logs
+    const edgeLogs = await ctx.db
+      .query("edge_logs")
+      .withIndex("by_session", ["session_id"])
+      .filter((q) => q.eq(q.field("session_id"), sessionId))
+      .collect();
+    
+    for (const log of edgeLogs) {
+      await ctx.db.delete(log._id);
+    }
+
+    // Delete interaction logs
+    const interactionLogs = await ctx.db
+      .query("interaction_logs")
+      .withIndex("by_session_created", (q) => q.eq("session_id", sessionId))
+      .collect();
+    
+    for (const log of interactionLogs) {
+      await ctx.db.delete(log._id);
+    }
+
+    // Finally delete the session itself
+    await ctx.db.delete(sessionId);
+    
+    return { success: true };
+  },
+});
+
+export const listUserSessions = query({
+  args: { 
+    userId: v.string(), 
+    limit: v.optional(v.number()), 
+    offset: v.optional(v.number()) 
+  },
+  handler: async (ctx, { userId, limit = 50, offset = 0 }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || identity.subject !== userId) {
+      throw new Error("Not authenticated");
+    }
+
+    const sessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_user", (q) => q.eq("user_id", userId))
+      .order("desc")
+      .take(Math.min(limit, 100)); // Cap at 100 for performance
+
+    // Apply offset manually (Convex doesn't have built-in offset)
+    const offsetSessions = sessions.slice(offset);
+
+    return {
+      sessions: offsetSessions.map(session => ({
+        id: session._id,
+        created_at: session.created_at,
+        folder_id: session.folder_id,
+        updated_at: session.updated_at,
+        ended_at: session.ended_at,
+        analysis_status: session.analysis_status,
+      })),
+    };
+  },
+});
+
+export const cleanupExpiredSessions = mutation({
+  args: { maxAgeMs: v.number() },
+  handler: async (ctx, { maxAgeMs }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+
+    const cutoffTime = Date.now() - maxAgeMs;
+    
+    // Find expired sessions
+    const expiredSessions = await ctx.db
+      .query("sessions")
+      .filter((q) => q.and(
+        q.lt(q.field("created_at"), cutoffTime),
+        q.eq(q.field("ended_at"), undefined) // Only cleanup unended sessions
+      ))
+      .collect();
+
+    let deletedCount = 0;
+
+    for (const session of expiredSessions) {
+      try {
+        // Delete related data
+        const messages = await ctx.db
+          .query("session_messages")
+          .withIndex("by_session_turn", (q) => q.eq("session_id", session._id))
+          .collect();
+        
+        for (const message of messages) {
+          await ctx.db.delete(message._id);
+        }
+
+        const snapshots = await ctx.db
+          .query("whiteboard_snapshots")
+          .withIndex("by_session_snapshot", (q) => q.eq("session_id", session._id))
+          .collect();
+        
+        for (const snapshot of snapshots) {
+          await ctx.db.delete(snapshot._id);
+        }
+
+        // Delete the session
+        await ctx.db.delete(session._id);
+        deletedCount++;
+
+      } catch (error) {
+        console.error(`Failed to delete expired session ${session._id}:`, error);
+      }
+    }
+
+    return { deletedCount };
+  },
+});
+
+export const getFolderData = query({
+  args: { folderId: v.id("folders"), userId: v.string() },
+  handler: async (ctx, { folderId, userId }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || identity.subject !== userId) {
+      throw new Error("Not authenticated");
+    }
+
+    const folder = await ctx.db.get(folderId);
+    if (!folder || folder.user_id !== userId) {
+      return null;
+    }
+
+    return {
+      id: folder._id,
+      name: folder.name,
+      vector_store_id: folder.vector_store_id,
+      knowledge_base: folder.knowledge_base,
+      created_at: folder.created_at,
+      updated_at: folder.updated_at,
+    };
+  },
+});
+
+// Enhanced session context validation
+export const validateSessionContext = query({
+  args: { sessionId: v.id("sessions"), userId: v.string() },
+  handler: async (ctx, { sessionId, userId }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || identity.subject !== userId) {
+      throw new Error("Not authenticated");
+    }
+
+    const session = await ctx.db.get(sessionId);
+    if (!session || session.user_id !== userId) {
+      return { valid: false, reason: "Session not found" };
+    }
+
+    const context = session.context_data as any;
+    if (!context) {
+      return { valid: false, reason: "No context data" };
+    }
+
+    // Basic validation
+    const requiredFields = ['user_id', 'session_id', 'interaction_mode'];
+    for (const field of requiredFields) {
+      if (!context[field]) {
+        return { valid: false, reason: `Missing required field: ${field}` };
+      }
+    }
+
+    return { valid: true, reason: null };
+  },
+});

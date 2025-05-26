@@ -196,6 +196,86 @@ http.route({
   }),
 });
 
+// Enhanced session management endpoints
+
+http.route({
+  path: "/deleteSession",
+  method: "POST",
+  handler: httpAction(async ({ runMutation }, request) => {
+    const body = await request.json();
+    const result = await runMutation(api.functions.deleteSession, {
+      sessionId: body.sessionId as Id<'sessions'>,
+      userId: body.userId,
+    });
+    return new Response(JSON.stringify(result), { status: 200 });
+  }),
+});
+
+http.route({
+  path: "/listUserSessions",
+  method: "GET",
+  handler: httpAction(async ({ runQuery }, request) => {
+    const url = new URL(request.url);
+    const userId = url.searchParams.get("userId");
+    if (!userId) return new Response("Missing userId", { status: 400 });
+    const limit = url.searchParams.get("limit");
+    const offset = url.searchParams.get("offset");
+    const result = await runQuery(api.functions.listUserSessions, {
+      userId,
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
+    });
+    return new Response(JSON.stringify(result), { status: 200 });
+  }),
+});
+
+http.route({
+  path: "/cleanupExpiredSessions",
+  method: "POST",
+  handler: httpAction(async ({ runMutation }, request) => {
+    const body = await request.json();
+    const result = await runMutation(api.functions.cleanupExpiredSessions, {
+      maxAgeMs: body.maxAgeMs,
+    });
+    return new Response(JSON.stringify(result), { status: 200 });
+  }),
+});
+
+http.route({
+  path: "/getFolderData",
+  method: "GET",
+  handler: httpAction(async ({ runQuery }, request) => {
+    const url = new URL(request.url);
+    const folderId = url.searchParams.get("folderId");
+    const userId = url.searchParams.get("userId");
+    if (!folderId) return new Response("Missing folderId", { status: 400 });
+    if (!userId) return new Response("Missing userId", { status: 400 });
+    const result = await runQuery(api.functions.getFolderData, {
+      folderId: folderId as Id<'folders'>,
+      userId,
+    });
+    if (!result) return new Response("Not found", { status: 404 });
+    return new Response(JSON.stringify(result), { status: 200 });
+  }),
+});
+
+http.route({
+  path: "/validateSessionContext",
+  method: "GET",
+  handler: httpAction(async ({ runQuery }, request) => {
+    const url = new URL(request.url);
+    const sessionId = url.searchParams.get("sessionId");
+    const userId = url.searchParams.get("userId");
+    if (!sessionId) return new Response("Missing sessionId", { status: 400 });
+    if (!userId) return new Response("Missing userId", { status: 400 });
+    const result = await runQuery(api.functions.validateSessionContext, {
+      sessionId: sessionId as Id<'sessions'>,
+      userId,
+    });
+    return new Response(JSON.stringify(result), { status: 200 });
+  }),
+});
+
 http.route({
   path: "/logMiniQuizAttempt",
   method: "POST",
