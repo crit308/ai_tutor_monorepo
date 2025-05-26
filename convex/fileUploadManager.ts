@@ -22,7 +22,7 @@ export class FileUploadManager {
   }
 
   async uploadAndProcessFile(
-    fileContent: Buffer,
+    fileContent: Buffer | Uint8Array,
     filename: string,
     userId: string,
     folderId: string,

@@ -861,10 +861,10 @@ export const processUploadedFilesForSession = action({
         if (!fileContentBlob) {
           throw new Error(`File content not found in Convex storage for ${fileInfo.filename}`);
         }
-        const fileContentBuffer = Buffer.from(await fileContentBlob.arrayBuffer());
+        const fileContentArray = new Uint8Array(await fileContentBlob.arrayBuffer());
 
         const uploadResult = await manager.uploadAndProcessFile(
-          fileContentBuffer,
+          fileContentArray,
           fileInfo.filename,
           session.user_id,
           session.folder_id || 'temp-folder-id',
