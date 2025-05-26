@@ -10,6 +10,40 @@ import {
   checkRateLimit 
 } from "./auth";
 
+// Export enhanced CRUD operations from separate modules (with unique names to avoid conflicts)
+export {
+  createSession as createSessionEnhanced,
+  getSession as getSessionEnhanced,
+  getSessionContext as getSessionContextEnhanced,
+  updateSessionContext as updateSessionContextEnhanced,
+  updateSessionStatus,
+  listUserSessions as listUserSessionsEnhanced,
+  deleteSession as deleteSessionEnhanced,
+  archiveOldSessions,
+  validateSessionConsistency,
+  repairSessionData,
+} from "./sessionCrud";
+
+export {
+  createFolder as createFolderEnhanced,
+  getFolder as getFolderEnhanced,
+  listFolders as listFoldersEnhanced,
+  updateFolder,
+  renameFolder as renameFolderEnhanced,
+  deleteFolder as deleteFolderEnhanced,
+  getFolderStats,
+  validateFolderConsistency,
+  repairFolderData,
+} from "./folderCrud";
+
+export {
+  getDatabaseMetrics,
+  analyzeQueryPerformance,
+  cleanupOldData,
+  getIndexOptimizations,
+  getStorageUsage,
+} from "./databaseOptimization";
+
 export const hello = query({
   args: {},
   handler: async () => {
