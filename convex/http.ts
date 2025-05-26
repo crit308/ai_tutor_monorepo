@@ -296,4 +296,78 @@ http.route({
   }),
 });
 
+// Enhanced authentication endpoints
+
+http.route({
+  path: "/auth/status",
+  method: "GET",
+  handler: httpAction(async ({ runQuery }) => {
+    try {
+      const status = await runQuery(api.functions.checkAuthStatus, {});
+      return new Response(JSON.stringify(status), { status: 200 });
+    } catch (error) {
+      return new Response(JSON.stringify({ 
+        authenticated: false, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      }), { status: 200 });
+    }
+  }),
+});
+
+http.route({
+  path: "/auth/user",
+  method: "GET",
+  handler: httpAction(async ({ runQuery }) => {
+    try {
+      const user = await runQuery(api.functions.getCurrentUserInfo, {});
+      if (!user) {
+        return new Response(JSON.stringify({ error: "Not authenticated" }), { status: 401 });
+      }
+      return new Response(JSON.stringify(user), { status: 200 });
+    } catch (error) {
+      return new Response(JSON.stringify({ 
+        error: error instanceof Error ? error.message : 'Authentication failed' 
+      }), { status: 401 });
+    }
+  }),
+});
+
+http.route({
+  path: "/user/sessions",
+  method: "GET",
+  handler: httpAction(async ({ runQuery }, request) => {
+    try {
+      const url = new URL(request.url);
+      const limit = url.searchParams.get("limit");
+      const sessions = await runQuery(api.functions.getUserSessions, {
+        limit: limit ? parseInt(limit) : undefined,
+      });
+      return new Response(JSON.stringify({ sessions }), { status: 200 });
+    } catch (error) {
+      return new Response(JSON.stringify({ 
+        error: error instanceof Error ? error.message : 'Failed to fetch sessions' 
+      }), { status: 401 });
+    }
+  }),
+});
+
+http.route({
+  path: "/user/folders",
+  method: "GET",
+  handler: httpAction(async ({ runQuery }, request) => {
+    try {
+      const url = new URL(request.url);
+      const limit = url.searchParams.get("limit");
+      const folders = await runQuery(api.functions.getUserFolders, {
+        limit: limit ? parseInt(limit) : undefined,
+      });
+      return new Response(JSON.stringify({ folders }), { status: 200 });
+    } catch (error) {
+      return new Response(JSON.stringify({ 
+        error: error instanceof Error ? error.message : 'Failed to fetch folders' 
+      }), { status: 401 });
+    }
+  }),
+});
+
 export default http;

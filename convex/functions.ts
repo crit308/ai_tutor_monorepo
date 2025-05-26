@@ -2,6 +2,13 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import path from "path";
 import { FileUploadManager } from "./fileUploadManager";
+import { 
+  requireAuth, 
+  requireAuthAndOwnership, 
+  getCurrentUser, 
+  validateSessionAccess,
+  checkRateLimit 
+} from "./auth";
 
 export const hello = query({
   args: {},
@@ -35,11 +42,16 @@ export const logInteraction = mutation({
 export const createFolder = mutation({
   args: { name: v.string() },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authenticated");
+    const userId = await requireAuth(ctx);
+    
+    // Rate limiting
+    if (!checkRateLimit(userId, 10, 60000)) {
+      throw new Error("Rate limit exceeded");
+    }
+    
     const now = Date.now();
     const id = await ctx.db.insert("folders", {
-      user_id: identity.subject,
+      user_id: userId,
       name: args.name,
       created_at: now,
       updated_at: now,
@@ -52,11 +64,10 @@ export const createFolder = mutation({
 export const listFolders = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return [];
+    const userId = await requireAuth(ctx);
     return await ctx.db
       .query("folders")
-      .withIndex("by_user", (q) => q.eq("user_id", identity.subject))
+      .withIndex("by_user", (q) => q.eq("user_id", userId))
       .collect();
   },
 });
@@ -64,10 +75,9 @@ export const listFolders = query({
 export const renameFolder = mutation({
   args: { folderId: v.id("folders"), name: v.string() },
   handler: async (ctx, { folderId, name }) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authenticated");
+    const userId = await requireAuth(ctx);
     const folder = await ctx.db.get(folderId);
-    if (!folder || folder.user_id !== identity.subject) {
+    if (!folder || folder.user_id !== userId) {
       throw new Error("Folder not found");
     }
     await ctx.db.patch(folderId, { name, updated_at: Date.now() });
@@ -101,11 +111,24 @@ export const getFolder = query({
 export const createSession = mutation({
   args: { folderId: v.optional(v.id("folders")) },
   handler: async (ctx, { folderId }) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authenticated");
+    const userId = await requireAuth(ctx);
+    
+    // Rate limiting for session creation
+    if (!checkRateLimit(userId, 20, 60000)) {
+      throw new Error("Rate limit exceeded for session creation");
+    }
+    
+    // Verify folder ownership if folder is provided
+    if (folderId) {
+      const folder = await ctx.db.get(folderId);
+      if (!folder || folder.user_id !== userId) {
+        throw new Error("Folder not found or access denied");
+      }
+    }
+    
     const now = Date.now();
     const id = await ctx.db.insert("sessions", {
-      user_id: identity.subject,
+      user_id: userId,
       folder_id: folderId ?? undefined,
       context_data: {},
       created_at: now,
@@ -506,8 +529,7 @@ export const deleteSession = mutation({
     // Delete concept events
     const conceptEvents = await ctx.db
       .query("concept_events")
-      .withIndex("by_session", ["session_id"])
-      .filter((q) => q.eq(q.field("session_id"), sessionId))
+      .withIndex("by_session", (q) => q.eq("session_id", sessionId))
       .collect();
     
     for (const event of conceptEvents) {
@@ -517,8 +539,7 @@ export const deleteSession = mutation({
     // Delete actions
     const actions = await ctx.db
       .query("actions")
-      .withIndex("by_session", ["session_id"])
-      .filter((q) => q.eq(q.field("session_id"), sessionId))
+      .withIndex("by_session", (q) => q.eq("session_id", sessionId))
       .collect();
     
     for (const action of actions) {
@@ -528,8 +549,7 @@ export const deleteSession = mutation({
     // Delete edge logs
     const edgeLogs = await ctx.db
       .query("edge_logs")
-      .withIndex("by_session", ["session_id"])
-      .filter((q) => q.eq(q.field("session_id"), sessionId))
+      .withIndex("by_session", (q) => q.eq("session_id", sessionId))
       .collect();
     
     for (const log of edgeLogs) {
@@ -668,10 +688,8 @@ export const getFolderData = query({
 export const validateSessionContext = query({
   args: { sessionId: v.id("sessions"), userId: v.string() },
   handler: async (ctx, { sessionId, userId }) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity || identity.subject !== userId) {
-      throw new Error("Not authenticated");
-    }
+    // Validate that requesting user matches the userId parameter
+    await requireAuthAndOwnership(ctx, userId);
 
     const session = await ctx.db.get(sessionId);
     if (!session || session.user_id !== userId) {
@@ -692,5 +710,60 @@ export const validateSessionContext = query({
     }
 
     return { valid: true, reason: null };
+  },
+});
+
+// New authentication management functions
+
+export const getCurrentUserInfo = query({
+  args: {},
+  handler: async (ctx) => {
+    return await getCurrentUser(ctx);
+  },
+});
+
+export const getUserSessions = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, { limit = 50 }) => {
+    const userId = await requireAuth(ctx);
+    
+    return await ctx.db
+      .query("sessions")
+      .withIndex("by_user", (q) => q.eq("user_id", userId))
+      .order("desc")
+      .take(Math.min(limit, 100));
+  },
+});
+
+export const getUserFolders = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, { limit = 50 }) => {
+    const userId = await requireAuth(ctx);
+    
+    return await ctx.db
+      .query("folders")
+      .withIndex("by_user", (q) => q.eq("user_id", userId))
+      .order("desc")
+      .take(Math.min(limit, 100));
+  },
+});
+
+export const checkAuthStatus = query({
+  args: {},
+  handler: async (ctx) => {
+    try {
+      const user = await getCurrentUser(ctx);
+      return {
+        authenticated: user !== null,
+        user: user,
+        timestamp: Date.now(),
+      };
+    } catch {
+      return {
+        authenticated: false,
+        user: null,
+        timestamp: Date.now(),
+      };
+    }
   },
 });
