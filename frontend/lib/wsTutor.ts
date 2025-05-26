@@ -4,29 +4,31 @@ export function connectTutorStream(
   sessionId: string,
   token: string
 ): WebSocket {
+  // Updated to use Convex WebSocket server (defaults to localhost:8080 for development)
   const base =
     process.env.NEXT_PUBLIC_BACKEND_WS_ORIGIN ||
-    `${window.location.protocol.replace('http', 'ws')}//${window.location.host}`;
+    process.env.NEXT_PUBLIC_CONVEX_WS_URL ||
+    'ws://localhost:8080';
   const url = new URL(`/ws/v2/session/${sessionId}`, base);
   url.searchParams.set('token', token);
 
   const ws = new WebSocket(url.toString());
 
   ws.onopen = () => {
-    console.log('[TutorWS] connected');
+    console.log('[TutorWS] Connected to Convex WebSocket server');
   };
   ws.onerror = (err) => {
-    console.error('[TutorWS] error', err);
+    console.error('[TutorWS] WebSocket error:', err);
   };
   ws.onclose = (ev) => {
-    console.log('[TutorWS] closed', ev.code, ev.reason);
+    console.log('[TutorWS] Connection closed:', ev.code, ev.reason);
   };
   ws.onmessage = (msg) => {
     try {
       const data: StreamEvent = JSON.parse(msg.data);
       handleStreamEvent(data);
     } catch (e) {
-      console.error('[TutorWS] could not parse message', e);
+      console.error('[TutorWS] Could not parse message:', e);
     }
   };
 

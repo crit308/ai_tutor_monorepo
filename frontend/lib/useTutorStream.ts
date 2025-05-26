@@ -150,16 +150,16 @@ export function useTutorStream(
               wsRef.current?.close(1006, "Pong timeout");
             }
           }, 15000);
-          try { ws.send(JSON.stringify({ type: 'ping' })); } catch (e) { console.error("[WebSocket] Error sending ping:", e); }
+          try { ws.send(JSON.stringify({ type: 'heartbeat' })); } catch (e) { console.error("[WebSocket] Error sending heartbeat:", e); }
         } else if (pingIntervalRef.current) {
           clearInterval(pingIntervalRef.current);
         }
       }, 5000);
       setTimeout(() => {
         if (wsRef.current === ws && ws.readyState === WebSocket.OPEN) {
-          console.log("[WebSocket] Sending initial 'user_message' (start)...");
-          try { sendMessage({ type: 'user_message', data: { text: 'Start the lesson.' } }); console.log("[WebSocket] Initial 'user_message' sent successfully."); }
-          catch (e) { console.error("[WebSocket] Error sending initial 'user_message':", e); handlers.onError?.(e); }
+          console.log("[WebSocket] Sending initial 'start' action...");
+          try { sendMessage({ type: 'start' }); console.log("[WebSocket] Initial 'start' action sent successfully."); }
+          catch (e) { console.error("[WebSocket] Error sending initial 'start' action:", e); handlers.onError?.(e); }
         }
       }, 100);
     };
@@ -262,17 +262,18 @@ export function useTutorStream(
         return; // Handled
       }
 
-      // Existing Ping/Pong, Ack, Raw Delta handlers should be here
-      if (parsedData?.type === 'pong') {
+      // Handle heartbeat acknowledgment from Convex WebSocket server
+      if (parsedData?.type === 'heartbeat_ack' || parsedData?.type === 'pong') {
         if (pingTimestampRef.current) {
           setLatency(Date.now() - pingTimestampRef.current);
           pingTimestampRef.current = null;
         }
-        // Clear the pong timeout timer since we received a pong
+        // Clear the pong timeout timer since we received a response
         if (pongTimeoutRef.current) {
           clearTimeout(pongTimeoutRef.current);
           pongTimeoutRef.current = null;
         }
+        console.debug('[WS] Received heartbeat acknowledgment');
         return; // Handled
       }
       if (parsedData?.type === 'ack') {

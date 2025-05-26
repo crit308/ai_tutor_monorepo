@@ -10,7 +10,12 @@
     "test:watch": "jest --watch",
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "ws:start": "cd convex && node start-ws-server.js",
+    "ws:test": "cd convex && node test-tutor-ws.js",
+    "ws:test:integration": "cd convex && node test-integration.js",
+    "ws:test:performance": "cd convex && node test-performance.js",
+    "ws:dev": "cd convex && npm run ws:start"
   },
   "dependencies": {
     "convex": "^1.24.1",
@@ -40,7 +45,8 @@
     "@typescript-eslint/parser": "^6.21.0",
     "jest": "^29.7.0",
     "@types/jest": "^29.5.12",
-    "ts-jest": "^29.1.2"
+    "ts-jest": "^29.1.2",
+    "tsx": "^4.7.0"
   },
   "keywords": ["ai", "tutor", "convex", "education"],
   "author": "AI Tutor Team",

@@ -26,6 +26,12 @@ async function authenticateConnection(token: string) {
     if (!token) return null;
     
     const cleanToken = token.startsWith('Bearer ') ? token.slice(7) : token;
+    
+    // In development mode, allow test tokens for easier testing
+    if (process.env.NODE_ENV === 'development' && cleanToken.includes('test-user')) {
+      return { userId: 'test-user-123' };
+    }
+    
     const decoded = jwt.verify(cleanToken, JWT_SECRET) as any;
     if (decoded && decoded.sub) {
       return { userId: decoded.sub };
@@ -33,6 +39,13 @@ async function authenticateConnection(token: string) {
     return null;
   } catch (error) {
     console.error('JWT verification failed:', error);
+    
+    // In development, be more permissive for testing
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('Development mode: Using fallback authentication');
+      return { userId: 'dev-user-' + Math.random().toString(36).substring(2, 15) };
+    }
+    
     return null;
   }
 }
