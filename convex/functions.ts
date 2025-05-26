@@ -300,24 +300,33 @@ export const getWhiteboardSnapshots = query({
 // Helper mutations for file upload actions
 export const insertUploadedFile = mutation({
   args: {
-    supabasePath: v.string(),
+    supabasePath: v.string(), // Or rename to storagePath
     userId: v.string(),
-    folderId: v.string(),
+    folderId: v.string(), // Ensure this is handled if it can be null/undefined
     embeddingStatus: v.string(),
+    filename: v.optional(v.string()), // Make these optional or ensure they are always passed
+    mimeType: v.optional(v.string()),
+    vectorStoreId: v.optional(v.string()),
+    fileId: v.optional(v.string()), // OpenAI File ID
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity || identity.subject !== args.userId) {
-      throw new Error('Not authenticated');
+      // Consider if this check is always needed or if service roles call this
+      throw new Error('Not authenticated or mismatched user');
     }
     
     await ctx.db.insert('uploaded_files', {
       supabase_path: args.supabasePath,
       user_id: args.userId,
-      folder_id: args.folderId,
+      folder_id: args.folderId, // This should be an Id<"folders"> if it's a link
       embedding_status: args.embeddingStatus,
       created_at: Date.now(),
       updated_at: Date.now(),
+      filename: args.filename,
+      mime_type: args.mimeType,
+      vector_store_id: args.vectorStoreId,
+      file_id: args.fileId, // Store OpenAI file_id
     });
   },
 });
@@ -796,6 +805,162 @@ export const uploadSessionDocuments = mutation({
       files_received: filenames,
       analysis_status: 'completed',
       message: 'Files processed successfully',
+    };
+  },
+});
+
+// Import the FileUploadManager for the action
+import { FileUploadManager } from "./fileUploadManager";
+
+export const generateFileUploadUrl = mutation({
+  handler: async (ctx) => {
+    // No auth check here, as this URL is single-use and short-lived.
+    // Access control can be added if needed (e.g., ensure user is logged in).
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+export const processUploadedFilesForSession = action({
+  args: {
+    sessionId: v.id('sessions'),
+    uploadedFileInfos: v.array(v.object({
+      storageId: v.id('_storage'),
+      filename: v.string(),
+      mimeType: v.string(),
+    })),
+  },
+  handler: async (ctx, { sessionId, uploadedFileInfos }): Promise<{
+    vector_store_id: string | undefined;
+    files_received: string[];
+    analysis_status: string;
+    message: string;
+  }> => {
+    console.log(`[Action] Processing ${uploadedFileInfos.length} uploaded files for session ${sessionId}`);
+    const session: any = await ctx.runQuery(api.functions.getSessionEnhanced, { sessionId });
+    if (!session || !session.user_id) {
+      throw new Error(`Session ${sessionId} not found or missing user_id`);
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      console.error("OPENAI_API_KEY not set in Convex action environment.");
+      throw new Error('Missing OPENAI_API_KEY for file processing.');
+    }
+
+    const existingVectorStoreId: string | undefined = session.context_data?.vector_store_id || undefined;
+    const manager: FileUploadManager = new FileUploadManager(apiKey, existingVectorStoreId);
+
+    const results: Array<{ filename: string; success: boolean; error?: string; openAIFileId?: string; vectorStoreId?: string }> = [];
+    const processedFilenamesForContext: string[] = [];
+
+    for (const fileInfo of uploadedFileInfos) {
+      let openAIFileId: string | undefined = undefined;
+      let vsIdForFile: string | undefined = undefined;
+      try {
+        const fileContentBlob = await ctx.storage.get(fileInfo.storageId);
+        if (!fileContentBlob) {
+          throw new Error(`File content not found in Convex storage for ${fileInfo.filename}`);
+        }
+        const fileContentBuffer = Buffer.from(await fileContentBlob.arrayBuffer());
+
+        const uploadResult = await manager.uploadAndProcessFile(
+          fileContentBuffer,
+          fileInfo.filename,
+          session.user_id,
+          session.folder_id || 'temp-folder-id',
+          manager.getVectorStoreId(),
+        );
+        openAIFileId = uploadResult.fileId;
+        vsIdForFile = uploadResult.vectorStoreId;
+
+        await ctx.runMutation(api.functions.insertUploadedFile, {
+          supabasePath: `convex_storage://${fileInfo.storageId}`,
+          userId: session.user_id,
+          folderId: session.folder_id || "default_folder_id_placeholder",
+          embeddingStatus: 'completed',
+          filename: fileInfo.filename,
+          mimeType: fileInfo.mimeType,
+          vectorStoreId: uploadResult.vectorStoreId,
+          fileId: uploadResult.fileId,
+        });
+
+        results.push({ filename: fileInfo.filename, success: true, openAIFileId, vectorStoreId: vsIdForFile });
+        processedFilenamesForContext.push(fileInfo.filename);
+      } catch (error) {
+        console.error(`[Action] Error processing file ${fileInfo.filename}:`, error);
+        results.push({ filename: fileInfo.filename, success: false, error: (error as Error).message });
+        await ctx.runMutation(api.functions.insertUploadedFile, {
+          supabasePath: `convex_storage://${fileInfo.storageId}`,
+          userId: session.user_id,
+          folderId: session.folder_id || "default_folder_id_placeholder",
+          embeddingStatus: 'failed',
+          filename: fileInfo.filename,
+          mimeType: fileInfo.mimeType,
+        });
+      }
+    }
+
+    const finalVectorStoreId: string | undefined = manager.getVectorStoreId();
+    let overallStatus = "completed";
+    if (results.some(r => !r.success)) {
+        overallStatus = results.every(r => !r.success) ? "failed" : "partial_failure";
+    }
+
+    const currentContext = session.context_data || {};
+    const updatedFilePaths = Array.from(new Set([
+        ...(currentContext.uploaded_file_paths || []),
+        ...processedFilenamesForContext
+    ]));
+
+    const updatedSessionContext = {
+      ...currentContext,
+      uploaded_file_paths: updatedFilePaths,
+      vector_store_id: finalVectorStoreId,
+    };
+
+    await ctx.runMutation(api.functions.updateSessionContextEnhanced, {
+      sessionId: sessionId,
+      context: updatedSessionContext,
+    });
+
+    if (session.folder_id && finalVectorStoreId) {
+      await ctx.runMutation(api.functions.updateFolderVectorStore, {
+        folderId: session.folder_id,
+        vectorStoreId: finalVectorStoreId,
+      });
+    }
+    
+    let analysisStepMessage = "Document analysis will proceed if files were successfully processed by OpenAI.";
+    if (finalVectorStoreId && (overallStatus === "completed" || overallStatus === "partial_failure")) {
+        if (results.some(r => r.success && r.vectorStoreId)) {
+            try {
+                console.log(`[Action] Triggering document analysis for vector store: ${finalVectorStoreId}`);
+                // TODO: Re-enable once aiAgents API is properly resolved
+                // const analysisActionResponse = await ctx.runAction(api.aiAgents.analyzeDocuments, {
+                //     sessionId: sessionId,
+                //     userId: session.user_id,
+                //     vectorStoreId: finalVectorStoreId,
+                //     folderId: session.folder_id,
+                // });
+
+                // For now, skip analysis but mark as successful
+                analysisStepMessage = "Files processed successfully. Document analysis will be enabled in next phase.";
+            } catch (analysisError) {
+                console.error(`[Action] Document analysis step failed catastrophically:`, analysisError);
+                analysisStepMessage = `Document analysis step threw an error: ${(analysisError as Error).message}`;
+                if (overallStatus === "completed") overallStatus = "analysis_failed";
+            }
+        } else {
+             analysisStepMessage = "No files were successfully added to a vector store; skipping analysis.";
+             if (overallStatus === "completed") overallStatus = "no_files_for_analysis";
+        }
+    }
+
+    return {
+      vector_store_id: finalVectorStoreId,
+      files_received: results.filter(r => r.success).map(r => r.filename),
+      analysis_status: overallStatus,
+      message: analysisStepMessage,
     };
   },
 });

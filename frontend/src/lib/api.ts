@@ -173,27 +173,76 @@ export const deleteSession = async (sessionId: string, options?: {
 
 // --- Document Upload ---
 
+// Add function to get upload URL from Convex
+export const generateFileUploadUrl = async (): Promise<string> => {
+  try {
+    const uploadUrl = await convex.mutation(convexApi.functions.generateFileUploadUrl);
+    if (!uploadUrl) {
+      throw new Error("Failed to get an upload URL from Convex.");
+    }
+    return uploadUrl;
+  } catch (error) {
+    console.error('Error generating file upload URL:', error);
+    throw error;
+  }
+};
+
 export const uploadDocuments = async (
   sessionId: string,
   files: File[],
 ): Promise<UploadDocumentsResponse> => {
-  // Convex currently expects a list of filenames rather than the raw file data.
-  // The actual upload to storage should be handled separately.
-  const filenames = files.map((f) => f.name);
+  if (files.length === 0) {
+    return {
+      vector_store_id: null,
+      files_received: [],
+      analysis_status: 'completed',
+      message: "No files selected for upload.",
+    };
+  }
 
+  console.log(`[API] Starting upload process for ${files.length} files to session ${sessionId}`);
+
+  const uploadedFileInfos: Array<{ storageId: string; filename: string; mimeType: string }> = [];
+
+  for (const file of files) {
+    try {
+      console.log(`[API] Requesting upload URL for ${file.name}`);
+      const postUrl = await generateFileUploadUrl();
+      console.log(`[API] Upload URL received for ${file.name}. Posting file...`);
+
+      const uploadResult = await fetch(postUrl, {
+        method: "POST",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+
+      if (!uploadResult.ok) {
+        throw new Error(`Failed to upload ${file.name} directly to Convex storage. Status: ${uploadResult.status} ${uploadResult.statusText}`);
+      }
+
+      const { storageId } = await uploadResult.json(); // Convex returns { storageId: Id<"_storage"> }
+      console.log(`[API] File ${file.name} uploaded to Convex storage. Storage ID: ${storageId}`);
+      uploadedFileInfos.push({ storageId, filename: file.name, mimeType: file.type });
+    } catch (error) {
+      console.error(`[API] Error uploading file ${file.name}:`, error);
+      // Stop the batch if one file fails direct upload
+      throw new Error(`Failed to upload ${file.name} to Convex storage: ${(error as Error).message}`);
+    }
+  }
+
+  // All files uploaded to Convex storage, now trigger backend processing action
   try {
-    console.log(
-      `Recording ${filenames.length} document(s) for session ${sessionId} via Convex...`,
-    );
-    const result = await convex.mutation(
-      convexApi.functions.uploadSessionDocuments,
-      { sessionId, filenames }
-    );
-    console.log('Upload recorded:', result);
-    return result as UploadDocumentsResponse;
+    console.log(`[API] All files uploaded to Convex storage. Triggering backend processing for session ${sessionId}.`);
+    const processingResponse = await convex.action(convexApi.functions.processUploadedFilesForSession, {
+      sessionId,
+      uploadedFileInfos,
+    });
+    console.log('[API] Backend processing response:', processingResponse);
+    // The action should return an UploadDocumentsResponse compatible structure
+    return processingResponse as UploadDocumentsResponse;
   } catch (error) {
-    console.error('Error uploading documents:', error);
-    throw error;
+    console.error('[API] Error triggering backend file processing action:', error);
+    throw error; // Re-throw to be caught by the UI
   }
 };
 
