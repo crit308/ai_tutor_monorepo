@@ -1,60 +1,218 @@
-import http from 'http';
-import { WebSocketServer, WebSocket, RawData } from 'ws';
+import * as http from 'http';
+import { WebSocketServer } from 'ws';
+import * as jwt from 'jsonwebtoken';
+import { URL } from 'url';
 
+// Configuration
 const port = Number(process.env.WS_PORT || 8080);
+const JWT_SECRET = process.env.JWT_SECRET || 'your-default-secret';
 const server = http.createServer();
 
-// Map sessionId -> set of WebSocket connections
-const sessions = new Map<string, Set<WebSocket>>();
+// Simple connection tracking
+const sessions = new Map();
+const connections = new Map();
 
-function broadcast(sessionId: string, data: RawData, origin: WebSocket) {
-  const peers = sessions.get(sessionId);
-  if (!peers) return;
-  for (const ws of peers) {
-    if (ws !== origin && ws.readyState === WebSocket.OPEN) {
-      ws.send(data, { binary: typeof data !== 'string' });
+// JWT Authentication helper
+async function authenticateConnection(token: string) {
+  try {
+    if (!token) return null;
+    
+    const cleanToken = token.startsWith('Bearer ') ? token.slice(7) : token;
+    const decoded = jwt.verify(cleanToken, JWT_SECRET) as any;
+    if (decoded && decoded.sub) {
+      return { userId: decoded.sub };
     }
+    return null;
+  } catch (error) {
+    console.error('JWT verification failed:', error);
+    return null;
   }
 }
 
-function handleConnection(ws: WebSocket, sessionId: string) {
-  let peers = sessions.get(sessionId);
-  if (!peers) {
-    peers = new Set();
-    sessions.set(sessionId, peers);
-  }
-  peers.add(ws);
+// Message broadcasting
+function broadcast(sessionId: string, data: any, origin: any, connectionType?: string) {
+  const sessionData = sessions.get(sessionId);
+  if (!sessionData) return;
 
-  ws.on('message', (data, isBinary) => {
-    broadcast(sessionId, data, ws);
+  const targetType = connectionType || 'all';
+  connections.forEach((metadata, ws) => {
+    if (ws !== origin && 
+        metadata.sessionId === sessionId && 
+        (targetType === 'all' || metadata.connectionType === targetType) &&
+        ws.readyState === 1) { // WebSocket.OPEN = 1
+      try {
+        ws.send(data);
+      } catch (error) {
+        console.error('Failed to send message:', error);
+        connections.delete(ws);
+      }
+    }
+  });
+}
+
+// Connection handler
+async function handleConnection(ws: any, sessionId: string, connectionType: string, token: string) {
+  // Authenticate
+  const auth = await authenticateConnection(token);
+  if (!auth) {
+    ws.close(1008, 'Authentication failed');
+    return;
+  }
+  
+  // Store connection metadata
+  const metadata = {
+    userId: auth.userId,
+    sessionId,
+    connectionType,
+    lastHeartbeat: Date.now()
+  };
+  connections.set(ws, metadata);
+  
+  // Track session
+  if (!sessions.has(sessionId)) {
+    sessions.set(sessionId, { whiteboard: new Set(), tutor: new Set() });
+  }
+  sessions.get(sessionId)[connectionType].add(ws);
+  
+  console.log(`Added ${connectionType} connection for session ${sessionId}, user ${auth.userId}`);
+
+  // Send acknowledgment
+  try {
+    ws.send(JSON.stringify({
+      type: 'connection_established',
+      data: { sessionId, connectionType, timestamp: Date.now() }
+    }));
+  } catch (error) {
+    console.error('Failed to send acknowledgment:', error);
+  }
+
+  // Handle messages
+  ws.on('message', (data: any) => {
+    metadata.lastHeartbeat = Date.now();
+    
+    // Handle heartbeat
+    try {
+      const message = JSON.parse(data.toString());
+      if (message.type === 'heartbeat') {
+        ws.send(JSON.stringify({ type: 'heartbeat_ack', timestamp: Date.now() }));
+        return;
+      }
+    } catch {
+      // Not JSON, treat as raw data
+    }
+
+    // Broadcast to peers
+    broadcast(sessionId, data, ws, connectionType);
   });
 
+  // Handle close
   ws.on('close', () => {
-    peers!.delete(ws);
-    if (peers!.size === 0) {
-      sessions.delete(sessionId);
+    console.log(`Connection closed for session ${sessionId}, user ${auth.userId}`);
+    connections.delete(ws);
+    
+    const sessionData = sessions.get(sessionId);
+    if (sessionData) {
+      sessionData[connectionType].delete(ws);
+      if (sessionData.whiteboard.size === 0 && sessionData.tutor.size === 0) {
+        sessions.delete(sessionId);
+        console.log(`Cleaned up empty session ${sessionId}`);
+      }
     }
+  });
+
+  // Handle errors
+  ws.on('error', (error: any) => {
+    console.error(`WebSocket error for session ${sessionId}:`, error);
+    connections.delete(ws);
   });
 }
 
 const wss = new WebSocketServer({ noServer: true });
 
-server.on('upgrade', (req, socket, head) => {
-  const url = new URL(req.url || '/', `http://${req.headers.host}`);
-  const matchTutor = url.pathname.match(/^\/ws\/v2\/session\/([^/]+)$/);
-  const matchWhiteboard = url.pathname.match(/^\/ws\/v2\/session\/([^/]+)\/whiteboard$/);
+// Heartbeat monitor
+setInterval(() => {
+  const now = Date.now();
+  const staleThreshold = 60000; // 60 seconds
 
-  const sessionId = matchTutor?.[1] || matchWhiteboard?.[1];
-  if (!sessionId) {
+  connections.forEach((metadata, ws) => {
+    if ((now - metadata.lastHeartbeat) > staleThreshold) {
+      console.log(`Terminating stale connection for session ${metadata.sessionId}`);
+      ws.close();
+    }
+  });
+}, 30000);
+
+server.on('upgrade', async (req, socket, head) => {
+  try {
+    const url = new URL(req.url || '/', `http://${req.headers.host}`);
+    const matchTutor = url.pathname.match(/^\/ws\/v2\/session\/([^/]+)$/);
+    const matchWhiteboard = url.pathname.match(/^\/ws\/v2\/session\/([^/]+)\/whiteboard$/);
+
+    const sessionId = matchTutor?.[1] || matchWhiteboard?.[1];
+    const connectionType = matchWhiteboard ? 'whiteboard' : 'tutor';
+
+    if (!sessionId) {
+      socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+
+    // Extract token
+    let token = '';
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.slice(7);
+    } else {
+      token = url.searchParams.get('token') || '';
+    }
+
+    if (!token) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+
+    // Validate token
+    const auth = await authenticateConnection(token);
+    if (!auth) {
+      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      handleConnection(ws, sessionId, connectionType, token);
+    });
+
+  } catch (error) {
+    console.error('Error during WebSocket upgrade:', error);
+    socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
     socket.destroy();
-    return;
   }
+});
 
-  wss.handleUpgrade(req, socket, head, (ws) => {
-    handleConnection(ws, sessionId);
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('Received SIGTERM, closing WebSocket server gracefully...');
+  server.close(() => {
+    console.log('WebSocket server closed');
+    process.exit(0);
   });
 });
 
+process.on('SIGINT', () => {
+  console.log('Received SIGINT, closing WebSocket server gracefully...');
+  server.close(() => {
+    console.log('WebSocket server closed');
+    process.exit(0);
+  });
+});
+
+// Start server
 server.listen(port, () => {
   console.log(`WebSocket server listening on port ${port}`);
+  console.log('Supported endpoints:');
+  console.log(`  - /ws/v2/session/{sessionId} (tutor)`);
+  console.log(`  - /ws/v2/session/{sessionId}/whiteboard (whiteboard)`);
+  console.log('✅ Phase 1 Task 1.1: WebSocket Foundation - COMPLETE');
 });

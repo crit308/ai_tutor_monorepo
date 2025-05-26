@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "@types/jsonwebtoken": "^9.0.9",
+    "@types/node": "^22.15.21",
+    "@types/ws": "^8.18.1",
+    "jsonwebtoken": "^9.0.2",
+    "typescript": "^5.8.3",
+    "ws": "^8.18.2"
+  }
+}
