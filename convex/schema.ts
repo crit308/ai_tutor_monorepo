@@ -28,8 +28,7 @@ export default defineSchema({
     context: v.optional(v.any()), // Alias for context_data compatibility
   })
     .index("by_user", ["user_id"])
-    .index("by_folder", ["folder_id"])
-    .index("by_user_id", ["user_id"]), // Additional index for Phase 4
+    .index("by_folder", ["folder_id"]),
 
   session_messages: defineTable({
     session_id: v.string(),
@@ -270,4 +269,41 @@ export default defineSchema({
     created_at: v.number(),
     updated_at: v.number(),
   }).index("by_name", ["name"]),
+
+  // Real-time Events
+  realtime_events: defineTable({
+    event_type: v.string(),
+    session_id: v.optional(v.string()),
+    user_id: v.optional(v.string()),
+    event_data: v.any(),
+    timestamp: v.number(),
+  })
+    .index("by_type", ["event_type"])
+    .index("by_session", ["session_id"])
+    .index("by_timestamp", ["timestamp"]),
+
+  // Error Logs
+  error_logs: defineTable({
+    error_type: v.string(),
+    error_message: v.string(),
+    session_id: v.optional(v.string()),
+    user_id: v.optional(v.string()),
+    timestamp: v.number(),
+    stack_trace: v.optional(v.string()),
+    metadata: v.optional(v.any()),
+  })
+    .index("by_type", ["error_type"])
+    .index("by_session", ["session_id"])
+    .index("by_timestamp", ["timestamp"]),
+
+  // System Status
+  system_status: defineTable({
+    component: v.string(),
+    status: v.union(v.literal("healthy"), v.literal("warning"), v.literal("error")),
+    message: v.optional(v.string()),
+    metrics: v.optional(v.any()),
+    timestamp: v.number(),
+  })
+    .index("by_component", ["component"])
+    .index("by_timestamp", ["timestamp"]),
 });

@@ -1,3 +1,5 @@
+"use node";
+
 import fs from 'fs';
 import path from 'path';
 import { OpenAI } from 'openai';
@@ -42,10 +44,10 @@ export class FileUploadManager {
       this.vectorStoreId = vs.id;
     }
 
-    await this.client.vectorStores.files.create({
-      vectorStoreId: this.vectorStoreId as string,
-      fileId,
-    });
+    await this.client.vectorStores.files.create(
+      this.vectorStoreId as string,
+      { file_id: fileId }
+    );
 
     await this.pollFileProcessing(fileId);
 
@@ -62,10 +64,10 @@ export class FileUploadManager {
   private async pollFileProcessing(fileId: string, timeout = 120000, interval = 2000) {
     const start = Date.now();
     while (Date.now() - start < timeout) {
-      const statusResp = await this.client.vectorStores.files.retrieve({
-        vectorStoreId: this.vectorStoreId as string,
-        fileId,
-      });
+      const statusResp = await this.client.vectorStores.files.retrieve(
+        this.vectorStoreId as string,
+        fileId
+      );
       const status = statusResp.status;
       if (status === 'completed') return;
       if (['failed', 'cancelled', 'expired'].includes(status)) {

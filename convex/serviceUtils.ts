@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { action, mutation, query } from "./_generated/server";
 import { api } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
-import { ConvexError } from "convex/server";
+import { ConvexError } from "convex/values";
 
 // --- Utility Types ---
 
@@ -306,7 +306,7 @@ export function handleServiceError(error: unknown, operation: string): ServiceEr
   }
   
   if (error instanceof ConvexError) {
-    return new ServiceError(error.message, 'CONVEX_ERROR', { operation });
+    return new ServiceError(String(error), 'CONVEX_ERROR', { operation });
   }
   
   if (error instanceof Error) {
@@ -371,8 +371,7 @@ export const getCachedValue = query({
     
     // Check if entry has expired
     if (entry.expires_at && entry.expires_at < Date.now()) {
-      // Delete expired entry
-      await ctx.db.delete(entry._id);
+      // Return null for expired entries (cleanup will be handled by a separate background job)
       return null;
     }
     

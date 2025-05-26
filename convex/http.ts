@@ -128,11 +128,11 @@ http.route({
 http.route({
   path: "/getBoardSummary",
   method: "GET",
-  handler: httpAction(async ({ runQuery }, request) => {
+  handler: httpAction(async ({ runAction }, request) => {
     const url = new URL(request.url);
     const sessionId = url.searchParams.get("sessionId");
     if (!sessionId) return new Response("Missing sessionId", { status: 400 });
-    const summary = await runQuery(api.functions.getBoardSummary, {
+    const summary = await runAction(api.functions.getBoardSummary, {
       sessionId: sessionId as Id<'sessions'>,
     });
     return new Response(JSON.stringify(summary), { status: 200 });
@@ -172,9 +172,9 @@ http.route({
 http.route({
   path: "/uploadSessionDocuments",
   method: "POST",
-  handler: httpAction(async ({ runMutation }, request) => {
+  handler: httpAction(async ({ runAction }, request) => {
     const body = await request.json();
-    const result = await runMutation(api.functions.uploadSessionDocuments, {
+    const result = await runAction(api.functions.uploadSessionDocuments, {
       sessionId: body.sessionId as Id<'sessions'>,
       filenames: body.filenames ?? [],
     });

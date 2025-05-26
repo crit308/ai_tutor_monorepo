@@ -1,8 +1,8 @@
 import { v } from "convex/values";
-import { action, mutation, query } from "./_generated/server";
+import { action, mutation, query, internalAction, internalMutation } from "./_generated/server";
 import { api } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
-import { ConvexError } from "convex/server";
+import { ConvexError } from "convex/values";
 import { cronJobs } from "convex/server";
 
 // --- Background Job Types ---
@@ -28,11 +28,11 @@ export interface EmbeddingJob {
 
 // --- Scheduled Jobs ---
 
-// Process embedding queue every 30 seconds
-export const processEmbeddingQueueJob = cronJobs.interval(
-  "process embedding queue",
-  { seconds: 30 },
-  async (ctx) => {
+// --- Internal Functions for Cron Jobs ---
+
+export const processEmbeddingQueue = internalAction({
+  args: {},
+  handler: async (ctx) => {
     try {
       const result = await ctx.runAction(api.documentProcessor.processEmbeddingQueue, {
         batchSize: 5,
@@ -41,53 +41,63 @@ export const processEmbeddingQueueJob = cronJobs.interval(
       if (result.processedCount > 0) {
         console.log(`Processed ${result.processedCount} embedding jobs, ${result.successCount} successful`);
       }
+      return result;
     } catch (error) {
       console.error("Error in embedding queue job:", error);
+      throw error;
     }
   }
-);
+});
 
-// Cleanup old interaction logs every hour
-export const cleanupOldLogsJob = cronJobs.interval(
-  "cleanup old logs",
-  { hours: 1 },
-  async (ctx) => {
+export const cleanupOldLogs = internalMutation({
+  args: { daysToKeep: v.optional(v.number()) },
+  handler: async (ctx, args) => {
     try {
-      const cutoffTime = Date.now() - (30 * 24 * 60 * 60 * 1000); // 30 days ago
-      const result = await ctx.runMutation(api.backgroundJobs.cleanupOldLogs, {
-        cutoffTime,
-      });
+      const daysToKeep = args.daysToKeep || 30;
+      const cutoffTime = Date.now() - (daysToKeep * 24 * 60 * 60 * 1000);
       
-      if (result.deletedCount > 0) {
-        console.log(`Cleaned up ${result.deletedCount} old interaction logs`);
+      // Clean up old interaction logs
+      const oldLogs = await ctx.db
+        .query("interaction_logs")
+        .filter(q => q.lt(q.field("created_at"), cutoffTime))
+        .collect();
+      
+      let deletedCount = 0;
+      for (const log of oldLogs) {
+        await ctx.db.delete(log._id);
+        deletedCount++;
       }
+      
+      console.log(`Cleaned up ${deletedCount} old interaction logs`);
+      return { deletedCount };
     } catch (error) {
       console.error("Error in cleanup job:", error);
+      throw error;
     }
   }
-);
+});
 
-// Process session analytics every 15 minutes
-export const processSessionAnalyticsJob = cronJobs.interval(
-  "process session analytics",
-  { minutes: 15 },
-  async (ctx) => {
+export const batchProcessSessionAnalytics = internalAction({
+  args: {},
+  handler: async (ctx) => {
     try {
-      const result = await ctx.runAction(api.backgroundJobs.batchProcessSessionAnalytics, {});
+      const result = await ctx.runAction(api.tutorEndpoints.processSessionAnalytics, {
+        batchSize: 50,
+      });
       console.log(`Processed analytics for ${result.processedSessions} sessions`);
+      return result;
     } catch (error) {
       console.error("Error in analytics job:", error);
+      throw error;
     }
   }
-);
+});
 
-// Health check and system monitoring every 5 minutes
-export const systemHealthCheckJob = cronJobs.interval(
-  "system health check",
-  { minutes: 5 },
-  async (ctx) => {
+export const systemHealthCheck = internalMutation({
+  args: {},
+  handler: async (ctx) => {
     try {
-      const healthStatus = await ctx.runQuery(api.backgroundJobs.getSystemHealth, {});
+      const healthStatus = await getSystemHealth(ctx, {});
       
       // Log any concerning metrics
       if (healthStatus.pendingEmbeddings > 100) {
@@ -99,14 +109,19 @@ export const systemHealthCheckJob = cronJobs.interval(
       }
       
       // Update system status
-      await ctx.runMutation(api.backgroundJobs.updateSystemStatus, {
-        status: healthStatus,
+      await updateSystemStatus(ctx, {
+        component: 'overall',
+        status: healthStatus.pendingEmbeddings > 100 || healthStatus.failedJobsLastHour > 10 ? 'warning' : 'healthy',
+        metrics: healthStatus,
       });
+      
+      return healthStatus;
     } catch (error) {
       console.error("Error in health check job:", error);
+      throw error;
     }
   }
-);
+});
 
 // --- Background Job Management ---
 

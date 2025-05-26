@@ -159,7 +159,7 @@ export async function getCurrentUser(ctx: QueryCtx | MutationCtx): Promise<{
         id: identity.subject,
         email: identity.email,
         name: identity.name,
-        image: identity.picture,
+        image: identity.pictureUrl,
     };
 }
 
