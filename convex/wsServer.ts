@@ -2,6 +2,7 @@ import * as http from 'http';
 import { WebSocketServer } from 'ws';
 import * as jwt from 'jsonwebtoken';
 import { URL } from 'url';
+import { handleWhiteboardMessage, getInitialState, cleanupSession, startEphemeralGC } from './whiteboardWs';
 
 // Configuration
 const port = Number(process.env.WS_PORT || 8080);
@@ -76,12 +77,21 @@ async function handleConnection(ws: any, sessionId: string, connectionType: stri
   
   console.log(`Added ${connectionType} connection for session ${sessionId}, user ${auth.userId}`);
 
-  // Send acknowledgment
+  // Send acknowledgment and initial state for whiteboard
   try {
-    ws.send(JSON.stringify({
-      type: 'connection_established',
-      data: { sessionId, connectionType, timestamp: Date.now() }
-    }));
+    if (connectionType === 'whiteboard') {
+      // For whiteboard connections, send initial Yjs state instead of JSON acknowledgment
+      const initialState = getInitialState(sessionId);
+      if (initialState) {
+        ws.send(initialState);
+      }
+    } else {
+      // For other connections, send JSON acknowledgment
+      ws.send(JSON.stringify({
+        type: 'connection_established',
+        data: { sessionId, connectionType, timestamp: Date.now() }
+      }));
+    }
   } catch (error) {
     console.error('Failed to send acknowledgment:', error);
   }
@@ -90,19 +100,32 @@ async function handleConnection(ws: any, sessionId: string, connectionType: stri
   ws.on('message', (data: any) => {
     metadata.lastHeartbeat = Date.now();
     
-    // Handle heartbeat
-    try {
-      const message = JSON.parse(data.toString());
-      if (message.type === 'heartbeat') {
-        ws.send(JSON.stringify({ type: 'heartbeat_ack', timestamp: Date.now() }));
-        return;
+    if (connectionType === 'whiteboard') {
+      // Handle whiteboard (Yjs) messages
+      const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+      
+      // Process Yjs update and validate content
+      handleWhiteboardMessage(sessionId, buffer, auth.userId, (broadcastData) => {
+        broadcast(sessionId, broadcastData, ws, connectionType);
+      });
+      
+      // Broadcast to peers
+      broadcast(sessionId, data, ws, connectionType);
+    } else {
+      // Handle other message types (tutor, etc.)
+      try {
+        const message = JSON.parse(data.toString());
+        if (message.type === 'heartbeat') {
+          ws.send(JSON.stringify({ type: 'heartbeat_ack', timestamp: Date.now() }));
+          return;
+        }
+      } catch {
+        // Not JSON, treat as raw data
       }
-    } catch {
-      // Not JSON, treat as raw data
-    }
 
-    // Broadcast to peers
-    broadcast(sessionId, data, ws, connectionType);
+      // Broadcast to peers
+      broadcast(sessionId, data, ws, connectionType);
+    }
   });
 
   // Handle close
@@ -115,6 +138,7 @@ async function handleConnection(ws: any, sessionId: string, connectionType: stri
       sessionData[connectionType].delete(ws);
       if (sessionData.whiteboard.size === 0 && sessionData.tutor.size === 0) {
         sessions.delete(sessionId);
+        cleanupSession(sessionId); // Clean up Yjs documents
         console.log(`Cleaned up empty session ${sessionId}`);
       }
     }
@@ -215,4 +239,8 @@ server.listen(port, () => {
   console.log(`  - /ws/v2/session/{sessionId} (tutor)`);
   console.log(`  - /ws/v2/session/{sessionId}/whiteboard (whiteboard)`);
   console.log('✅ Phase 1 Task 1.1: WebSocket Foundation - COMPLETE');
+  
+  // Start ephemeral garbage collection for whiteboard objects
+  startEphemeralGC();
+  console.log('✅ Started ephemeral garbage collection for whiteboard objects');
 });
