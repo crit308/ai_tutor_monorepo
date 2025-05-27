@@ -15,19 +15,11 @@
     "esModuleInterop": true,
     "isolatedModules": true,
     "resolveJsonModule": true,
-    "types": ["node", "jest"],
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["./convex/*"],
-      "@/types": ["./convex/types"],
-      "@/agents/*": ["./convex/agents/*"],
-      "@/lib/*": ["./convex/lib/*"]
-    }
+    "baseUrl": "."
   },
   "include": [
-    "convex/**/*",
-    "*.ts",
-    "*.js"
+    "**/*.ts",
+    "**/*.js"
   ],
   "exclude": [
     "node_modules",

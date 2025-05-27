@@ -4,7 +4,7 @@ import { action } from "./_generated/server";
 import { v } from "convex/values";
 import { api } from "./_generated/api";
 import { createClient } from './redis';
-import * as Y from '../frontend/node_modules/yjs';
+import * as Y from 'yjs';
 
 const REDIS_KEY_PREFIX = 'yjs:snapshot:';
 
