@@ -1,0 +1,9 @@
+node_modules/
+_generated/
+.history/
+*.history.*
+**/.history/
+**/node_modules/
+**/*.d.ts
+backend/
+scripts/ 

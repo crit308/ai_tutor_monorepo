@@ -8,10 +8,7 @@
     "allowSyntheticDefaultImports": true,
     "baseUrl": ".",
     "paths": {
-      "convex/*": ["../frontend/node_modules/convex/*"],
-      "@convex-dev/auth/*": ["../frontend/node_modules/@convex-dev/auth/dist/*"],
-      "redis": ["./redis"],
-      "yjs": ["../frontend/node_modules/yjs"]
+      "redis": ["./redis"]
     },
     "target": "ESNext",
     "lib": ["ES2021", "dom"],
@@ -19,8 +16,7 @@
     "module": "ESNext",
     "isolatedModules": true,
     "noEmit": true,
-    "types": ["node"],
-    "typeRoots": ["../frontend/node_modules/@types", "../frontend/node_modules"]
+    "types": ["node"]
   },
   "include": ["./**/*"],
   "exclude": ["./_generated"]

@@ -1,8 +1,6 @@
 "use node";
 
-import fs from 'fs';
-import path from 'path';
-import { OpenAI } from 'openai';
+// Removed OpenAI SDK import to avoid Node.js bundling issues in Convex
 
 export interface UploadedFile {
   supabasePath: string;

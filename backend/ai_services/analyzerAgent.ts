@@ -3,7 +3,7 @@
 
 import { BaseAgent, createAgentConfig, AgentUtils } from "./base";
 import { AgentContext, AgentResponse, AnalysisResult } from "./types";
-import { OpenAI } from 'openai';
+// Removed OpenAI SDK import to avoid Node.js bundling issues in Convex
 
 
 
