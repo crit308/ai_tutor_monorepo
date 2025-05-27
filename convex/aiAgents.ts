@@ -159,6 +159,8 @@ export const planSessionFocus = action({
     forceFocus: v.optional(v.string())
   },
   handler: async (ctx, { sessionId, userId, folderId, userModelState, forceFocus }) => {
+    console.log(`[aiAgents.planSessionFocus] Starting session focus planning for session: ${sessionId}, user: ${userId}, folder: ${folderId || 'N/A'}`);
+    
     try {
       const context: AgentContext = {
         session_id: sessionId,
@@ -173,6 +175,7 @@ export const planSessionFocus = action({
         });
         
         if (folderData?.knowledge_base) {
+          console.log(`[aiAgents.planSessionFocus] Found knowledge base for folder: ${folderId}, length: ${folderData.knowledge_base.length}`);
           context.analysis_result = {
             analysis_text: folderData.knowledge_base,
             key_concepts: [],
@@ -180,14 +183,32 @@ export const planSessionFocus = action({
             file_names: [],
             vector_store_id: ""
           };
+        } else {
+          console.log(`[aiAgents.planSessionFocus] No knowledge base found for folder: ${folderId}`);
         }
       }
 
-      const result = await planSession(context, userModelState, forceFocus);
-      
-      if (!result) {
-        throw new Error("Session planning failed to return a result");
+      // Get OpenAI API key from environment
+      const openaiKey = process.env.OPENAI_API_KEY;
+      if (!openaiKey) {
+        throw new Error("OpenAI API key is required. Set OPENAI_API_KEY environment variable.");
       }
+
+      // Create planner agent with Convex context
+      const { createPlannerAgent } = await import("./agents/plannerAgent");
+      const plannerAgent = createPlannerAgent(openaiKey, ctx);
+      
+      // Execute planner agent
+      const plannerResponse = await plannerAgent.execute(context, {
+        user_model_state: userModelState,
+        force_focus: forceFocus
+      });
+      
+      if (!plannerResponse.success || !plannerResponse.data) {
+        throw new Error(`Session planning failed: ${plannerResponse.error || "Unknown error"}`);
+      }
+      
+      const result = plannerResponse.data;
 
       // Update session context with focus objective
       try {
@@ -208,6 +229,8 @@ export const planSessionFocus = action({
         // Non-critical, continue
       }
 
+      console.log(`[aiAgents.planSessionFocus] Session focus planning completed successfully for session: ${sessionId}. Topic: ${result.topic}, Priority: ${result.priority}`);
+      
       return {
         success: true,
         data: result

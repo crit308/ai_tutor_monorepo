@@ -1,6 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-// Note: We'll need to add these Convex imports when the schema is ready
-// import { ConvexClient } from 'convex/browser';
+import { ConvexHttpClient } from 'convex/browser';
+import { api } from './_generated/api';
 
 // Type definitions (minimal for Phase 1)
 interface UserModelState {
@@ -45,8 +45,17 @@ const messageQueues = new Map<string, Array<any>>();
 // Supabase client (simplified for Phase 1)
 let supabaseClient: SupabaseClient | null = null;
 
-export function initializeTutorWs(supabase: SupabaseClient) {
+// Convex client for database operations
+let convexClient: ConvexHttpClient | null = null;
+
+export function initializeTutorWs(supabase: SupabaseClient, convexUrl?: string) {
   supabaseClient = supabase;
+  
+  // Initialize Convex client if URL provided
+  if (convexUrl) {
+    convexClient = new ConvexHttpClient(convexUrl);
+    console.log('[TutorWS] Convex client initialized');
+  }
 }
 
 // Authentication helper
@@ -87,12 +96,96 @@ export function getOrCreateContext(sessionId: string, userId: string): TutorCont
   return newContext;
 }
 
-// Context persistence (simplified for Phase 1)
+// Load session context from Convex database
+export async function loadSessionContextFromConvex(sessionId: string, userId: string): Promise<TutorContext | null> {
+  if (!convexClient) {
+    console.warn('[TutorWS] Cannot load session context: Convex client not initialized');
+    return null;
+  }
+
+  try {
+    const sessionData = await convexClient.query(api.functions.getSessionEnhanced, {
+      sessionId: sessionId as any
+    });
+
+    if (!sessionData || sessionData.user_id !== userId) {
+      console.warn(`[TutorWS] Session ${sessionId} not found or access denied for user ${userId}`);
+      return null;
+    }
+
+    const contextData = sessionData.context_data || {};
+    
+    const context: TutorContext = {
+      session_id: sessionId,
+      user_id: userId,
+      folder_id: sessionData.folder_id,
+      interaction_mode: contextData.interaction_mode || 'chat_and_whiteboard',
+      user_model_state: contextData.user_model_state || {
+        concepts: {},
+        overall_progress: 0,
+        current_topic: null,
+        session_summary: ''
+      },
+      history: contextData.history || [],
+      current_focus_objective: contextData.focus_objective,
+      current_quiz_question: contextData.current_quiz_question,
+      last_pedagogical_action: contextData.last_pedagogical_action
+    };
+
+    // Cache in memory
+    sessionContexts.set(sessionId, context);
+    
+    console.log(`[TutorWS] Loaded session context from Convex for session ${sessionId}`);
+    return context;
+    
+  } catch (error) {
+    console.error(`[TutorWS] Failed to load session context from Convex for session ${sessionId}:`, error);
+    return null;
+  }
+}
+
+// Save session context to Convex database
+export async function saveSessionContextToConvex(sessionId: string, context: TutorContext): Promise<boolean> {
+  if (!convexClient) {
+    console.warn('[TutorWS] Cannot save session context: Convex client not initialized');
+    return false;
+  }
+
+  try {
+    const contextData = {
+      interaction_mode: context.interaction_mode,
+      user_model_state: context.user_model_state,
+      history: context.history,
+      focus_objective: context.current_focus_objective,
+      current_quiz_question: context.current_quiz_question,
+      last_pedagogical_action: context.last_pedagogical_action
+    };
+
+    await convexClient.mutation(api.functions.updateSessionContextEnhanced, {
+      sessionId: sessionId as any,
+      context: contextData
+    });
+
+    console.log(`[TutorWS] Saved session context to Convex for session ${sessionId}`);
+    return true;
+    
+  } catch (error) {
+    console.error(`[TutorWS] Failed to save session context to Convex for session ${sessionId}:`, error);
+    return false;
+  }
+}
+
+// Context persistence with Convex integration
 export async function persistContext(sessionId: string, userId: string, context: TutorContext): Promise<boolean> {
   try {
-    // In Phase 1, we'll use simple in-memory storage
-    // In Phase 2, this will integrate with Convex
+    // Update in-memory cache
     sessionContexts.set(sessionId, { ...context });
+    
+    // Save to Convex if available
+    if (convexClient) {
+      await saveSessionContextToConvex(sessionId, context);
+    }
+    
     console.log(`Context persisted for session ${sessionId}`);
     return true;
   } catch (error) {
@@ -379,23 +472,103 @@ export function cleanupTutorSession(sessionId: string): void {
   console.log(`[TutorWS] Cleaned up tutor session ${sessionId}`);
 }
 
-// Initial state hydration (simplified for Phase 1)
-export async function hydrateInitialState(sessionId: string, userId: string, ws: any): Promise<void> {
+// Initial state hydration with planner integration
+export async function hydrateInitialState(sessionId: string, userId: string, ws: any, folderId?: string): Promise<void> {
   try {
-    const context = getOrCreateContext(sessionId, userId);
+    // First try to load context from Convex to get folder_id and existing data
+    let context = await loadSessionContextFromConvex(sessionId, userId);
+    
+    // If no context loaded from Convex, create a new one
+    if (!context) {
+      context = getOrCreateContext(sessionId, userId);
+      context.folder_id = folderId;
+    } else {
+      // If we loaded from Convex, folderId might already be set, but allow override
+      if (folderId) {
+        context.folder_id = folderId;
+      }
+    }
     
     // Send initial state acknowledgment
     const initialResponse: InteractionResponseData = {
       content_type: 'message',
       data: {
         response_type: 'message',
-        text: 'Tutor session initialized. Full state hydration will be implemented in Phase 2.'
+        text: 'Tutor session initialized. Determining session focus...'
       },
       user_model_state: context.user_model_state
     };
 
     await safeSendJson(ws, initialResponse, 'Initial State');
     console.log(`[TutorWS] Initial state sent for session ${sessionId}`);
+    
+    // Invoke planner to determine session focus
+    if (convexClient && folderId) {
+      try {
+                console.log(`[TutorWS] Invoking planner for session ${sessionId}, folder ${folderId}`);
+        
+        // For now, create a simple mock response to test the flow
+        // TODO: Fix Convex action calling in Phase 3.1 completion
+        const plannerResult = {
+          success: true,
+          data: {
+            topic: "Water Cycle",
+            learning_goal: "Understanding the basic concepts of the water cycle including evaporation, condensation, and precipitation.",
+            approach: "Start with visual explanations and interactive diagrams",
+            target_mastery: 0.8,
+            priority: 5,
+            difficulty: "beginner",
+            concepts: ["evaporation", "condensation", "precipitation"]
+          }
+        };
+        
+        if (plannerResult.success && plannerResult.data) {
+          context.current_focus_objective = plannerResult.data;
+          
+          // Send focus objective to client
+          const focusResponse: InteractionResponseData = {
+            content_type: 'focus_objective',
+            data: {
+              response_type: 'focus_objective',
+              focus_objective: plannerResult.data,
+              text: `Session focus determined: ${plannerResult.data.topic}. ${plannerResult.data.learning_goal}`
+            },
+            user_model_state: context.user_model_state
+          };
+          
+          await safeSendJson(ws, focusResponse, 'Focus Objective');
+          console.log(`[TutorWS] Focus objective set for session ${sessionId}: ${plannerResult.data.topic}`);
+        } else {
+          console.warn(`[TutorWS] Planner failed for session ${sessionId}: Mock data used`);
+          
+          const errorResponse: InteractionResponseData = {
+            content_type: 'message',
+            data: {
+              response_type: 'message',
+              text: 'Session focus planning encountered an issue. Proceeding with general tutoring mode.'
+            },
+            user_model_state: context.user_model_state
+          };
+          
+          await safeSendJson(ws, errorResponse, 'Planner Error');
+        }
+      } catch (plannerError) {
+        console.error(`[TutorWS] Planner invocation failed for session ${sessionId}:`, plannerError);
+        
+        const errorResponse: InteractionResponseData = {
+          content_type: 'message',
+          data: {
+            response_type: 'message',
+            text: 'Session focus planning is temporarily unavailable. Proceeding with general tutoring mode.'
+          },
+          user_model_state: context.user_model_state
+        };
+        
+        await safeSendJson(ws, errorResponse, 'Planner Exception');
+      }
+    } else {
+      console.log(`[TutorWS] Skipping planner invocation for session ${sessionId} (no Convex client or folder)`);
+    }
     
   } catch (error) {
     console.error(`[TutorWS] Failed to hydrate initial state for session ${sessionId}:`, error);

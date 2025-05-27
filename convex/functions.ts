@@ -50,6 +50,17 @@ export {
   testEnhancedFunction,
 } from "./migrationValidation";
 
+export {
+  getAllConceptGraphEdges,
+  getConceptGraphEdgesByCondition,
+  getConceptPrerequisites,
+  getConceptsByPrerequisite,
+  addConceptGraphEdge,
+  addConceptGraphEdges,
+  removeConceptGraphEdge,
+  clearConceptGraph,
+} from "./conceptGraphCrud";
+
 export const hello = query({
   args: {},
   handler: async () => {

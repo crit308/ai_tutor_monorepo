@@ -4,6 +4,7 @@
 import { BaseAgent, createAgentConfig, AgentUtils } from "./base";
 import { AgentContext, AgentResponse, FocusObjective, PlannerOutput, ActionSpec } from "./types";
 import { api } from "../_generated/api";
+import type { ActionCtx } from "../_generated/server";
 
 export interface PlannerInput {
   user_model_state?: any; // User's learning progress and mastery
@@ -27,8 +28,9 @@ export class PlannerAgent extends BaseAgent {
     edges: null,
     updatedAt: null
   };
+  private convexCtx?: ActionCtx;
 
-  constructor(apiKey?: string) {
+  constructor(apiKey?: string, convexCtx?: ActionCtx) {
     const config = createAgentConfig(
       "Focus Planner",
       "gpt-4-turbo-preview",
@@ -38,6 +40,7 @@ export class PlannerAgent extends BaseAgent {
       }
     );
     super(config, apiKey);
+    this.convexCtx = convexCtx;
   }
 
   async execute(context: AgentContext, input: PlannerInput): Promise<AgentResponse<FocusObjective>> {
@@ -96,18 +99,21 @@ export class PlannerAgent extends BaseAgent {
       }
 
       // If folder_id is available, read from database
-      if (context.folder_id) {
+      if (context.folder_id && this.convexCtx) {
         this.log("info", `Reading knowledge base for folder: ${context.folder_id}`);
         
-        // Note: In production, this would call a Convex query
-        // const folderData = await ctx.runQuery(api.folderCrud.getKnowledgeBase, {
-        //   folderId: context.folder_id,
-        //   userId: context.user_id
-        // });
-        // return folderData?.knowledge_base || "";
-        
-        // For now, return a placeholder
-        return "Knowledge base content would be retrieved from database";
+        try {
+          const folderData = await this.convexCtx.runQuery(api.functions.getFolderEnhanced, {
+            folderId: context.folder_id as any
+          });
+          
+          if (folderData?.knowledge_base) {
+            this.log("info", `Knowledge base found for folder: ${context.folder_id}`);
+            return folderData.knowledge_base;
+          }
+        } catch (dbError) {
+          this.log("error", "Failed to query folder knowledge base", dbError);
+        }
       }
 
       this.log("warn", "No knowledge base available for planning");
@@ -197,26 +203,44 @@ export class PlannerAgent extends BaseAgent {
       if (this.conceptGraphCache.edges && 
           this.conceptGraphCache.updatedAt && 
           Date.now() - this.conceptGraphCache.updatedAt < 5 * 60 * 1000) { // 5 minutes cache
+        this.log("info", "Using cached concept graph edges");
         return this.conceptGraphCache.edges;
       }
 
-      // Note: In production, this would call a Convex query
-      // const edges = await ctx.runQuery(api.conceptGraph.getAllEdges);
-      
-      // For now, return mock data
-      const edges = [
-        { prereq: "basic_concepts", concept: "intermediate_concepts" },
-        { prereq: "intermediate_concepts", concept: "advanced_concepts" }
-      ];
+      // Query concept graph from Convex database
+      if (this.convexCtx) {
+        this.log("info", "Fetching concept graph edges from database");
+        const edges = await this.convexCtx.runQuery(api.functions.getAllConceptGraphEdges, {});
+        
+        this.conceptGraphCache.edges = edges;
+        this.conceptGraphCache.updatedAt = Date.now();
+        
+        this.log("info", `Fetched ${edges.length} concept graph edges from database`);
+        return edges;
+      } else {
+        this.log("warn", "No Convex context available, using fallback mock data");
+        // Fallback to mock data if no Convex context
+        const edges = [
+          { prereq: "basic_concepts", concept: "intermediate_concepts" },
+          { prereq: "intermediate_concepts", concept: "advanced_concepts" }
+        ];
 
-      this.conceptGraphCache.edges = edges;
-      this.conceptGraphCache.updatedAt = Date.now();
-      
-      return edges;
+        this.conceptGraphCache.edges = edges;
+        this.conceptGraphCache.updatedAt = Date.now();
+        
+        return edges;
+      }
       
     } catch (error) {
       this.log("error", "Failed to fetch concept graph edges", error);
-      return [];
+      
+      // Return empty array or mock data on error
+      const fallbackEdges = [
+        { prereq: "basic_concepts", concept: "intermediate_concepts" },
+        { prereq: "intermediate_concepts", concept: "advanced_concepts" }
+      ];
+      
+      return fallbackEdges;
     }
   }
 
@@ -336,8 +360,8 @@ FocusObjective Schema:
 }
 
 // Factory function for creating planner agent instances
-export function createPlannerAgent(apiKey?: string): PlannerAgent {
-  return new PlannerAgent(apiKey);
+export function createPlannerAgent(apiKey?: string, convexCtx?: ActionCtx): PlannerAgent {
+  return new PlannerAgent(apiKey, convexCtx);
 }
 
 // Planning validation utilities

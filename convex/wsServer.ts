@@ -107,7 +107,29 @@ async function handleConnection(ws: any, sessionId: string, connectionType: stri
       }
     } else if (connectionType === 'tutor') {
       // For tutor connections, hydrate initial session state
-      await hydrateInitialState(sessionId, auth.userId, ws);
+      // Get session data to extract folderId
+      let folderId: string | undefined;
+      try {
+        // Import Convex client setup (assuming it exists)
+        const { ConvexHttpClient } = await import('convex/browser');
+        const { api } = await import('./_generated/api');
+        
+        const convexUrl = process.env.CONVEX_URL;
+        if (convexUrl) {
+          const convexClient = new ConvexHttpClient(convexUrl);
+          const sessionData = await convexClient.query(api.functions.getSessionEnhanced, {
+            sessionId: sessionId as any
+          });
+          if (sessionData) {
+            folderId = sessionData.folder_id;
+            console.log(`[WebSocket] Found folderId ${folderId} for session ${sessionId}`);
+          }
+        }
+      } catch (error) {
+        console.warn(`[WebSocket] Failed to get folderId for session ${sessionId}:`, error);
+      }
+      
+      await hydrateInitialState(sessionId, auth.userId, ws, folderId);
     } else {
       // For other connections, send JSON acknowledgment
       ws.send(JSON.stringify({
