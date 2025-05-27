@@ -1,9 +1,18 @@
 {
-  "project": "ai-tutor-unified",
-  "buildCommand": "npm run build",
   "functions": ".",
-  "generateCommonJSApi": false,
+  "exclude": [
+    "node_modules",
+    "_generated",
+    "backend",
+    "scripts"
+  ],
   "node": {
-    "externalPackages": ["openai", "yjs", "ws", "jose"]
+    "externalPackages": [
+      "openai",
+      "yjs",
+      "ws",
+      "jose",
+      "@supabase/supabase-js"
+    ]
   }
-} 
+}
