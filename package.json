@@ -4,18 +4,18 @@
   "description": "AI Tutor Backend Services - Node.js + Convex",
   "main": "index.js",
   "scripts": {
-    "dev": "convex dev",
-    "build": "convex deploy",
+    "dev": "cd convex && convex dev",
+    "build": "cd convex && convex deploy",
     "test": "jest",
     "test:watch": "jest --watch",
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
     "type-check": "tsc --noEmit",
-    "ws:start": "cd convex && node start-ws-server.js",
-    "ws:test": "cd convex && node test-tutor-ws.js",
-    "ws:test:integration": "cd convex && node test-integration.js",
-    "ws:test:performance": "cd convex && node test-performance.js",
-    "ws:dev": "cd convex && npm run ws:start"
+    "ws:start": "cd backend/websocket && node start-ws-server.js",
+    "ws:test": "cd backend/websocket && node test-tutor-ws.js",
+    "ws:test:integration": "cd backend/websocket && node test-integration.js",
+    "ws:test:performance": "cd backend/websocket && node test-performance.js",
+    "ws:dev": "cd backend/websocket && npm run start"
   },
   "dependencies": {
     "convex": "^1.24.1",

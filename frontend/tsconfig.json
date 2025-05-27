@@ -21,7 +21,8 @@
     "paths": {
       "@/*": ["./src/*"],
       "convex/*": ["./node_modules/convex/*"],
-      "@convex-dev/auth/*": ["./node_modules/@convex-dev/auth/*"]
+      "@convex-dev/auth/*": ["./node_modules/@convex-dev/auth/*"],
+      "@/convex/*": ["../convex/*"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

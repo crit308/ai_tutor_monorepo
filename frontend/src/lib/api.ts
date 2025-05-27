@@ -13,7 +13,7 @@ import {
 } from './types';
 import { getAuthToken } from './authToken';
 import { convex } from './convex';
-import { api as convexApi } from '../../convex/_generated/api';
+import { api as convexApi } from '../../../convex/_generated/api';
 
 // Default to the local Convex proxy if no environment variable is set.
 const API_BASE_URL =

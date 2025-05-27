@@ -1,0 +1,25 @@
+{
+  "name": "ai-tutor-websocket-backend",
+  "version": "1.0.0",
+  "description": "WebSocket backend services for AI Tutor",
+  "main": "wsServer.js",
+  "scripts": {
+    "start": "node start-ws-server.js",
+    "test": "node test-tutor-ws.js",
+    "test:integration": "node test-integration.js",
+    "test:performance": "node test-performance.js"
+  },
+  "dependencies": {
+    "convex": "^1.24.1",
+    "ws": "^8.18.0",
+    "jose": "^6.0.11",
+    "openai": "^4.40.2",
+    "yjs": "^13.6.18",
+    "uuid": "^10.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "@types/ws": "^8.5.12",
+    "typescript": "^5.8.3"
+  }
+} 

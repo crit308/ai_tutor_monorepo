@@ -1,0 +1,9 @@
+{
+  "project": "ai-tutor-unified",
+  "buildCommand": "npm run build",
+  "functions": ".",
+  "generateCommonJSApi": false,
+  "node": {
+    "externalPackages": ["openai", "yjs", "ws", "jose"]
+  }
+} 
