@@ -3,9 +3,20 @@
 
 import { agentManager } from "./base";
 import { AgentContext, AgentResponse, RegisteredAgent, AgentConfig } from "./types";
-import { AnalyzerAgent, createAnalyzerAgent, AnalyzerInput } from "./analyzerAgent";
+import { AnalyzerAgent } from "./analyzerAgent";
 import { PlannerAgent, createPlannerAgent, PlannerInput } from "./plannerAgent";
 import { SessionAnalyzerAgent, createSessionAnalyzerAgent, SessionAnalyzerInput } from "./sessionAnalyzerAgent";
+
+// Define the input type for AnalyzerAgent
+export type AnalyzerInput = {
+  vector_store_id: string;
+  max_results?: number;
+};
+
+// Create factory function for AnalyzerAgent
+function createAnalyzerAgent(apiKey?: string): AnalyzerAgent {
+  return new AnalyzerAgent(apiKey);
+}
 
 // Agent Names Constants
 export const AGENT_NAMES = {

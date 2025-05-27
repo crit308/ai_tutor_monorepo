@@ -310,6 +310,42 @@ export const updateFolder = mutation({
 });
 
 /**
+ * Update folder knowledge base - dedicated mutation for document analysis
+ */
+export const updateKnowledgeBase = mutation({
+  args: {
+    folderId: v.id("folders"),
+    knowledgeBase: v.string(),
+  },
+  handler: async (ctx, { folderId, knowledgeBase }) => {
+    const userId = await requireAuth(ctx);
+    
+    // Verify folder exists and user has access
+    const folder = await ctx.db.get(folderId);
+    if (!folder || folder.user_id !== userId) {
+      throw new Error("Folder not found or access denied");
+    }
+    
+    // Validate knowledge base content
+    if (!knowledgeBase || !knowledgeBase.trim()) {
+      throw new Error("Knowledge base content cannot be empty");
+    }
+    
+    // Update the folder with new knowledge base
+    await ctx.db.patch(folderId, {
+      knowledge_base: knowledgeBase.trim(),
+      updated_at: Date.now(),
+    });
+    
+    return { 
+      success: true,
+      folderId,
+      knowledgeBaseLength: knowledgeBase.trim().length,
+    };
+  },
+});
+
+/**
  * Rename a folder
  */
 export const renameFolder = mutation({

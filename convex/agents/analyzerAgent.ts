@@ -2,311 +2,210 @@
 // Ported from Python backend/ai_tutor/agents/analyzer_agent.py
 
 import { BaseAgent, createAgentConfig, AgentUtils } from "./base";
-import { AgentContext, AgentResponse, AnalysisResult, DocumentAnalysis, FileMetadata } from "./types";
-import { api } from "../_generated/api";
+import { AgentContext, AgentResponse, AnalysisResult } from "./types";
+import { OpenAI } from 'openai';
 
-export interface AnalyzerInput {
-  vector_store_id: string;
-  max_results?: number;
-}
+
 
 export class AnalyzerAgent extends BaseAgent {
+  private openAIClient: OpenAI;
+
   constructor(apiKey?: string) {
     const config = createAgentConfig(
       "Document Analyzer",
       "gpt-4-turbo-preview",
       {
-        temperature: 0.3, // Lower temperature for more consistent analysis
+        temperature: 0.3,
         max_tokens: 4000
       }
     );
     super(config, apiKey);
+
+    const effectiveApiKey = apiKey || process.env.OPENAI_API_KEY;
+    if (!effectiveApiKey) {
+      this.log("error", "OpenAI API key is not configured for AnalyzerAgent.");
+      throw new Error("OpenAI API key is required for document analysis");
+    }
+    this.openAIClient = new OpenAI({ apiKey: effectiveApiKey });
   }
 
-  async execute(context: AgentContext, input: AnalyzerInput): Promise<AgentResponse<AnalysisResult>> {
+  async execute(context: AgentContext, input: { vector_store_id: string }): Promise<AgentResponse<AnalysisResult>> {
     AgentUtils.validateSessionContext(context);
     
-    this.log("info", `Starting document analysis for vector store: ${input.vector_store_id}`);
+    this.log("info", `[AnalyzerAgent] Starting document analysis for vector store: ${input.vector_store_id}`);
 
     try {
       const { result, executionTime } = await this.measureExecution(async () => {
-        return await this.analyzeDocuments(input.vector_store_id, context, input.max_results);
+        // Call the method that uses the OpenAI SDK
+        const analysisText = await this.performOpenAIDocumentAnalysis(input.vector_store_id);
+        
+        // Parse the structured data from the analysis text
+        const parsedData = this.parseAnalysisText(analysisText);
+
+        return {
+          analysis_text: analysisText,
+          key_concepts: parsedData.key_concepts,
+          key_terms: parsedData.key_terms,
+          file_names: parsedData.file_names,
+          vector_store_id: input.vector_store_id
+        };
       });
 
-      // Save analysis to knowledge base if we have folder context
-      if (context.folder_id && result.analysis_text) {
-        await this.saveToKnowledgeBase(context.folder_id, result.analysis_text);
-      }
+      // The saving to KB is handled by the calling action in aiAgents.ts
 
-      this.log("info", `Document analysis completed in ${executionTime}ms`);
+      this.log("info", `[AnalyzerAgent] Document analysis completed in ${executionTime}ms`);
       return this.createResponse(result, executionTime);
 
     } catch (error) {
-      this.log("error", "Document analysis failed", error);
-      return this.createErrorResponse(`Document analysis failed: ${error}`);
+      this.log("error", "[AnalyzerAgent] Document analysis failed", error);
+      return this.createErrorResponse(`Document analysis failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  private async analyzeDocuments(
-    vectorStoreId: string,
-    context: AgentContext,
-    maxResults: number = 10
-  ): Promise<AnalysisResult> {
-    // Simulate file search tool functionality 
-    // In a real implementation, this would integrate with OpenAI's file search API
-    const searchResults = await this.performDocumentSearch(vectorStoreId, maxResults);
 
-    const analysisPrompt = this.createAnalysisPrompt(vectorStoreId, searchResults);
-    
-    const response = await this.callOpenAI([
-      {
-        role: "system",
-        content: `You are an expert document analyzer. Your task is to analyze the documents in the vector store
+
+  private async performOpenAIDocumentAnalysis(vectorStoreId: string): Promise<string> {
+    this.log("info", `[AnalyzerAgent] performOpenAIDocumentAnalysis called for VS: ${vectorStoreId}`);
+    try {
+      // Create an assistant with file search tool
+      const assistant = await this.openAIClient.beta.assistants.create({
+        name: "Convex Document Analyzer",
+        instructions: `You are an expert document analyzer. Your task is to analyze the documents in the vector store
         and extract the following information:
         
-        1. File names and metadata
-        2. Key concepts or topics from the documents
-        3. Vector store reference IDs
-        4. Key terms and their definitions
+        1. File names and metadata (if available directly from search, otherwise list files by their IDs as seen in the vector store).
+        2. Key concepts or topics from the documents.
+        3. Vector store reference IDs (confirm the one provided).
+        4. Key terms and their definitions.
         
         ANALYSIS PROCESS:
-        1. Use the provided search results to understand what documents are available
-        2. Extract key concepts by analyzing document content and structure
-        3. Identify and record vector store reference IDs
-        4. Extract important terminology and their definitions
-        5. Organize all findings into a comprehensive analysis
+        1. Use the file_search tool with broad queries to understand what documents are available.
+        2. Conduct systematic searches for common document metadata fields (if possible with file_search).
+        3. Extract key concepts by analyzing document content and structure.
+        4. Identify and record vector store reference IDs.
+        5. Extract important terminology and their definitions.
+        6. Organize all findings into a comprehensive analysis.
         
         FORMAT INSTRUCTIONS:
-        - Present your analysis in a clear, structured text format
+        - Present your analysis in a clear, structured text format.
         - Include the following sections:
-          * VECTOR STORE ID: The ID of the vector store
-          * FILES: List of all document names you discover
-          * FILE METADATA: Any metadata you find for each file
-          * KEY CONCEPTS: List of main topics/concepts found across all documents
-          * CONCEPT DETAILS: Examples or details for each key concept
-          * KEY TERMS GLOSSARY: List of important terminology with their definitions
-          * FILE IDS: Any reference IDs you discover
+          * VECTOR STORE ID: The ID of the vector store (${vectorStoreId})
+          * FILES: List of all document names/IDs you discover within this vector store.
+          * FILE METADATA: Any metadata you find for each file.
+          * KEY CONCEPTS: List of main topics/concepts found across all documents.
+          * CONCEPT DETAILS: Examples or details for each key concept.
+          * KEY TERMS GLOSSARY: List of important terminology with their definitions.
         
         DO NOT:
-        - Do not reference any tools or future steps in your output
-        - Do not return incomplete analysis`
-      },
-      {
-        role: "user",
-        content: analysisPrompt
-      }
-    ]);
-
-    const analysisText = response.content;
-    
-    // Parse the structured data from the analysis text
-    const parsedData = this.parseAnalysisText(analysisText);
-
-    return {
-      analysis_text: analysisText,
-      key_concepts: parsedData.key_concepts,
-      key_terms: parsedData.key_terms,
-      file_names: parsedData.file_names,
-      vector_store_id: vectorStoreId
-    };
-  }
-
-  private async performDocumentSearch(vectorStoreId: string, maxResults: number): Promise<any[]> {
-    // This would integrate with OpenAI's file search API or vector database
-    // For now, return mock search results that represent what would be found
-    
-    // Simulate different types of searches as done in Python version
-    const searches = [
-      "document overview introduction",
-      "author date title version metadata",
-      "key concepts topics themes",
-      "definitions terminology glossary",
-      "file references identifiers"
-    ];
-
-    const allResults: any[] = [];
-    
-    for (const query of searches) {
-      // Simulate API call to vector store search
-      // In production, this would call OpenAI's file search API
-      const results = await this.simulateVectorSearch(vectorStoreId, query, Math.min(maxResults, 3));
-      allResults.push(...results);
-    }
-
-    return allResults.slice(0, maxResults);
-  }
-
-  private async simulateVectorSearch(vectorStoreId: string, query: string, limit: number): Promise<any[]> {
-    // Simulate vector search results
-    // In production, this would call the actual OpenAI Files API
-    return [
-      {
-        content: `Search results for "${query}" in vector store ${vectorStoreId}`,
-        metadata: {
-          file_name: `document_${Math.random().toString(36).substr(2, 9)}.pdf`,
-          score: 0.8 + Math.random() * 0.2
+        - Do not reference any tools or future steps in your output.
+        - Do not return incomplete analysis.`,
+        model: this.config.model || "gpt-4-turbo-preview", // Use model from config
+        tools: [{ type: "file_search" }],
+        tool_resources: {
+          file_search: {
+            vector_store_ids: [vectorStoreId]
+          }
         }
+      });
+      this.log("info", `[AnalyzerAgent] Assistant created: ${assistant.id}`);
+
+      const thread = await this.openAIClient.beta.threads.create();
+      this.log("info", `[AnalyzerAgent] Thread created: ${thread.id}`);
+
+      await this.openAIClient.beta.threads.messages.create(thread.id, {
+        role: "user",
+        content: `Analyze all documents in the vector store ID: ${vectorStoreId}. Provide a comprehensive analysis based on your instructions.`
+      });
+      this.log("info", `[AnalyzerAgent] Message added to thread ${thread.id}`);
+
+      let run = await this.openAIClient.beta.threads.runs.create(thread.id, {
+        assistant_id: assistant.id
+      });
+      this.log("info", `[AnalyzerAgent] Run created: ${run.id}, Status: ${run.status}`);
+
+      const startTime = Date.now();
+      const timeoutMs = 180000; // 3 minutes timeout for the run
+
+      while (run.status === 'in_progress' || run.status === 'queued') {
+        if (Date.now() - startTime > timeoutMs) {
+          this.log("error", `[AnalyzerAgent] Run ${run.id} timed out after ${timeoutMs / 1000}s`);
+          await this.openAIClient.beta.threads.runs.cancel(thread.id, run.id); // Attempt to cancel
+          throw new Error(`OpenAI run timed out after ${timeoutMs / 1000} seconds.`);
+        }
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Poll every 2 seconds
+        run = await this.openAIClient.beta.threads.runs.retrieve(thread.id, run.id);
+        this.log("info", `[AnalyzerAgent] Run ${run.id} status: ${run.status}`);
       }
-    ];
+
+      if (run.status !== 'completed') {
+        this.log("error", `[AnalyzerAgent] Run ${run.id} failed or was cancelled. Status: ${run.status}. Last Error: ${JSON.stringify(run.last_error)}`);
+        throw new Error(`OpenAI run did not complete successfully. Status: ${run.status}. Last Error: ${run.last_error?.message}`);
+      }
+
+      const messages = await this.openAIClient.beta.threads.messages.list(thread.id, { order: 'desc', limit: 1 });
+      const assistantMessage = messages.data.find(msg => msg.role === 'assistant');
+      
+      // Clean up: Delete the assistant (optional, but good practice for one-off assistants)
+      try {
+        await this.openAIClient.beta.assistants.del(assistant.id);
+        this.log("info", `[AnalyzerAgent] Assistant ${assistant.id} deleted.`);
+      } catch (delError) {
+        this.log("warn", `[AnalyzerAgent] Could not delete assistant ${assistant.id}: ${delError}`);
+      }
+
+      if (!assistantMessage || assistantMessage.content[0]?.type !== 'text') {
+        this.log("error", "[AnalyzerAgent] No text content found in assistant's final response.");
+        throw new Error('No analysis result found in assistant response');
+      }
+
+      const analysisText = assistantMessage.content[0].text.value;
+      this.log("info", `[AnalyzerAgent] Analysis text received, length: ${analysisText.length}`);
+      return analysisText;
+
+    } catch (error) {
+      this.log("error", "[AnalyzerAgent] OpenAI API call for document analysis failed", error);
+      throw error; // Re-throw to be caught by execute method
+    }
   }
 
-  private createAnalysisPrompt(vectorStoreId: string, searchResults: any[]): string {
-    const resultsText = searchResults.map((result, index) => 
-      `Result ${index + 1}: ${result.content}\nMetadata: ${JSON.stringify(result.metadata)}\n`
-    ).join("\n");
-
-    return `Analyze all documents in the vector store thoroughly.
-    
-    Vector Store ID: ${vectorStoreId}
-    
-    Search Results from Documents:
-    ${resultsText}
-    
-    Based on these search results, provide a comprehensive analysis following the required format.
-    Be methodical and thorough in extracting:
-    1. All file names and their metadata
-    2. Key concepts, topics, and themes
-    3. Important terminology with clear definitions
-    4. Any reference IDs or identifiers found
-    
-    Present your findings in the structured format specified in the system instructions.`;
-  }
-
-  private parseAnalysisText(analysisText: string): {
+  private parseAnalysisText(analysisText: string | null): {
     key_concepts: string[];
     key_terms: Record<string, string>;
     file_names: string[];
   } {
+    if (!analysisText) {
+      return { key_concepts: [], key_terms: {}, file_names: [] };
+    }
+
     const key_concepts: string[] = [];
     const key_terms: Record<string, string> = {};
     const file_names: string[] = [];
 
     try {
-      // Extract key concepts
       const conceptsSection = AgentUtils.extractTextSection(analysisText, "KEY CONCEPTS");
       if (conceptsSection) {
-        const concepts = conceptsSection.split('\n')
-          .map(line => line.trim())
-          .filter(line => line && !line.startsWith('-') && !line.startsWith('*'))
+        key_concepts.push(...conceptsSection.split('\n')
           .map(line => line.replace(/^[-*]\s*/, '').trim())
-          .filter(concept => concept);
-        key_concepts.push(...concepts);
+          .filter(concept => concept));
       }
 
-      // Extract key terms
       const termsSection = AgentUtils.extractTextSection(analysisText, "KEY TERMS GLOSSARY");
       if (termsSection) {
-        const parsedTerms = AgentUtils.parseKeyValuePairs(termsSection);
-        Object.assign(key_terms, parsedTerms);
+        Object.assign(key_terms, AgentUtils.parseKeyValuePairs(termsSection));
       }
 
-      // Extract file names
       const filesSection = AgentUtils.extractTextSection(analysisText, "FILES");
       if (filesSection) {
-        const files = filesSection.split('\n')
-          .map(line => line.trim())
-          .filter(line => line && !line.startsWith('-') && !line.startsWith('*'))
+        file_names.push(...filesSection.split('\n')
           .map(line => line.replace(/^[-*]\s*/, '').trim())
-          .filter(fileName => fileName);
-        file_names.push(...files);
+          .filter(fileName => fileName));
       }
-
     } catch (error) {
-      this.log("warn", "Failed to parse some sections from analysis text", error);
+      this.log("warn", "[AnalyzerAgent] Failed to parse some sections from analysis text", error);
     }
-
+    this.log("info", `[AnalyzerAgent] Parsed analysis: ${key_concepts.length} concepts, ${Object.keys(key_terms).length} terms, ${file_names.length} files.`);
     return { key_concepts, key_terms, file_names };
   }
 
-  private async saveToKnowledgeBase(folderId: string, analysisText: string): Promise<void> {
-    try {
-      // Use Convex mutation to update the folder's knowledge base
-      // This would call a Convex function to update the folder
-      this.log("info", `Saving analysis to knowledge base for folder: ${folderId}`);
-      
-      // Note: In a real implementation, this would call a Convex mutation
-      // await ctx.runMutation(api.folderCrud.updateKnowledgeBase, {
-      //   folderId,
-      //   knowledgeBase: analysisText
-      // });
-      
-    } catch (error) {
-      this.log("error", "Failed to save analysis to knowledge base", error);
-      // Don't throw - this is not critical for the analysis itself
-    }
-  }
-}
 
-// Factory function for creating analyzer agent instances
-export function createAnalyzerAgent(apiKey?: string): AnalyzerAgent {
-  return new AnalyzerAgent(apiKey);
-}
-
-// Analysis validation utilities
-export class AnalysisValidator {
-  static validateAnalysisResult(result: AnalysisResult): boolean {
-    if (!result.vector_store_id) {
-      throw new Error("Analysis result must include vector_store_id");
-    }
-    
-    if (!result.analysis_text || result.analysis_text.trim().length === 0) {
-      throw new Error("Analysis result must include non-empty analysis_text");
-    }
-
-    return true;
-  }
-
-  static validateDocumentAnalysis(analysis: DocumentAnalysis): boolean {
-    if (!analysis.vector_store_id) {
-      throw new Error("Document analysis must include vector_store_id");
-    }
-
-    if (!Array.isArray(analysis.file_names)) {
-      throw new Error("Document analysis must include file_names array");
-    }
-
-    if (!Array.isArray(analysis.key_concepts)) {
-      throw new Error("Document analysis must include key_concepts array");
-    }
-
-    return true;
-  }
-
-  static extractMetrics(result: AnalysisResult): {
-    conceptCount: number;
-    termCount: number;
-    fileCount: number;
-    textLength: number;
-  } {
-    return {
-      conceptCount: result.key_concepts?.length || 0,
-      termCount: Object.keys(result.key_terms || {}).length,
-      fileCount: result.file_names?.length || 0,
-      textLength: result.analysis_text?.length || 0
-    };
-  }
-}
-
-// Helper function for processing analysis results
-export async function analyzeDocuments(
-  vectorStoreId: string,
-  context: AgentContext,
-  apiKey?: string
-): Promise<AnalysisResult | null> {
-  try {
-    const agent = createAnalyzerAgent(apiKey);
-    const response = await agent.execute(context, { vector_store_id: vectorStoreId });
-    
-    if (response.success && response.data) {
-      AnalysisValidator.validateAnalysisResult(response.data);
-      return response.data;
-    }
-    
-    console.error("Document analysis failed:", response.error);
-    return null;
-    
-  } catch (error) {
-    console.error("Error in analyzeDocuments:", error);
-    return null;
-  }
 } 

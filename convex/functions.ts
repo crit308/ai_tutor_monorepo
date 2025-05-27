@@ -1,6 +1,6 @@
 import { query, mutation, action } from "./_generated/server";
 import { v } from "convex/values";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { 
   requireAuth, 
   requireAuthAndOwnership, 
@@ -28,6 +28,7 @@ export {
   getFolder as getFolderEnhanced,
   listFolders as listFoldersEnhanced,
   updateFolder,
+  updateKnowledgeBase,
   renameFolder as renameFolderEnhanced,
   deleteFolder as deleteFolderEnhanced,
   getFolderStats,
@@ -811,6 +812,8 @@ export const uploadSessionDocuments = mutation({
 
 // Import the FileUploadManager for the action
 import { FileUploadManager } from "./fileUploadManager";
+// Import the AnalyzerAgent directly
+import { AnalyzerAgent } from "./agents/analyzerAgent";
 
 export const generateFileUploadUrl = mutation({
   handler: async (ctx) => {
@@ -935,16 +938,41 @@ export const processUploadedFilesForSession = action({
         if (results.some(r => r.success && r.vectorStoreId)) {
             try {
                 console.log(`[Action] Triggering document analysis for vector store: ${finalVectorStoreId}`);
-                // TODO: Re-enable once aiAgents API is properly resolved
-                // const analysisActionResponse = await ctx.runAction(api.aiAgents.analyzeDocuments, {
-                //     sessionId: sessionId,
-                //     userId: session.user_id,
-                //     vectorStoreId: finalVectorStoreId,
-                //     folderId: session.folder_id,
-                // });
+                
+                // Create agent context
+                const agentContext = {
+                    session_id: sessionId.toString(),
+                    user_id: session.user_id,
+                    folder_id: session.folder_id?.toString(),
+                    vector_store_id: finalVectorStoreId
+                };
 
-                // For now, skip analysis but mark as successful
-                analysisStepMessage = "Files processed successfully. Document analysis will be enabled in next phase.";
+                // Use AnalyzerAgent directly
+                const analyzer = new AnalyzerAgent();
+                const analysisActionResponse = await analyzer.execute(agentContext, { vector_store_id: finalVectorStoreId });
+
+                if (analysisActionResponse.success && analysisActionResponse.data) {
+                    const analysisResultData = analysisActionResponse.data as any;
+                    analysisStepMessage = analysisResultData.analysis_text || "Analysis complete, but no text summary was returned by the agent.";
+                    console.log(`[Action] Analysis successful. Summary length: ${analysisResultData.analysis_text?.length || 0}`);
+                    
+                    // Update knowledge base if folder exists
+                    if (session.folder_id && analysisResultData.analysis_text) {
+                        try {
+                            await ctx.runMutation(api.functions.updateKnowledgeBase, {
+                                folderId: session.folder_id,
+                                knowledgeBase: analysisResultData.analysis_text
+                            });
+                            console.log(`[Action] KB updated successfully for folder: ${session.folder_id}`);
+                        } catch (kbError) {
+                            console.error(`[Action] Failed to update knowledge base:`, kbError);
+                        }
+                    }
+                } else {
+                    analysisStepMessage = `Analysis step failed: ${analysisActionResponse.error || 'Unknown analysis error'}`;
+                    console.error(`[Action] Analysis step failed: ${analysisStepMessage}`);
+                    if (overallStatus === "completed") overallStatus = "analysis_failed";
+                }
             } catch (analysisError) {
                 console.error(`[Action] Document analysis step failed catastrophically:`, analysisError);
                 analysisStepMessage = `Document analysis step threw an error: ${(analysisError as Error).message}`;

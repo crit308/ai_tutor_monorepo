@@ -11,7 +11,6 @@ import {
   analyzeSession,
   runCompleteWorkflow,
   getAgentSystemStatus,
-  runAgentTests,
   agentPerformanceMonitor
 } from "./agents";
 import type {
@@ -21,6 +20,7 @@ import type {
   SessionAnalysis,
   UserModelState
 } from "./agents";
+import { AnalyzerAgent } from "./agents/analyzerAgent"; // Import the agent class
 
 // Initialize the AI agent system (called once on startup)
 export const initializeAgents = action({
@@ -57,45 +57,94 @@ export const initializeAgents = action({
 // Document Analysis Agent
 export const analyzeDocuments = action({
   args: {
-    sessionId: v.string(),
+    sessionId: v.string(), // Should be Id<"sessions"> if your schema uses it, or handle conversion
     userId: v.string(),
     vectorStoreId: v.string(),
-    folderId: v.optional(v.string()),
-    maxResults: v.optional(v.number())
+    folderId: v.optional(v.string()), // Should be Id<"folders"> if schema uses it
+    // maxResults: v.optional(v.number()) // AnalyzerAgent currently doesn't use this input
   },
-  handler: async (ctx, { sessionId, userId, vectorStoreId, folderId, maxResults }) => {
+  handler: async (ctx, { sessionId, userId, vectorStoreId, folderId }) => {
+    console.log(`[aiAgents.analyzeDocuments ACTION] Called for VS: ${vectorStoreId}, Session: ${sessionId}, User: ${userId}, Folder: ${folderId || 'N/A'}`);
+    
+    const agentContext: AgentContext = {
+      session_id: sessionId,
+      user_id: userId,
+      folder_id: folderId, // Will be undefined if not provided
+      vector_store_id: vectorStoreId
+    };
+
     try {
-      const context: AgentContext = {
-        session_id: sessionId,
-        user_id: userId,
-        folder_id: folderId,
-        vector_store_id: vectorStoreId
-      };
+      // API key for AnalyzerAgent will be picked up from environment variables by its constructor
+      const analyzer = new AnalyzerAgent(); 
+      const agentResponse = await analyzer.execute(agentContext, { vector_store_id: vectorStoreId });
 
-      const result = await runDocumentAnalysis(context, vectorStoreId, maxResults);
-      
-      if (!result) {
-        throw new Error("Document analysis failed to return a result");
+      if (agentResponse.success && agentResponse.data) {
+        const analysisData = agentResponse.data as AnalysisResult; 
+        
+        if (folderId && analysisData.analysis_text) {
+          console.log(`[aiAgents.analyzeDocuments ACTION] Updating KB for folder: ${folderId}`);
+          try {
+            await ctx.runMutation(api.functions.updateKnowledgeBase, {
+              folderId: folderId as any, // Cast to Id<"folders"> if your mutation expects strict type
+              knowledgeBase: analysisData.analysis_text
+            });
+            console.log(`[aiAgents.analyzeDocuments ACTION] KB updated successfully for folder: ${folderId}`);
+          } catch (kbError) {
+            console.error(`[aiAgents.analyzeDocuments ACTION] CRITICAL: Failed to update knowledge base for folder ${folderId}:`, kbError);
+            // Depending on requirements, you might want to make the whole action fail here
+            // return { success: false, error: `Failed to save analysis to folder: ${(kbError as Error).message}` };
+          }
+        } else if (folderId && !analysisData.analysis_text) {
+            console.warn(`[aiAgents.analyzeDocuments ACTION] Analysis text is empty for folder ${folderId}. KB not updated.`);
+        }
+        
+        // Update session context with the analysis result
+        try {
+            const session = await ctx.runQuery(api.functions.getSessionEnhanced, {sessionId: sessionId as any}); // Ensure correct API path
+            if (session && session.context_data) { // session.context_data can be null
+                const currentContext = session.context_data;
+                const updatedSessionContext = {
+                    ...currentContext,
+                    analysis_result: analysisData, // Store the full AnalysisResult
+                };
+                await ctx.runMutation(api.functions.updateSessionContextEnhanced, { // Ensure correct API path
+                    sessionId: sessionId as any, 
+                    context: updatedSessionContext,
+                });
+                console.log(`[aiAgents.analyzeDocuments ACTION] Session context_data.analysis_result updated for session: ${sessionId}`);
+            } else if (session) {
+                 console.warn(`[aiAgents.analyzeDocuments ACTION] Session ${sessionId} found, but context_data is null. Cannot update analysis_result.`);
+                 // Initialize context if it's null/missing? Or is this an error state?
+                 // For now, just log. If context can be legitimately null, this is fine.
+                 // If context should always exist, this might indicate an issue elsewhere.
+                 const initialContext = { // Minimal context if creating new
+                    session_id: sessionId,
+                    user_id: userId,
+                    folder_id: folderId,
+                    analysis_result: analysisData,
+                 };
+                  await ctx.runMutation(api.functions.updateSessionContextEnhanced, {
+                    sessionId: sessionId as any,
+                    context: initialContext,
+                  });
+                  console.log(`[aiAgents.analyzeDocuments ACTION] Initialized session context_data with analysis_result for session: ${sessionId}`);
+            } else {
+                console.warn(`[aiAgents.analyzeDocuments ACTION] Session ${sessionId} not found. Cannot update context with analysis_result.`);
+            }
+        } catch (sessionUpdateError) {
+            console.error(`[aiAgents.analyzeDocuments ACTION] Failed to update session context for ${sessionId}:`, sessionUpdateError);
+            // Non-critical for the analysis itself, but good to log
+        }
+
+        console.log(`[aiAgents.analyzeDocuments ACTION] Analysis successful for ${vectorStoreId}.`);
+        return { success: true, data: analysisData };
+      } else {
+        console.error("[aiAgents.analyzeDocuments ACTION] AnalyzerAgent execution reported failure:", agentResponse.error);
+        return { success: false, error: agentResponse.error || "Analyzer agent reported failure" };
       }
-
-      // Save analysis result to database
-      if (folderId) {
-        await ctx.runMutation(api.folderCrud.updateKnowledgeBase, {
-          folderId,
-          knowledgeBase: result.analysis_text
-        });
-      }
-
-      return {
-        success: true,
-        data: result
-      };
     } catch (error) {
-      console.error("Document analysis failed:", error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error)
-      };
+      console.error("[aiAgents.analyzeDocuments ACTION] Unexpected error during analysis execution:", error);
+      return { success: false, error: (error as Error).message };
     }
   }
 });
@@ -119,9 +168,8 @@ export const planSessionFocus = action({
 
       // If folder_id is provided, try to get analysis result from knowledge base
       if (folderId) {
-        const folderData = await ctx.runQuery(api.folderCrud.getFolder, {
-          folderId,
-          userId
+        const folderData = await ctx.runQuery(api.functions.getFolderEnhanced, {
+          folderId: folderId as any, // Cast to Id<"folders">
         });
         
         if (folderData?.knowledge_base) {
@@ -141,13 +189,24 @@ export const planSessionFocus = action({
         throw new Error("Session planning failed to return a result");
       }
 
-      // Update session with focus objective
-      await ctx.runMutation(api.sessionCrud.updateSession, {
-        sessionId,
-        updates: {
-          focus_objective: JSON.stringify(result)
+      // Update session context with focus objective
+      try {
+        const session = await ctx.runQuery(api.functions.getSessionEnhanced, {sessionId: sessionId as any});
+        if (session) {
+          const currentContext = session.context_data || {};
+          const updatedContext = {
+            ...currentContext,
+            focus_objective: result
+          };
+          await ctx.runMutation(api.functions.updateSessionContextEnhanced, {
+            sessionId: sessionId as any,
+            context: updatedContext,
+          });
         }
-      });
+      } catch (contextError) {
+        console.error("Failed to update session context with focus objective:", contextError);
+        // Non-critical, continue
+      }
 
       return {
         success: true,
@@ -187,29 +246,39 @@ export const analyzeSessionPerformance = action({
 
       // Save analysis summary to knowledge base
       if (folderId && result.textSummary) {
-        const folderData = await ctx.runQuery(api.folderCrud.getFolder, {
-          folderId,
-          userId
+        const folderData = await ctx.runQuery(api.functions.getFolderEnhanced, {
+          folderId: folderId as any, // Cast to Id<"folders">
         });
         
         const updatedKnowledgeBase = folderData?.knowledge_base 
           ? `${folderData.knowledge_base}\n\n${result.textSummary}`
           : result.textSummary;
 
-        await ctx.runMutation(api.folderCrud.updateKnowledgeBase, {
-          folderId,
+        await ctx.runMutation(api.functions.updateKnowledgeBase, {
+          folderId: folderId as any, // Cast to Id<"folders">
           knowledgeBase: updatedKnowledgeBase
         });
       }
 
-      // Update session with analysis results
-      await ctx.runMutation(api.sessionCrud.updateSession, {
-        sessionId,
-        updates: {
-          analysis_summary: result.textSummary,
-          analysis_data: result.analysis ? JSON.stringify(result.analysis) : undefined
+      // Update session context with analysis results
+      try {
+        const session = await ctx.runQuery(api.functions.getSessionEnhanced, {sessionId: sessionId as any});
+        if (session) {
+          const currentContext = session.context_data || {};
+          const updatedContext = {
+            ...currentContext,
+            analysis_summary: result.textSummary,
+            analysis_data: result.analysis || undefined
+          };
+          await ctx.runMutation(api.functions.updateSessionContextEnhanced, {
+            sessionId: sessionId as any,
+            context: updatedContext,
+          });
         }
-      });
+      } catch (contextError) {
+        console.error("Failed to update session context with analysis results:", contextError);
+        // Non-critical, continue
+      }
 
       return {
         success: true,
@@ -274,12 +343,25 @@ export const runCompleteAgentWorkflow = action({
         }
       }
 
-      // Update session with all results
+      // Update session context with all results
       if (Object.keys(updates).length > 0) {
-        await ctx.runMutation(api.sessionCrud.updateSession, {
-          sessionId,
-          updates
-        });
+        try {
+          const session = await ctx.runQuery(api.functions.getSessionEnhanced, {sessionId: sessionId as any});
+          if (session) {
+            const currentContext = session.context_data || {};
+            const updatedContext = {
+              ...currentContext,
+              ...updates
+            };
+            await ctx.runMutation(api.functions.updateSessionContextEnhanced, {
+              sessionId: sessionId as any,
+              context: updatedContext,
+            });
+          }
+        } catch (contextError) {
+          console.error("Failed to update session context with workflow results:", contextError);
+          // Non-critical, continue
+        }
       }
 
       // Update knowledge base if we have folder context and results
@@ -295,9 +377,8 @@ export const runCompleteAgentWorkflow = action({
         }
 
         if (knowledgeBaseUpdates.length > 0) {
-          const folderData = await ctx.runQuery(api.folderCrud.getFolder, {
-            folderId,
-            userId
+          const folderData = await ctx.runQuery(api.functions.getFolderEnhanced, {
+            folderId: folderId as any, // Cast to Id<"folders">
           });
 
           const existingKB = folderData?.knowledge_base || "";
@@ -306,8 +387,8 @@ export const runCompleteAgentWorkflow = action({
             ? `${existingKB}\n\n${newContent}`
             : newContent;
 
-          await ctx.runMutation(api.folderCrud.updateKnowledgeBase, {
-            folderId,
+          await ctx.runMutation(api.functions.updateKnowledgeBase, {
+            folderId: folderId as any, // Cast to Id<"folders">
             knowledgeBase: updatedKnowledgeBase
           });
         }
@@ -357,36 +438,36 @@ export const getAgentStatus = query({
   }
 });
 
-// Run Agent System Tests
-export const runSystemTests = action({
-  args: {
-    enableDetailedLogging: v.optional(v.boolean()),
-    skipSlowTests: v.optional(v.boolean()),
-    timeout: v.optional(v.number())
-  },
-  handler: async (ctx, { enableDetailedLogging, skipSlowTests, timeout }) => {
-    try {
-      const testConfig = {
-        enableDetailedLogging: enableDetailedLogging ?? false,
-        skipSlowTests: skipSlowTests ?? true, // Skip slow tests by default in production
-        timeout: timeout ?? 10000 // 10 seconds default for production
-      };
+// Run Agent System Tests - Disabled until runAgentTests is implemented
+// export const runSystemTests = action({
+//   args: {
+//     enableDetailedLogging: v.optional(v.boolean()),
+//     skipSlowTests: v.optional(v.boolean()),
+//     timeout: v.optional(v.number())
+//   },
+//   handler: async (ctx, { enableDetailedLogging, skipSlowTests, timeout }) => {
+//     try {
+//       const testConfig = {
+//         enableDetailedLogging: enableDetailedLogging ?? false,
+//         skipSlowTests: skipSlowTests ?? true, // Skip slow tests by default in production
+//         timeout: timeout ?? 10000 // 10 seconds default for production
+//       };
 
-      const results = await runAgentTests(testConfig);
+//       const results = await runAgentTests(testConfig);
 
-      return {
-        success: true,
-        data: results
-      };
-    } catch (error) {
-      console.error("Agent system tests failed:", error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error)
-      };
-    }
-  }
-});
+//       return {
+//         success: true,
+//         data: results
+//       };
+//     } catch (error) {
+//       console.error("Agent system tests failed:", error);
+//       return {
+//         success: false,
+//         error: error instanceof Error ? error.message : String(error)
+//       };
+//     }
+//   }
+// });
 
 // Performance Metrics Query
 export const getPerformanceMetrics = query({
@@ -440,9 +521,8 @@ async function createAgentContextFromSession(
   sessionId: string,
   userId: string
 ): Promise<AgentContext> {
-  const session = await ctx.runQuery(api.sessionCrud.getSession, {
-    sessionId,
-    userId
+  const session = await ctx.runQuery(api.functions.getSessionEnhanced, {
+    sessionId: sessionId as any
   });
 
   if (!session) {
