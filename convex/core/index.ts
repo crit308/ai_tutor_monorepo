@@ -8,4 +8,11 @@
 export * from './config';
 
 // Utilities and helpers
-export * from './utils'; 
+export * from './sessionManager';
+export * from './utils';
+export * from './migration';
+
+// Document processing and file uploads
+export * from './documentProcessor';
+export * from './fileUploadActions';
+export * from './fileUploadManager'; 

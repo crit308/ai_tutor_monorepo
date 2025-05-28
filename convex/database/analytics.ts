@@ -1,7 +1,7 @@
 import { v } from "convex/values";
-import { action, mutation, query } from "./_generated/server";
-import { api } from "./_generated/api";
-import { Id } from "./_generated/dataModel";
+import { action, mutation, query } from "../_generated/server";
+import { api } from "../_generated/api";
+import { Id } from "../_generated/dataModel";
 import { ConvexError } from "convex/values";
 
 // --- Analytics Types ---

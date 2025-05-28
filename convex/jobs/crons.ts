@@ -13,7 +13,7 @@ crons.interval(
 // Clean up old logs daily at 2 AM
 crons.daily(
   "cleanup old logs",
-  { hourUTC: 2 },
+  { hourUTC: 2, minuteUTC: 0 },
   internal.jobs.background.cleanupOldLogs,
   {},
 );

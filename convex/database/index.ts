@@ -17,4 +17,7 @@ export * from './folders';
 export * from './concepts';
 
 // Database optimization and performance
-export * from './optimization'; 
+export * from './optimization';
+
+// Analytics
+export * from './analytics'; 

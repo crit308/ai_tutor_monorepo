@@ -2,8 +2,8 @@
 // Integration layer between Convex backend and AI agent system
 
 import { v } from "convex/values";
-import { mutation, action, query } from "./_generated/server";
-import { api } from "./_generated/api";
+import { mutation, action, query } from "../_generated/server";
+import { api } from "../_generated/api";
 import {
   initializeAgentSystem,
   runDocumentAnalysis,
@@ -12,15 +12,15 @@ import {
   runCompleteWorkflow,
   getAgentSystemStatus,
   agentPerformanceMonitor
-} from "./agents";
+} from ".";
 import type {
   AgentContext,
   AnalysisResult,
   FocusObjective,
   SessionAnalysis,
   UserModelState
-} from "./agents";
-import { AnalyzerAgent } from "./agents/analyzerAgent"; // Import the agent class
+} from ".";
+import { AnalyzerAgent } from "./analyzerAgent"; // Import the agent class
 
 // Initialize the AI agent system (called once on startup)
 export const initializeAgents = action({
@@ -195,7 +195,7 @@ export const planSessionFocus = action({
       }
 
       // Create planner agent with Convex context
-      const { createPlannerAgent } = await import("./agents/plannerAgent");
+      const { createPlannerAgent } = await import("./plannerAgent");
       const plannerAgent = createPlannerAgent(openaiKey, ctx);
       
       // Execute planner agent
