@@ -5,9 +5,12 @@
  * integrating with the enhanced auth system for Task 2.2 migration.
  */
 
-import { authenticateWebSocket, checkRateLimit } from "./auth";
-import { api } from "./_generated/api";
-import { ActionCtx } from "./_generated/server";
+import { authenticateWebSocket, checkRateLimit } from "../auth";
+import { api } from "../_generated/api";
+import { ActionCtx } from "../_generated/server";
+
+// Re-export the auth functions for websocket use
+export { authenticateWebSocket, checkRateLimit } from "../auth";
 
 export interface WebSocketAuthResult {
   userId: string;

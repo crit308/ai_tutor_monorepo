@@ -1,6 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { ConvexHttpClient } from 'convex/browser';
-import { api } from './_generated/api';
+import { api } from '../_generated/api';
 
 // Type definitions (minimal for Phase 1)
 interface UserModelState {

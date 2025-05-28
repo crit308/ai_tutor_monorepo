@@ -1,7 +1,7 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
-import { api } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import { mutation, query } from "../_generated/server";
+import { api } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
 
 // Type definitions for TutorContext (ported from Python)
 export interface UserConceptMastery {

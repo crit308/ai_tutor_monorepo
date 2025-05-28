@@ -1,7 +1,7 @@
 import { v } from "convex/values";
-import { action, mutation, query } from "./_generated/server";
-import { api } from "./_generated/api";
-import { Id } from "./_generated/dataModel";
+import { action, mutation, query } from "../_generated/server";
+import { api } from "../_generated/api";
+import { Id } from "../_generated/dataModel";
 import { ConvexError } from "convex/values";
 
 export interface DocumentProcessingResult {
@@ -40,7 +40,7 @@ export const processDocumentBatch = action({
     let vectorStoreId: string | undefined;
 
     // Get session to ensure it exists
-    const session = await ctx.runQuery(api.sessionCrud.getSession, {
+    const session = await ctx.runQuery(api.functions.getSession, {
       sessionId: args.sessionId,
     });
 
@@ -86,12 +86,12 @@ export const processDocumentBatch = action({
     // Update session with processing results
     const successfulFiles = results.filter(r => r.success);
     if (successfulFiles.length > 0) {
-      await ctx.runMutation(api.sessionCrud.updateSessionContext, {
+      await ctx.runMutation(api.functions.updateSessionContext, {
         sessionId: args.sessionId,
         context: {
-          ...session.context,
+          ...session.context_data,
           uploaded_file_paths: [
-            ...(session.context?.uploaded_file_paths || []),
+            ...(session.context_data?.uploaded_file_paths || []),
             ...successfulFiles.map(r => r.filename),
           ],
           vector_store_id: vectorStoreId,
@@ -161,6 +161,9 @@ async function processIndividualDocument(
     vectorStoreId,
     fileId,
     embeddingStatus: args.queueEmbedding ? "pending" : "completed",
+    userId: "user_id",
+    folderId: "folder_id",
+    supabasePath: "supabase_path",
   });
 
   return { vectorStoreId, fileId };
@@ -179,8 +182,8 @@ export const analyzeDocumentContent = action({
       v.literal("full_analysis")
     )),
   },
-  handler: async (ctx, args) => {
-    const session = await ctx.runQuery(api.sessionCrud.getSession, {
+  handler: async (ctx, args): Promise<any> => {
+    const session = await ctx.runQuery(api.functions.getSession, {
       sessionId: args.sessionId,
     });
 
@@ -192,17 +195,18 @@ export const analyzeDocumentContent = action({
     
     try {
       // Trigger document analysis using AI agents
-      const analysis = await ctx.runAction(api.aiAgents.analyzeDocuments, {
-        vector_store_id: args.vectorStoreId,
-        session_id: args.sessionId,
-        analysis_type: analysisType,
+      const analysis = await ctx.runAction(api.agents.actions.analyzeDocuments, {
+        sessionId: args.sessionId,
+        userId: session.user_id,
+        vectorStoreId: args.vectorStoreId,
+        folderId: session.folder_id,
       });
 
       // Update session with analysis results
-      await ctx.runMutation(api.sessionCrud.updateSessionContext, {
+      await ctx.runMutation(api.functions.updateSessionContext, {
         sessionId: args.sessionId,
         context: {
-          ...session.context,
+          ...session.context_data,
           analysis_result: analysis,
           analysis_completed_at: Date.now(),
           analysis_type: analysisType,
@@ -238,15 +242,23 @@ export const insertUploadedFileRecord = mutation({
     vectorStoreId: v.string(),
     fileId: v.string(),
     embeddingStatus: v.union(v.literal("pending"), v.literal("completed"), v.literal("failed")),
+    userId: v.string(),
+    folderId: v.string(),
+    supabasePath: v.string(),
   },
   handler: async (ctx, args) => {
     await ctx.db.insert("uploaded_files", {
+      supabase_path: args.supabasePath,
+      user_id: args.userId,
+      folder_id: args.folderId,
+      embedding_status: args.embeddingStatus,
+      created_at: Date.now(),
+      updated_at: Date.now(),
       session_id: args.sessionId,
       filename: args.filename,
       mime_type: args.mimeType,
       vector_store_id: args.vectorStoreId,
       file_id: args.fileId,
-      embedding_status: args.embeddingStatus,
       uploaded_at: Date.now(),
     });
   },
@@ -276,19 +288,19 @@ export const getSessionFiles = query({
 
 // --- Document Processing Queue Management ---
 
-export const processEmbeddingQueue = action({
+export const processEmbeddingQueue: any = action({
   args: {
     batchSize: v.optional(v.number()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx: any, args: any): Promise<any> => {
     const batchSize = args.batchSize || 10;
 
     // Get pending embedding tasks
-    const pendingFiles = await ctx.runQuery(getPendingEmbeddings, {
+    const pendingFiles: any = await ctx.runQuery(api.functions.getPendingEmbeddings, {
       limit: batchSize,
     });
 
-    const results = [];
+    const results: any[] = [];
 
     for (const file of pendingFiles) {
       try {
@@ -303,7 +315,7 @@ export const processEmbeddingQueue = action({
         await new Promise(resolve => setTimeout(resolve, 50));
 
         // Update status to completed
-        await ctx.runMutation(updateEmbeddingStatus, {
+        await ctx.runMutation(api.functions.updateEmbeddingStatus, {
           fileId: file._id,
           status: "completed",
         });
@@ -316,7 +328,7 @@ export const processEmbeddingQueue = action({
 
       } catch (error) {
         // Update status to failed
-        await ctx.runMutation(updateEmbeddingStatus, {
+        await ctx.runMutation(api.functions.updateEmbeddingStatus, {
           fileId: file._id,
           status: "failed",
         });
@@ -332,8 +344,8 @@ export const processEmbeddingQueue = action({
 
     return {
       processedCount: results.length,
-      successCount: results.filter(r => r.success).length,
-      failedCount: results.filter(r => !r.success).length,
+      successCount: results.filter((r: any) => r.success).length,
+      failedCount: results.filter((r: any) => !r.success).length,
       results,
     };
   },
@@ -378,19 +390,23 @@ export const getDocumentProcessingStats = query({
     })),
   },
   handler: async (ctx, args) => {
-    let filesQuery = ctx.db.query("uploaded_files");
+    let files = [];
 
     if (args.sessionId) {
-      filesQuery = filesQuery.withIndex("by_session_id", (q) => 
+      files = await ctx.db
+        .query("uploaded_files")
+        .withIndex("by_session_id", (q) => 
         q.eq("session_id", args.sessionId)
-      );
+        )
+        .collect();
+    } else {
+      files = await ctx.db.query("uploaded_files").collect();
     }
-
-    const files = await filesQuery.collect();
 
     // Filter by time range if provided
     const filteredFiles = args.timeRange
-      ? files.filter(f => 
+      ? files.filter((f: any) => 
+          f.uploaded_at && 
           f.uploaded_at >= args.timeRange!.startTime && 
           f.uploaded_at <= args.timeRange!.endTime
         )
@@ -398,25 +414,27 @@ export const getDocumentProcessingStats = query({
 
     const stats = {
       totalFiles: filteredFiles.length,
-      completedEmbeddings: filteredFiles.filter(f => f.embedding_status === "completed").length,
-      pendingEmbeddings: filteredFiles.filter(f => f.embedding_status === "pending").length,
-      failedEmbeddings: filteredFiles.filter(f => f.embedding_status === "failed").length,
+      completedEmbeddings: filteredFiles.filter((f: any) => f.embedding_status === "completed").length,
+      pendingEmbeddings: filteredFiles.filter((f: any) => f.embedding_status === "pending").length,
+      failedEmbeddings: filteredFiles.filter((f: any) => f.embedding_status === "failed").length,
       averageProcessingTime: 0,
       fileTypes: {} as Record<string, number>,
       uploadTrends: [] as Array<{ date: string; count: number }>,
     };
 
     // Calculate file type distribution
-    filteredFiles.forEach(file => {
+    filteredFiles.forEach((file: any) => {
       const mimeType = file.mime_type || "unknown";
       stats.fileTypes[mimeType] = (stats.fileTypes[mimeType] || 0) + 1;
     });
 
     // Calculate upload trends (daily)
     const dailyUploads = new Map<string, number>();
-    filteredFiles.forEach(file => {
+    filteredFiles.forEach((file: any) => {
+      if (file.uploaded_at) {
       const date = new Date(file.uploaded_at).toISOString().split('T')[0];
       dailyUploads.set(date, (dailyUploads.get(date) || 0) + 1);
+      }
     });
 
     stats.uploadTrends = Array.from(dailyUploads.entries()).map(([date, count]) => ({

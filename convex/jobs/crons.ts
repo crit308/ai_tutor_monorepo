@@ -7,7 +7,7 @@ const crons = cronJobs();
 crons.interval(
   "process embedding queue",
   { minutes: 5 },
-  internal.jobs.background.processEmbeddingQueue,
+  internal.jobs.background.processEmbeddingQueueBackground,
 );
 
 // Clean up old logs daily at 2 AM

@@ -1,3 +1,5 @@
+"use node";
+
 import * as http from 'http';
 import { WebSocketServer } from 'ws';
 import * as jwt from 'jsonwebtoken';
@@ -112,7 +114,7 @@ async function handleConnection(ws: any, sessionId: string, connectionType: stri
       try {
         // Import Convex client setup (assuming it exists)
         const { ConvexHttpClient } = await import('convex/browser');
-        const { api } = await import('./_generated/api');
+        const { api } = await import('../_generated/api');
         
         const convexUrl = process.env.CONVEX_URL;
         if (convexUrl) {

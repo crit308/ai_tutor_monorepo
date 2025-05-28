@@ -612,4 +612,265 @@ export const repairSessionData = mutation({
       appliedFixes: applied 
     };
   },
+});
+
+// ==========================================
+// SESSION MESSAGES AND INTERACTION LOGS
+// ==========================================
+
+/**
+ * Get session messages/interaction logs
+ */
+export const getSessionMessages = query({
+  args: { 
+    sessionId: v.id("sessions"),
+    beforeTurnNo: v.optional(v.number()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, { sessionId, beforeTurnNo, limit = 50 }) => {
+    const userId = await requireAuth(ctx);
+    
+    const session = await ctx.db.get(sessionId);
+    if (!session || session.user_id !== userId) {
+      throw new Error("Session not found or access denied");
+    }
+    
+    let query = ctx.db
+      .query("session_messages")
+      .withIndex("by_session_created", (q) => q.eq("session_id", sessionId));
+    
+    if (beforeTurnNo !== undefined) {
+      query = query.filter((q) => q.lt(q.field("turn_no"), beforeTurnNo));
+    }
+    
+    const messages = await query
+      .order("desc")
+      .take(limit);
+    
+    return messages.reverse(); // Return in chronological order
+  },
+});
+
+/**
+ * Log mini-quiz attempt
+ */
+export const logMiniQuizAttempt = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    question: v.string(),
+    selectedOption: v.string(),
+    correctOption: v.string(),
+    isCorrect: v.boolean(),
+    relatedSection: v.optional(v.string()),
+    topic: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireAuth(ctx);
+    
+    const session = await ctx.db.get(args.sessionId);
+    if (!session || session.user_id !== userId) {
+      throw new Error("Session not found or access denied");
+    }
+    
+    await ctx.db.insert("interaction_logs", {
+      session_id: args.sessionId,
+      user_id: userId,
+      role: "user",
+      content: `Quiz: ${args.question} | Selected: ${args.selectedOption} | Correct: ${args.isCorrect}`,
+      content_type: "quiz_attempt",
+      interaction_type: "mini_quiz_attempt",
+      timestamp: Date.now(),
+      created_at: Date.now(),
+    });
+    
+    return { success: true };
+  },
+});
+
+/**
+ * Log user summary
+ */
+export const logUserSummary = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    section: v.string(),
+    topic: v.string(),
+    summary: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireAuth(ctx);
+    
+    const session = await ctx.db.get(args.sessionId);
+    if (!session || session.user_id !== userId) {
+      throw new Error("Session not found or access denied");
+    }
+    
+    await ctx.db.insert("interaction_logs", {
+      session_id: args.sessionId,
+      user_id: userId,
+      role: "user",
+      content: `Summary for ${args.section} - ${args.topic}: ${args.summary}`,
+      content_type: "user_summary",
+      interaction_type: "summary_submission",
+      timestamp: Date.now(),
+      created_at: Date.now(),
+    });
+    
+    return { success: true };
+  },
+});
+
+/**
+ * Cleanup expired sessions
+ */
+export const cleanupExpiredSessions = mutation({
+  args: {
+    olderThanDays: v.optional(v.number()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, { olderThanDays = 30, limit = 100 }) => {
+    // Note: This is a system operation, but we still need some auth
+    // In production, this would be called by a cron job or admin
+    const cutoffTime = Date.now() - (olderThanDays * 24 * 60 * 60 * 1000);
+    
+    const expiredSessions = await ctx.db
+      .query("sessions")
+      .filter((q) => q.and(
+        q.lt(q.field("created_at"), cutoffTime),
+        q.or(
+          q.eq(q.field("analysis_status"), "ended"),
+          q.eq(q.field("analysis_status"), "archived")
+        )
+      ))
+      .take(limit);
+    
+    let deletedCount = 0;
+    
+    for (const session of expiredSessions) {
+      // Delete related data first
+      const messages = await ctx.db
+        .query("session_messages")
+        .withIndex("by_session_created", (q) => q.eq("session_id", session._id))
+        .collect();
+      
+      for (const message of messages) {
+        await ctx.db.delete(message._id);
+      }
+      
+      // Delete the session
+      await ctx.db.delete(session._id);
+      deletedCount++;
+    }
+    
+    return { 
+      deletedCount,
+      hasMore: expiredSessions.length === limit 
+    };
+  },
+});
+
+/**
+ * Check authentication status
+ */
+export const checkAuthStatus = query({
+  args: {},
+  handler: async (ctx) => {
+    try {
+      const userId = await requireAuth(ctx);
+      return { authenticated: true, userId };
+    } catch {
+      return { authenticated: false, userId: null };
+    }
+  },
+});
+
+/**
+ * Get current user info
+ */
+export const getCurrentUserInfo = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireAuth(ctx);
+    
+    const user = await ctx.db
+      .query("users")
+      .filter((q) => q.eq(q.field("_id"), userId))
+      .first();
+    
+    if (!user) {
+      throw new Error("User not found");
+    }
+    
+    return {
+      id: user._id,
+      email: user.email,
+      name: user.name,
+      created_at: user._creationTime,
+    };
+  },
+});
+
+/**
+ * Get user sessions
+ */
+export const getUserSessions = query({
+  args: {
+    limit: v.optional(v.number()),
+    includeEnded: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { limit = 50, includeEnded = true }) => {
+    const userId = await requireAuth(ctx);
+    
+    let query = ctx.db
+      .query("sessions")
+      .withIndex("by_user", (q) => q.eq("user_id", userId));
+    
+    if (!includeEnded) {
+      query = query.filter((q) => q.eq(q.field("ended_at"), undefined));
+    }
+    
+    const sessions = await query
+      .order("desc")
+      .take(limit);
+    
+    return sessions;
+  },
+});
+
+/**
+ * Validate session context
+ */
+export const validateSessionContext = query({
+  args: { sessionId: v.id("sessions") },
+  handler: async (ctx, { sessionId }) => {
+    const userId = await requireAuth(ctx);
+    
+    const session = await ctx.db.get(sessionId);
+    if (!session || session.user_id !== userId) {
+      return { valid: false, error: "Session not found or access denied" };
+    }
+    
+    if (!session.context_data) {
+      return { valid: false, error: "Missing context data" };
+    }
+    
+    const context = session.context_data;
+    
+    // Basic validation checks
+    const checks = {
+      hasSessionId: !!context.session_id,
+      hasUserId: !!context.user_id,
+      sessionIdMatches: context.session_id === sessionId,
+      userIdMatches: context.user_id === userId,
+      hasUserModelState: !!context.user_model_state,
+    };
+    
+    const allValid = Object.values(checks).every(check => check);
+    
+    return {
+      valid: allValid,
+      checks,
+      context: context,
+    };
+  },
 }); 

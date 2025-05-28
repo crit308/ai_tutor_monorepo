@@ -1,5 +1,7 @@
+"use node";
+
 import { WebSocketServer } from 'ws';
-import http from 'http';
+import * as http from 'http';
 import url from 'url';
 import * as jwt from 'jsonwebtoken';
 import { handleWhiteboardMessage, getInitialState, cleanupSession, startEphemeralGC } from './whiteboardWs';
@@ -10,8 +12,7 @@ import {
   updateInteractionMode,
   initializeTutorWs
 } from './tutorWs';
-import { authenticateWebSocketConnection } from './auth';
-import { handleTutorWebSocket } from './tutor';
+import { authenticateWSConnection } from './auth';
 
 // Configuration
 const port = Number(process.env.WS_PORT || 8080);
@@ -114,7 +115,7 @@ async function handleConnection(ws: any, sessionId: string, connectionType: stri
       try {
         // Import Convex client setup (assuming it exists)
         const { ConvexHttpClient } = await import('convex/browser');
-        const { api } = await import('./_generated/api');
+        const { api } = await import('../_generated/api');
         
         const convexUrl = process.env.CONVEX_URL;
         if (convexUrl) {

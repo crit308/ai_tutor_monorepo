@@ -72,8 +72,6 @@ export const logToolInvocation = mutation({
       session_id: args.sessionId,
       user_id: args.userId,
       agent_version: args.agentVersion || "unknown",
-      error_message: args.errorMessage,
-      metadata: args.metadata,
       timestamp: Date.now(),
     });
 
@@ -88,22 +86,21 @@ async function updateToolAggregates(ctx: any, toolName: string, latencyMs: numbe
 
   const existing = await ctx.db
     .query("tool_aggregates")
-    .withIndex("by_key_date", (q) => 
+    .withIndex("by_key_date", (q: any) => 
       q.eq("aggregate_key", aggregateKey)
     )
     .first();
 
   if (existing) {
-    const newTotalLatency = existing.total_latency + latencyMs;
-    const newInvocationCount = existing.invocation_count + 1;
+    const newTotalLatency = existing.total_latency_ms + latencyMs;
+    const newInvocationCount = existing.total_invocations + 1;
     const newSuccessCount = existing.success_count + (success ? 1 : 0);
 
     await ctx.db.patch(existing._id, {
-      invocation_count: newInvocationCount,
+      total_invocations: newInvocationCount,
       success_count: newSuccessCount,
-      total_latency: newTotalLatency,
-      average_latency: newTotalLatency / newInvocationCount,
-      success_rate: (newSuccessCount / newInvocationCount) * 100,
+      total_latency_ms: newTotalLatency,
+      average_latency_ms: newTotalLatency / newInvocationCount,
       updated_at: Date.now(),
     });
   } else {
@@ -111,12 +108,11 @@ async function updateToolAggregates(ctx: any, toolName: string, latencyMs: numbe
       aggregate_key: aggregateKey,
       tool_name: toolName,
       date: today,
-      invocation_count: 1,
+      total_invocations: 1,
       success_count: success ? 1 : 0,
-      total_latency: latencyMs,
-      average_latency: latencyMs,
-      success_rate: success ? 100 : 0,
-      created_at: Date.now(),
+      failure_count: success ? 0 : 1,
+      total_latency_ms: latencyMs,
+      average_latency_ms: latencyMs,
       updated_at: Date.now(),
     });
   }
@@ -158,7 +154,7 @@ async function updateTokenAggregates(ctx: any, model: string, phase: string, tok
 
   const existing = await ctx.db
     .query("token_aggregates")
-    .withIndex("by_key_date", (q) => 
+    .withIndex("by_key_date", (q: any) => 
       q.eq("aggregate_key", aggregateKey)
     )
     .first();
@@ -166,8 +162,8 @@ async function updateTokenAggregates(ctx: any, model: string, phase: string, tok
   if (existing) {
     await ctx.db.patch(existing._id, {
       total_tokens: existing.total_tokens + tokens,
-      request_count: existing.request_count + 1,
-      average_tokens: (existing.total_tokens + tokens) / (existing.request_count + 1),
+      total_requests: existing.total_requests + 1,
+      average_tokens_per_request: (existing.total_tokens + tokens) / (existing.total_requests + 1),
       updated_at: Date.now(),
     });
   } else {
@@ -177,9 +173,8 @@ async function updateTokenAggregates(ctx: any, model: string, phase: string, tok
       phase,
       date: today,
       total_tokens: tokens,
-      request_count: 1,
-      average_tokens: tokens,
-      created_at: Date.now(),
+      total_requests: 1,
+      average_tokens_per_request: tokens,
       updated_at: Date.now(),
     });
   }
@@ -218,6 +213,7 @@ export const updateSessionAnalytics = mutation({
       sessionDuration: Date.now() - session.created_at,
       engagementScore: updates.engagementScore || currentAnalytics.engagementScore || 0,
       lastActivity: Date.now(),
+      averageResponseTime: currentAnalytics.averageResponseTime || 0,
     };
 
     // Calculate average response time
@@ -284,7 +280,7 @@ export const getUserAnalytics = query({
     // Get user sessions in time range
     const sessions = await ctx.db
       .query("sessions")
-      .withIndex("by_user_id", (q) => q.eq("user_id", args.userId))
+      .withIndex("by_user", (q: any) => q.eq("user_id", args.userId))
       .filter((q) => 
         q.and(
           q.gte(q.field("created_at"), timeRange.startTime),
@@ -573,20 +569,20 @@ export const logError = mutation({
   args: {
     errorType: v.string(),
     errorMessage: v.string(),
-    stackTrace: v.optional(v.string()),
-    context: v.optional(v.any()),
     sessionId: v.optional(v.id("sessions")),
     userId: v.optional(v.string()),
+    stackTrace: v.optional(v.string()),
+    metadata: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
     await ctx.db.insert("error_logs", {
       error_type: args.errorType,
       error_message: args.errorMessage,
-      stack_trace: args.stackTrace,
-      context: args.context,
       session_id: args.sessionId,
       user_id: args.userId,
       timestamp: Date.now(),
+      stack_trace: args.stackTrace,
+      metadata: args.metadata,
     });
   },
 });
@@ -629,5 +625,34 @@ export const getErrorMetrics = query({
         sessionId: error.session_id,
       })),
     };
+  },
+});
+
+/**
+ * Insert interaction log entry
+ */
+export const insertInteractionLog = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    userId: v.string(),
+    role: v.union(v.literal("user"), v.literal("assistant"), v.literal("system")),
+    content: v.string(),
+    contentType: v.optional(v.string()),
+    interactionType: v.optional(v.string()),
+    metadata: v.optional(v.any()),
+  },
+  handler: async (ctx, args) => {
+    const logId = await ctx.db.insert("interaction_logs", {
+      session_id: args.sessionId,
+      user_id: args.userId,
+      role: args.role,
+      content: args.content,
+      content_type: args.contentType || "text",
+      interaction_type: args.interactionType || "chat",
+      timestamp: Date.now(),
+      created_at: Date.now(),
+    });
+    
+    return { id: logId };
   },
 }); 

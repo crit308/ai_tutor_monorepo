@@ -780,4 +780,143 @@ export const repairFolderData = mutation({
       appliedFixes: applied 
     };
   },
+});
+
+/**
+ * Get user folders
+ */
+export const getUserFolders = query({
+  args: {
+    includeStats: v.optional(v.boolean()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, { includeStats = false, limit = 100 }) => {
+    const userId = await requireAuth(ctx);
+    
+    const folders = await ctx.db
+      .query("folders")
+      .withIndex("by_user", (q) => q.eq("user_id", userId))
+      .order("desc")
+      .take(limit);
+    
+    if (!includeStats) {
+      return folders;
+    }
+    
+    // Add stats for each folder
+    const foldersWithStats = await Promise.all(
+      folders.map(async (folder) => {
+        const sessionCount = await ctx.db
+          .query("sessions")
+          .withIndex("by_folder", (q) => q.eq("folder_id", folder._id))
+          .collect()
+          .then(sessions => sessions.length);
+        
+        const fileCount = await ctx.db
+          .query("uploaded_files")
+          .withIndex("by_folder", (q) => q.eq("folder_id", folder._id))
+          .collect()
+          .then(files => files.length);
+        
+        return {
+          ...folder,
+          stats: {
+            sessionCount,
+            fileCount,
+            hasKnowledgeBase: !!folder.knowledge_base,
+            hasVectorStore: !!folder.vector_store_id,
+          }
+        };
+      })
+    );
+    
+    return foldersWithStats;
+  },
+});
+
+/**
+ * Get detailed folder data with sessions and files
+ */
+export const getFolderData = query({
+  args: { 
+    folderId: v.id("folders"),
+    includeRecentSessions: v.optional(v.boolean()),
+    sessionLimit: v.optional(v.number()),
+  },
+  handler: async (ctx, { folderId, includeRecentSessions = true, sessionLimit = 10 }) => {
+    const userId = await requireAuth(ctx);
+    
+    const folder = await ctx.db.get(folderId);
+    if (!folder || folder.user_id !== userId) {
+      return null;
+    }
+    
+    const result: any = {
+      _id: folder._id,
+      name: folder.name,
+      user_id: folder.user_id,
+      created_at: folder.created_at,
+      updated_at: folder.updated_at,
+      vector_store_id: folder.vector_store_id,
+      knowledge_base: folder.knowledge_base,
+    };
+    
+    // Get folder statistics
+    const sessionCount = await ctx.db
+      .query("sessions")
+      .withIndex("by_folder", (q) => q.eq("folder_id", folderId))
+      .collect()
+      .then(sessions => sessions.length);
+    
+    const fileCount = await ctx.db
+      .query("uploaded_files")
+      .withIndex("by_folder", (q) => q.eq("folder_id", folderId))
+      .collect()
+      .then(files => files.length);
+    
+    result.stats = {
+      sessionCount,
+      fileCount,
+      hasKnowledgeBase: !!folder.knowledge_base,
+      hasVectorStore: !!folder.vector_store_id,
+    };
+    
+    // Get recent sessions if requested
+    if (includeRecentSessions) {
+      const recentSessions = await ctx.db
+        .query("sessions")
+        .withIndex("by_folder", (q) => q.eq("folder_id", folderId))
+        .order("desc")
+        .take(sessionLimit);
+      
+      result.recentSessions = recentSessions;
+    }
+    
+    return result;
+  },
+});
+
+/**
+ * Update folder vector store ID
+ */
+export const updateFolderVectorStore = mutation({
+  args: {
+    folderId: v.id("folders"),
+    vectorStoreId: v.string(),
+  },
+  handler: async (ctx, { folderId, vectorStoreId }) => {
+    const userId = await requireAuth(ctx);
+    
+    const folder = await ctx.db.get(folderId);
+    if (!folder || folder.user_id !== userId) {
+      throw new Error("Folder not found or access denied");
+    }
+    
+    await ctx.db.patch(folderId, {
+      vector_store_id: vectorStoreId,
+      updated_at: Date.now(),
+    });
+    
+    return { success: true };
+  },
 }); 

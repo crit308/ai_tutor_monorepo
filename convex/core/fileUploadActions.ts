@@ -1,31 +1,34 @@
 "use node";
 
-import { action } from "./_generated/server";
+import { action, mutation } from "../_generated/server";
 import { v } from "convex/values";
-import { api } from "./_generated/api";
+import { api } from "../_generated/api";
 import { FileUploadManager } from "./fileUploadManager";
-import { Id } from "./_generated/dataModel";
+import { Id } from "../_generated/dataModel";
+import { ConvexError } from "convex/values";
 
 export const processUploadedFilesForSession = action({
   args: {
-    sessionId: v.id('sessions'),
+    sessionId: v.id("sessions"),
     uploadedFileInfos: v.array(v.object({
-      storageId: v.id('_storage'),
       filename: v.string(),
       mimeType: v.string(),
+      content: v.string(), // Base64 encoded
     })),
   },
-  handler: async (ctx, { sessionId, uploadedFileInfos }) => {
+  handler: async (ctx, { sessionId, uploadedFileInfos }: {
+    sessionId: Id<"sessions">;
+    uploadedFileInfos: Array<{ filename: string; mimeType: string; content: string }>;
+  }): Promise<any> => {
     console.log(`[Action] Processing ${uploadedFileInfos.length} uploaded files for session ${sessionId}`);
-    const session = await ctx.runQuery(api.functions.getSessionEnhanced, { sessionId });
-    if (!session || !session.user_id) {
-      throw new Error(`Session ${sessionId} not found or missing user_id`);
-    }
-
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      console.error("OPENAI_API_KEY not set in Convex action environment.");
-      throw new Error('Missing OPENAI_API_KEY for file processing.');
+      throw new ConvexError("OpenAI API key not configured");
+    }
+
+    const session: any = await ctx.runQuery(api.functions.getSession, { sessionId });
+    if (!session || !session.user_id) {
+      throw new Error(`Session ${sessionId} not found or missing user_id`);
     }
 
     const existingVectorStoreId = session.context_data?.vector_store_id || undefined;
@@ -38,11 +41,9 @@ export const processUploadedFilesForSession = action({
       let openAIFileId: string | undefined = undefined;
       let vsIdForFile: string | undefined = undefined;
       try {
-        const fileContentBlob = await ctx.storage.get(fileInfo.storageId);
-        if (!fileContentBlob) {
-          throw new Error(`File content not found in Convex storage for ${fileInfo.filename}`);
-        }
-        const fileContentArray = new Uint8Array(await fileContentBlob.arrayBuffer());
+        // Convert base64 content to Uint8Array
+        const base64Content = fileInfo.content.split(',')[1] || fileInfo.content;
+        const fileContentArray = new Uint8Array(Buffer.from(base64Content, 'base64'));
 
         const uploadResult = await manager.uploadAndProcessFile(
           fileContentArray,
@@ -55,14 +56,15 @@ export const processUploadedFilesForSession = action({
         vsIdForFile = uploadResult.vectorStoreId;
 
         await ctx.runMutation(api.functions.insertUploadedFile, {
-          supabasePath: `convex_storage://${fileInfo.storageId}`,
+          supabasePath: `direct_upload://${fileInfo.filename}`,
           userId: session.user_id,
           folderId: session.folder_id || "default_folder_id_placeholder",
           embeddingStatus: 'completed',
           filename: fileInfo.filename,
           mimeType: fileInfo.mimeType,
-          vectorStoreId: uploadResult.vectorStoreId,
-          fileId: uploadResult.fileId,
+          vectorStoreId: uploadResult.vectorStoreId || "default_vector_store_id",
+          fileId: uploadResult.fileId || "default_file_id",
+          sessionId: sessionId,
         });
 
         results.push({ filename: fileInfo.filename, success: true, openAIFileId, vectorStoreId: vsIdForFile });
@@ -71,12 +73,15 @@ export const processUploadedFilesForSession = action({
         console.error(`[Action] Error processing file ${fileInfo.filename}:`, error);
         results.push({ filename: fileInfo.filename, success: false, error: (error as Error).message });
         await ctx.runMutation(api.functions.insertUploadedFile, {
-          supabasePath: `convex_storage://${fileInfo.storageId}`,
+          supabasePath: `direct_upload://${fileInfo.filename}`,
           userId: session.user_id,
           folderId: session.folder_id || "default_folder_id_placeholder",
           embeddingStatus: 'failed',
           filename: fileInfo.filename,
           mimeType: fileInfo.mimeType,
+          sessionId: sessionId,
+          vectorStoreId: "failed_upload",
+          fileId: "failed_upload",
         });
       }
     }
@@ -99,7 +104,7 @@ export const processUploadedFilesForSession = action({
       vector_store_id: finalVectorStoreId,
     };
 
-    await ctx.runMutation(api.functions.updateSessionContextEnhanced, {
+    await ctx.runMutation(api.functions.updateSessionContext, {
       sessionId: sessionId,
       context: updatedSessionContext,
     });
@@ -116,7 +121,7 @@ export const processUploadedFilesForSession = action({
         if (results.some(r => r.success && r.vectorStoreId)) {
             try {
                 console.log(`[Action] Triggering document analysis for vector store: ${finalVectorStoreId}`);
-                const analysisActionResponse = await ctx.runAction(api.aiAgents.analyzeDocuments, {
+                const analysisActionResponse = await ctx.runAction(api.agents.actions.analyzeDocuments, {
                     sessionId: sessionId,
                     userId: session.user_id,
                     vectorStoreId: finalVectorStoreId,
