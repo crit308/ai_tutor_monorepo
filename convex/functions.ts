@@ -93,7 +93,12 @@ export {
   insertSnapshot,
   getWhiteboardSnapshots,
   getLatestSnapshotIndex,
-  deleteSessionSnapshots
+  deleteSessionSnapshots,
+  getWhiteboardObjects,
+  addWhiteboardObject,
+  updateWhiteboardObject,
+  deleteWhiteboardObject,
+  clearWhiteboardObjects
 } from './database/whiteboard';
 
 // Analytics functions

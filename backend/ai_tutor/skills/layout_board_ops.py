@@ -8,7 +8,9 @@ implemented in :pymod:`ai_tutor.services.layout_allocator`.
 
 from typing import Any, Dict, List, Optional
 import logging
+import os
 from enum import Enum
+import httpx
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -18,12 +20,12 @@ from ai_tutor.api_models import MessageResponse
 from ai_tutor.services import layout_allocator as _alloc
 from ai_tutor.services import layout_templates as _template_resolver
 from services.whiteboard_metadata import Metadata  # Changed import
-from ai_tutor.dependencies import get_redis_client
 from ai_tutor.services import spatial_index as _spatial_idx
-from y_py import YDoc, apply_update  # type: ignore
-from redis.asyncio import Redis  # type: ignore
 
 log = logging.getLogger(__name__)
+
+# Convex HTTP API configuration
+CONVEX_SITE_URL = os.environ.get("CONVEX_SITE_URL", "https://your-convex-deployment.convex.site")
 
 # Assume CanvasObjectSpec is defined elsewhere and imported, e.g.:
 # from ai_tutor.api_models import CanvasObjectSpec
@@ -165,65 +167,89 @@ def _augment_metadata_source_group(spec: Dict[str, Any], group_id: Optional[str]
 _REDIS_KEY_PREFIX = "yjs:snapshot:"
 
 
-async def _get_object_bbox_from_yjs(session_id: str, object_id: str) -> Optional[Dict[str, float]]:
-    """Helper to fetch an object's metadata.bbox from Yjs snapshot."""
-    redis_client: Redis = await get_redis_client()
-    redis_key = f"{_REDIS_KEY_PREFIX}{session_id}"
-    yjs_snapshot_bytes: Optional[bytes] = await redis_client.get(redis_key)
-
-    if not yjs_snapshot_bytes:
-        log.warning(f"_get_object_bbox_from_yjs: No Yjs snapshot for session {session_id}")
-        return None
-
-    ydoc = YDoc()
+async def _get_object_bbox_from_convex(session_id: str, object_id: str, auth_token: str) -> Optional[Dict[str, float]]:
+    """Helper to fetch an object's bbox from Convex whiteboard objects."""
     try:
-        apply_update(ydoc, yjs_snapshot_bytes)
-        with ydoc.begin_transaction() as txn:
-            canvas_map = ydoc.get_map("objects")
-            raw_objects = canvas_map.to_json(txn) # type: ignore
+        async with httpx.AsyncClient() as client:
+            # Call Convex function to get whiteboard objects
+            response = await client.post(
+                f"{CONVEX_SITE_URL}/api/query",
+                json={
+                    "path": "database/whiteboard:getWhiteboardObjects",
+                    "args": {"sessionId": session_id},
+                    "format": "json"
+                },
+                headers={
+                    "Authorization": f"Bearer {auth_token}",
+                    "Content-Type": "application/json"
+                },
+                timeout=10.0
+            )
             
-            anchor_object_data = raw_objects.get(object_id)
-            if not anchor_object_data or not isinstance(anchor_object_data, dict):
-                log.warning(f"_get_object_bbox_from_yjs: Anchor object {object_id} not found in Yjs map for session {session_id}.")
+            if response.status_code != 200:
+                log.warning(f"_get_object_bbox_from_convex: Failed to get objects from Convex: {response.status_code}")
+                return None
+                
+            objects = response.json()
+            
+            # Find the specific object
+            target_object = None
+            for obj in objects:
+                if obj.get("id") == object_id:
+                    target_object = obj
+                    break
+            
+            if not target_object:
+                log.warning(f"_get_object_bbox_from_convex: Object {object_id} not found in session {session_id}")
                 return None
             
-            metadata = anchor_object_data.get("metadata")
-            if not metadata or not isinstance(metadata, dict):
-                log.warning(f"_get_object_bbox_from_yjs: Anchor object {object_id} has no metadata.")
-                return None
+            metadata = target_object.get("metadata", {})
             
-            # Prefer pctCoords if available, then bbox, then absolute x,y,width,height
-            # This function's primary goal is to provide an *absolute* bbox for the allocator if needed
-            # The new anchor strategy for relative placement will happen on frontend.
-            # This YJS fetch is mostly for the 'flow' allocator if it were to use its own anchor.
-
-            if "pctCoords" in metadata and isinstance(metadata["pctCoords"], dict):
-                 # Cannot resolve pctCoords to absolute bbox without canvas dimensions here.
-                 # This path is problematic if the goal is an absolute bbox.
-                 # For now, if only pctCoords, we cannot give an absolute bbox to the old allocator.
-                 log.debug(f"Anchor object {object_id} has pctCoords. Absolute bbox cannot be determined server-side without canvas dims.")
-                 # If we need to support allocator's anchor mode with Pct objects, this needs canvas dims.
-
-            bbox_tuple = metadata.get("bbox") # Assume this is absolute, stored by frontend/allocator
-            if bbox_tuple and isinstance(bbox_tuple, (list, tuple)) and len(bbox_tuple) == 4 and all(isinstance(n, (int, float)) for n in bbox_tuple):
-                log.debug(f"Found absolute bbox for anchor {object_id} in metadata.bbox: {bbox_tuple}")
+            # Try to get bbox from metadata or direct properties
+            bbox_tuple = metadata.get("bbox")
+            if bbox_tuple and isinstance(bbox_tuple, (list, tuple)) and len(bbox_tuple) == 4:
                 return {"x": float(bbox_tuple[0]), "y": float(bbox_tuple[1]), "width": float(bbox_tuple[2]), "height": float(bbox_tuple[3])}
-
-            # Fallback to direct absolute properties if bbox not present
-            abs_x = metadata.get("x")
-            abs_y = metadata.get("y")
-            abs_w = metadata.get("width")
-            abs_h = metadata.get("height")
-            if all(isinstance(v, (int, float)) for v in [abs_x, abs_y, abs_w, abs_h]):
-                log.debug(f"Found absolute x,y,width,height for anchor {object_id}: x={abs_x}, y={abs_y}, w={abs_w}, h={abs_h}")
-                return {"x": float(abs_x), "y": float(abs_y), "width": float(abs_w), "height": float(abs_h)} # type: ignore
-
-            log.warning(f"_get_object_bbox_from_yjs: Anchor object {object_id} metadata.bbox or abs coords missing/invalid.")
+            
+            # Fallback to direct properties
+            x, y, w, h = target_object.get("x"), target_object.get("y"), target_object.get("width"), target_object.get("height")
+            if all(isinstance(v, (int, float)) for v in [x, y, w, h]):
+                return {"x": float(x), "y": float(y), "width": float(w), "height": float(h)}
+            
+            log.warning(f"_get_object_bbox_from_convex: Object {object_id} lacks valid bbox data")
             return None
-
+            
     except Exception as exc:
-        log.error(f"_get_object_bbox_from_yjs: Failed to process Yjs for object {object_id} in session {session_id} – {exc}", exc_info=True)
+        log.error(f"_get_object_bbox_from_convex: Error fetching object {object_id}: {exc}", exc_info=True)
         return None
+
+
+async def _get_all_objects_from_convex(session_id: str, auth_token: str) -> List[Dict[str, Any]]:
+    """Helper to fetch all whiteboard objects from Convex."""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{CONVEX_SITE_URL}/api/query",
+                json={
+                    "path": "database/whiteboard:getWhiteboardObjects",
+                    "args": {"sessionId": session_id},
+                    "format": "json"
+                },
+                headers={
+                    "Authorization": f"Bearer {auth_token}",
+                    "Content-Type": "application/json"
+                },
+                timeout=10.0
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                log.warning(f"_get_all_objects_from_convex: Failed to get objects: {response.status_code}")
+                return []
+                
+    except Exception as exc:
+        log.error(f"_get_all_objects_from_convex: Error fetching objects: {exc}", exc_info=True)
+        return []
 
 
 @skill
@@ -460,43 +486,25 @@ async def find_object_on_board(ctx: Any, **kwargs):  # noqa: D401 – simple ver
     if not args.meta_query and not args.spatial_query:
         raise ToolInputError("At least one of meta_query or spatial_query must be provided for find_object_on_board.")
 
-    redis_client: Redis = await get_redis_client()
-    redis_key = f"{_REDIS_KEY_PREFIX}{ctx.session_id}"
-    yjs_snapshot_bytes: Optional[bytes] = await redis_client.get(redis_key)
+    # Get auth token from context
+    auth_token = getattr(ctx.context, 'auth_token', None)
+    if not auth_token:
+        log.error("[find_object_on_board] No auth token available in context")
+        return MessageResponse(message_text="Authentication required.", data=[]), []
 
-    if not yjs_snapshot_bytes:
-        log.info(f"No Yjs snapshot found for session {ctx.session_id} to find objects.")
-        return MessageResponse(message_text="Whiteboard is empty or snapshot not found.", data=[]), []
-
-    ydoc = YDoc()
-    objects_data: List[Dict[str, Any]] = []
-    try:
-        apply_update(ydoc, yjs_snapshot_bytes) 
-        with ydoc.begin_transaction() as txn:
-            canvas_map = ydoc.get_map("objects") 
-            raw_objects = canvas_map.to_json(txn) # type: ignore
-            
-            for obj_id, obj_content in raw_objects.items():
-                if isinstance(obj_content, dict):
-                    obj_data_with_id = dict(obj_content)
-                    obj_data_with_id['id'] = obj_id 
-                    objects_data.append(obj_data_with_id)
-                else:
-                    log.warning(f"Skipping non-dict object content for ID {obj_id} from Yjs map.")
-
-    except Exception as exc:
-        log.error(f"find_object_on_board: Failed to decode Yjs snapshot or read map – {exc}", exc_info=True)
-        return MessageResponse(message_text="Error processing whiteboard state.", data=[]), []
+    # Get all objects from Convex
+    objects_data = await _get_all_objects_from_convex(ctx.session_id, auth_token)
 
     if not objects_data:
-        log.info(f"No objects found in Yjs snapshot for session {ctx.session_id}.")
+        log.info(f"No objects found in Convex for session {ctx.session_id}.")
         return MessageResponse(message_text="Whiteboard is empty.", data=[]), []
         
+    # Build spatial index if needed
     rtree = _spatial_idx.RTreeIndex()
     valid_spatial_objects = 0
     for obj in objects_data:
         try:
-            # Try to get absolute coords; this is tricky if only Pct are stored and no canvas dims here
+            # Try to get absolute coords
             obj_x, obj_y, obj_w, obj_h = None, None, None, None
             if "bbox" in obj.get("metadata", {}) and len(obj["metadata"]["bbox"]) == 4:
                 bbox = obj["metadata"]["bbox"]
@@ -507,13 +515,12 @@ async def find_object_on_board(ctx: Any, **kwargs):  # noqa: D401 – simple ver
             if all(isinstance(v, (int, float)) for v in [obj_x, obj_y, obj_w, obj_h]):
                 rtree.add_object(obj['id'], float(obj_x), float(obj_y), float(obj_w), float(obj_h)) # type: ignore
                 valid_spatial_objects +=1
-            # else: log.debug(f"Object {obj.get('id')} lacks absolute bbox for spatial indexing by find_object_on_board.")
         except (TypeError, ValueError, KeyError) as e:
             log.debug(f"Skipping object {obj.get('id')} for spatial index due to missing/invalid coords: {e}")
             continue
     log.debug(f"Built R-tree with {valid_spatial_objects} objects for find_object_on_board.")
 
-
+    # Perform spatial query if requested
     spatial_id_set = None
     if args.spatial_query:
         if valid_spatial_objects > 0:
@@ -524,7 +531,7 @@ async def find_object_on_board(ctx: Any, **kwargs):  # noqa: D401 – simple ver
         else: # No objects in R-tree, so spatial query yields nothing
             spatial_id_set = set()
 
-
+    # Filter objects based on criteria
     matches: List[Dict[str, Any]] = []
     for spec_dict in objects_data:
         passes_meta_filter = True

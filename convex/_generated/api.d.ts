@@ -53,8 +53,6 @@ import type * as websocket_auth from "../websocket/auth.js";
 import type * as websocket_index from "../websocket/index.js";
 import type * as websocket_tutor from "../websocket/tutor.js";
 import type * as websocket_tutorWs from "../websocket/tutorWs.js";
-import type * as websocket_whiteboardActions from "../websocket/whiteboardActions.js";
-import type * as websocket_whiteboardWs from "../websocket/whiteboardWs.js";
 import type * as websocket_wsAuth from "../websocket/wsAuth.js";
 
 /**
@@ -106,8 +104,6 @@ declare const fullApi: ApiFromModules<{
   "websocket/index": typeof websocket_index;
   "websocket/tutor": typeof websocket_tutor;
   "websocket/tutorWs": typeof websocket_tutorWs;
-  "websocket/whiteboardActions": typeof websocket_whiteboardActions;
-  "websocket/whiteboardWs": typeof websocket_whiteboardWs;
   "websocket/wsAuth": typeof websocket_wsAuth;
 }>;
 export declare const api: FilterApi<

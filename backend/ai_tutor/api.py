@@ -100,13 +100,12 @@ app.add_middleware(
 )
 
 # --- NOW Import and Include Routers ---
-from ai_tutor.routers import sessions, tutor, folders, tutor_ws, whiteboard_ws, board_summary # <--- Import routers HERE
+from ai_tutor.routers import sessions, tutor, folders, tutor_ws, board_summary # <--- Import routers HERE
 
 app.include_router(sessions.router, prefix="/api/v1", dependencies=[Depends(verify_token)])
 app.include_router(tutor.router, prefix="/api/v1", dependencies=[Depends(verify_token)])
 app.include_router(folders.router, prefix="/api/v1", dependencies=[Depends(verify_token)]) # Include folder routes
 app.include_router(tutor_ws.router, prefix="/api/v1")  # Mount WebSocket router
-app.include_router(whiteboard_ws.router)  # /ws/v2/... paths mounted without extra prefix
 # Board summary endpoint (under /api/v1)
 app.include_router(board_summary.router, prefix="/api/v1", dependencies=[Depends(verify_token)])
 
@@ -152,11 +151,6 @@ async def _shutdown_async_clients():
         logging.getLogger("ai_tutor").warning("Failed to close openai client on shutdown: %s", exc)
 
 # --- Startup event for ephemeral GC ---
-from ai_tutor.routers.whiteboard_ws import start_ephemeral_gc
-
-@app.on_event("startup")
-async def _startup_whiteboard_gc():
-    """Launch the background GC loop for ephemeral whiteboard entries."""
-    start_ephemeral_gc()
+# Removed: whiteboard_ws ephemeral GC is no longer needed with minimal WebSocket server
 
 # To run the API: uvicorn ai_tutor.api:app --reload --port 8001 

@@ -51,6 +51,18 @@ export default defineSchema({
     .index("by_session_snapshot", ["session_id", "snapshot_index"])
     .index("by_session_created", ["session_id", "created_at"]),
 
+  whiteboard_objects: defineTable({
+    session_id: v.string(),
+    object_id: v.string(),
+    object_spec: v.string(), // JSON string of CanvasObjectSpec
+    object_kind: v.string(),  // e.g., 'circle', 'text', 'latex_svg'
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_session", ["session_id"])
+    .index("by_session_object", ["session_id", "object_id"])
+    .index("by_session_created", ["session_id", "created_at"]),
+
   concept_events: defineTable({
     session_id: v.string(),
     user_id: v.string(),

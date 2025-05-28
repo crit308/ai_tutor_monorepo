@@ -873,4 +873,45 @@ export const validateSessionContext = query({
       context: context,
     };
   },
+});
+
+/**
+ * Add a message to a session
+ */
+export const addSessionMessage = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    role: v.union(v.literal("user"), v.literal("assistant")),
+    text: v.string(),
+    payloadJson: v.optional(v.any()),
+  },
+  handler: async (ctx, { sessionId, role, text, payloadJson }) => {
+    const userId = await requireAuth(ctx);
+    
+    // Verify session ownership
+    const session = await ctx.db.get(sessionId);
+    if (!session || session.user_id !== userId) {
+      throw new Error("Session not found or access denied");
+    }
+    
+    // Get the next turn number
+    const existingMessages = await ctx.db
+      .query("session_messages")
+      .withIndex("by_session", (q) => q.eq("session_id", sessionId))
+      .collect();
+    
+    const nextTurnNo = existingMessages.length + 1;
+    
+    // Insert the message
+    const messageId = await ctx.db.insert("session_messages", {
+      session_id: sessionId,
+      role,
+      text,
+      payload_json: payloadJson || {},
+      turn_no: nextTurnNo,
+      created_at: Date.now(),
+    });
+    
+    return { id: messageId };
+  },
 }); 

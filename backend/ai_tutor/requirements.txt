@@ -8,7 +8,6 @@ uvicorn[standard]>=0.20.0
 python-multipart>=0.0.6 # For file uploads
 httpx>=0.28.1,<0.29
 prometheus_client
-y-py>=0.6.0
 redis>=4.6.0
 rtree>=1.2.0
 openai-agents>=0.0.11
