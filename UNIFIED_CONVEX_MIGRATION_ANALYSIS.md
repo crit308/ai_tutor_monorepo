@@ -162,9 +162,9 @@ const uploadUrl = await convex.mutation(convexApi.functions.generateFileUploadUr
 
 ### 1. File Structure Requirements
 
-**New Unified Structure**:
+**New Unified Structure** (REVISED):
 ```
-convex/ (unified deployment)
+convex/ (unified deployment - run from root with: npx convex dev)
 ├── _generated/
 ├── agents/              # AI agents (existing)
 │   ├── plannerAgent.ts
@@ -187,15 +187,44 @@ convex/ (unified deployment)
 │   ├── whiteboardWs.ts # Whiteboard WebSocket
 │   └── server.ts       # WebSocket server
 ├── core/               # Core business logic
-│   ├── functions.ts    # Main function exports
 │   └── utils.ts        # Shared utilities
 ├── jobs/               # Background jobs
 │   ├── crons.ts        # Cron jobs
 │   └── background.ts   # Background tasks
-└── package.json        # Unified dependencies
+├── functions.ts        # THIN re-export layer (NOT logic)
+├── schema.ts           # Re-export unified schema
+└── auth.config.ts      # Auth configuration
 ```
 
-### 2. Import Path Updates
+**⚠️ REMOVED**: `convex/frontend/` directory (all Convex functions are backend functions)
+
+### 2. Package.json Strategy (REVISED)
+
+**Root Package.json** (PREFERRED):
+```json
+{
+  "name": "ai-tutor-monorepo",
+  "scripts": {
+    "dev": "concurrently \"npm run convex:dev\" \"npm run frontend:dev\"",
+    "convex:dev": "npx convex dev",
+    "convex:deploy": "npx convex deploy", 
+    "frontend:dev": "cd frontend && npm run dev",
+    "ws:dev": "node convex/websocket/server.js"
+  },
+  "dependencies": {
+    "convex": "^1.24.1",
+    "@convex-dev/auth": "^0.0.86",
+    "ws": "^8.x.x",
+    "ioredis": "^5.x.x", 
+    "openai": "^4.x.x",
+    "concurrently": "^7.x.x"
+  }
+}
+```
+
+**Deployment Command**: `npx convex dev` (run from project root, targets `convex/` directory)
+
+### 3. Import Path Updates
 
 **Current Problematic Imports**:
 ```typescript
@@ -211,7 +240,7 @@ import { api } from '../_generated/api';
 const result = await ctx.runAction(api.agents.planSessionFocus, ...);
 ```
 
-### 3. Function Organization
+### 4. Function Organization (REVISED)
 
 **Current Issues**:
 - `functions.ts` is 1008 lines - too large
@@ -219,13 +248,22 @@ const result = await ctx.runAction(api.agents.planSessionFocus, ...);
 - Inconsistent naming (Enhanced vs Basic)
 
 **Target Organization**:
-- Split by domain: `database/sessions.ts`, `database/folders.ts`
-- Consistent naming convention
-- Clear module boundaries
+```typescript
+// convex/functions.ts - THIN re-export layer (NO LOGIC HERE)
+export * from './database/sessions';
+export * from './database/folders';
+export * from './auth';
+export * from './agents';
+// Just orchestrates modules, doesn't contain implementation
+
+// convex/database/sessions.ts - Actual implementation
+export const createSession = mutation({ ... });
+export const getSession = query({ ... });
+```
 
 ---
 
-## 🛠️ Migration Implementation Plan
+## 🛠️ Migration Implementation Plan (REVISED)
 
 ### Phase 2: Unified Convex Setup (Week 1)
 
@@ -234,8 +272,9 @@ const result = await ctx.runAction(api.agents.planSessionFocus, ...);
 - [ ] Create `convex/api/` module  
 - [ ] Create `convex/database/` module
 - [ ] Create `convex/websocket/` module
-- [ ] Create `convex/core/` module
+- [ ] Create `convex/core/` module (utilities only)
 - [ ] Create `convex/jobs/` module
+- [ ] ⚠️ **DO NOT CREATE** `convex/frontend/` (removed from plan)
 
 #### 2.2 Move and Reorganize Functions
 
@@ -290,34 +329,62 @@ export * from './whiteboardWs';
 // Now can access api.agents.planSessionFocus directly!
 ```
 
-#### 2.3 Update Configuration
+#### 2.3 Update Configuration (REVISED)
 
-**Root Configuration** (`convex/`):
-```typescript
-// convex/functions.ts (new main export)
-export * from './core/functions';
-export * from './database';
-export * from './auth';
-
-// convex/schema.ts (unified schema)
-export { default } from './database/schema';
-
-// convex/package.json (unified dependencies)
+**Root Package.json** (CRITICAL CHANGE):
+```json
 {
+  "name": "ai-tutor-monorepo",
+  "scripts": {
+    "dev": "concurrently \"npm run convex:dev\" \"npm run frontend:dev\"",
+    "convex:dev": "npx convex dev",
+    "convex:deploy": "npx convex deploy", 
+    "frontend:dev": "cd frontend && npm run dev",
+    "ws:dev": "node convex/websocket/server.js"
+  },
   "dependencies": {
     "convex": "^1.24.1",
     "@convex-dev/auth": "^0.0.86",
-    // All current dependencies merged
+    "ws": "^8.x.x",
+    "ioredis": "^5.x.x", 
+    "openai": "^4.x.x",
+    "concurrently": "^7.x.x"
   }
 }
+```
+
+**Root Configuration** (`convex/`):
+```typescript
+// convex/functions.ts - THIN re-export layer (NO LOGIC HERE)
+export * from './database';
+export * from './auth';
+export * from './agents';
+
+// convex/schema.ts - re-export unified schema
+export { default } from './database/schema';
+
+// convex/auth.config.ts - re-export auth config
+export { default } from './auth/config';
+```
+
+**Environment Variables Setup**:
+```bash
+# For Convex deployment (set via Convex dashboard)
+OPENAI_API_KEY=...
+JWT_SECRET=...
+
+# For Node.js WebSocket server (.env file)
+CONVEX_URL=...
+CONVEX_DEPLOY_KEY=...
+JWT_SECRET=...
 ```
 
 ### Phase 3: Frontend Migration (Week 1-2)
 
 #### 3.1 Remove Frontend Convex Directory
 - [ ] Delete `frontend/convex/` entirely
-- [ ] Update `frontend/package.json` scripts
-- [ ] Update environment variables
+- [ ] Remove Convex-related scripts from `frontend/package.json`
+- [ ] Update environment variables to point to unified deployment
 
 #### 3.2 Update Frontend Imports
 ```typescript
@@ -334,6 +401,19 @@ import { api as convexApi } from '../../../convex/_generated/api';
 export const convex = new ConvexReactClient(
   process.env.NEXT_PUBLIC_CONVEX_URL! // Points to unified deployment
 );
+```
+
+**Frontend Package.json** (UPDATED):
+```json
+{
+  "name": "ai-tutor-frontend",
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start"
+    // REMOVED: All convex-related scripts
+  }
+}
 ```
 
 ### Phase 4: Backend/WebSocket Migration (Week 2)
@@ -355,7 +435,7 @@ const plannerResult = await ctx.runAction(api.agents.planSessionFocus, {
 #### 4.2 Update WebSocket Server
 ```typescript
 // convex/websocket/server.ts (moved from convex/wsServer.ts)
-// Updated to work with unified deployment
+// Now runs via: npm run ws:dev (from root package.json)
 ```
 
 ### Phase 5: Testing and Validation (Week 2-3)
@@ -366,6 +446,7 @@ const plannerResult = await ctx.runAction(api.agents.planSessionFocus, {
 - [ ] File upload still works  
 - [ ] Session management still works
 - [ ] Whiteboard integration still works
+- [ ] `npx convex dev` runs from root successfully
 
 #### 5.2 Performance Validation
 - [ ] Function call latency
@@ -386,6 +467,7 @@ const plannerResult = await ctx.runAction(api.agents.planSessionFocus, {
 - [ ] Improved development experience (single deployment)
 - [ ] Better performance (direct function calls)
 - [ ] Cleaner architecture (no re-exports)
+- [ ] Proper monorepo package.json setup
 
 ### Validation Tests
 ```javascript
@@ -412,26 +494,29 @@ const testPlannerIntegration = async () => {
 2. **File Upload**: Convex storage integration
 3. **WebSocket**: Real-time connection handling
 4. **Database**: Schema and migration consistency
+5. **Package.json Setup**: Dependency management in monorepo
 
 ### Mitigation Strategies
 1. **Incremental Migration**: Move modules one by one
 2. **Parallel Testing**: Keep old system running during migration
 3. **Rollback Plan**: Ability to revert quickly if issues arise
 4. **Comprehensive Testing**: Test each module before proceeding
+5. **Environment Variable Validation**: Ensure both Convex and Node.js have required vars
 
 ### Monitoring Points
 - Function execution times
 - WebSocket connection stability  
 - Database query performance
 - Authentication success rates
+- Package dependency resolution
 
 ---
 
-## 📁 File Inventory
+## 📁 File Inventory (REVISED)
 
 ### Files to Move/Reorganize (18 files)
 1. `convex/auth.ts` → `convex/auth/index.ts`
-2. `convex/functions.ts` → Split into modules
+2. `convex/functions.ts` → **SPLIT**: Thin re-export + modular functions
 3. `convex/http.ts` → `convex/api/http.ts`
 4. `convex/aiAgents.ts` → `convex/agents/index.ts`
 5. `convex/tutorWs.ts` → `convex/websocket/tutorWs.ts`
@@ -458,16 +543,17 @@ const testPlannerIntegration = async () => {
 6. `frontend/convex/auth.config.ts`
 7. `frontend/convex/README.md`
 
-### Files to Update (5+ files)
+### Files to Update (6+ files)
 1. `frontend/src/lib/api.ts` - Update import paths
 2. `frontend/src/lib/convex.ts` - Update client config
-3. `frontend/package.json` - Update scripts
-4. `package.json` (root) - Update deployment config
+3. `frontend/package.json` - Remove Convex scripts
+4. `package.json` (root) - Add all dependencies and scripts
 5. All frontend components using Convex API
+6. `.env` files - Environment variable setup
 
 ---
 
-## 📅 Timeline Estimate
+## 📅 Timeline Estimate (UNCHANGED)
 
 | Phase | Duration | Key Deliverables |
 |-------|----------|------------------|
@@ -479,13 +565,13 @@ const testPlannerIntegration = async () => {
 
 ---
 
-## ✅ Next Actions
+## ✅ Next Actions (UPDATED)
 
-1. **Immediate** (Today): Proceed with Phase 2.1 - Create directory structure
-2. **Day 1-2**: Phase 2.2 - Move and reorganize authentication module
-3. **Day 3-4**: Phase 2.3 - Move database functions and test
-4. **Day 5-6**: Phase 3 - Frontend migration
+1. **Immediate** (Today): Proceed with Phase 2.1 - Create directory structure (NO convex/frontend/)
+2. **Day 1-2**: Phase 2.2 - Move and reorganize authentication module  
+3. **Day 3-4**: Phase 2.3 - Update root package.json and dependency management
+4. **Day 5-6**: Phase 3 - Frontend migration and import path updates
 5. **Day 7-8**: Phase 4 - WebSocket migration and planner integration
 6. **Day 9-10**: Phase 5 - Testing and validation
 
-**Ready to begin implementation?** 🚀 
+**Ready to begin implementation with refined approach?** 🚀 
