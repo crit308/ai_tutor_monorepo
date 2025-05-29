@@ -897,7 +897,7 @@ export const addSessionMessage = mutation({
     // Get the next turn number
     const existingMessages = await ctx.db
       .query("session_messages")
-      .withIndex("by_session", (q) => q.eq("session_id", sessionId))
+      .withIndex("by_session_created", (q) => q.eq("session_id", sessionId))
       .collect();
     
     const nextTurnNo = existingMessages.length + 1;
@@ -913,5 +913,44 @@ export const addSessionMessage = mutation({
     });
     
     return { id: messageId };
+  },
+});
+
+/**
+ * Update an existing session message
+ */
+export const updateSessionMessage = mutation({
+  args: {
+    messageId: v.id("session_messages"),
+    text: v.optional(v.string()),
+    payloadJson: v.optional(v.any()),
+  },
+  handler: async (ctx, { messageId, text, payloadJson }) => {
+    const userId = await requireAuth(ctx);
+    
+    // Get the message and verify ownership
+    const message = await ctx.db.get(messageId);
+    if (!message) {
+      throw new Error("Message not found");
+    }
+    
+    // Verify session ownership
+    const session = await ctx.db.get(message.session_id as Id<'sessions'>);
+    if (!session || session.user_id !== userId) {
+      throw new Error("Session not found or access denied");
+    }
+    
+    // Update the message
+    const updates: any = {};
+    if (text !== undefined) {
+      updates.text = text;
+    }
+    if (payloadJson !== undefined) {
+      updates.payload_json = payloadJson;
+    }
+    
+    await ctx.db.patch(messageId, updates);
+    
+    return { success: true };
   },
 }); 
