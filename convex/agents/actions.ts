@@ -4,6 +4,7 @@
 import { v } from "convex/values";
 import { mutation, action, query } from "../_generated/server";
 import { api } from "../_generated/api";
+import { Id } from "../_generated/dataModel";
 import {
   initializeAgentSystem,
   runDocumentAnalysis,
@@ -85,7 +86,7 @@ export const analyzeDocuments = action({
           console.log(`[aiAgents.analyzeDocuments ACTION] Updating KB for folder: ${folderId}`);
           try {
             await ctx.runMutation(api.functions.updateKnowledgeBase, {
-              folderId: folderId as any, // Cast to Id<"folders"> if your mutation expects strict type
+              folderId: folderId as Id<'folders'>,
               knowledgeBase: analysisData.analysis_text
             });
             console.log(`[aiAgents.analyzeDocuments ACTION] KB updated successfully for folder: ${folderId}`);
@@ -100,36 +101,30 @@ export const analyzeDocuments = action({
         
         // Update session context with the analysis result
         try {
-            const session = await ctx.runQuery(api.functions.getSessionEnhanced, {sessionId: sessionId as any}); // Ensure correct API path
-            if (session && session.context_data) { // session.context_data can be null
-                const currentContext = session.context_data;
-                const updatedSessionContext = {
-                    ...currentContext,
-                    analysis_result: analysisData, // Store the full AnalysisResult
-                };
-                await ctx.runMutation(api.functions.updateSessionContextEnhanced, { // Ensure correct API path
-                    sessionId: sessionId as any, 
-                    context: updatedSessionContext,
+            const session = await ctx.runQuery(api.functions.getSession, {sessionId: sessionId as any}); // Ensure correct API path
+            if (session && session.folder_id) {
+                await ctx.runMutation(api.functions.updateSessionContext, { // Ensure correct API path
+                    sessionId: sessionId as Id<'sessions'>,
+                    context: {
+                        ...session.context_data,
+                        planner_focus: "Session initiated with document analysis approach",
+                        knowledge_base: analysisData.analysis_text
+                    }
                 });
-                console.log(`[aiAgents.analyzeDocuments ACTION] Session context_data.analysis_result updated for session: ${sessionId}`);
-            } else if (session) {
-                 console.warn(`[aiAgents.analyzeDocuments ACTION] Session ${sessionId} found, but context_data is null. Cannot update analysis_result.`);
-                 // Initialize context if it's null/missing? Or is this an error state?
-                 // For now, just log. If context can be legitimately null, this is fine.
-                 // If context should always exist, this might indicate an issue elsewhere.
-                 const initialContext = { // Minimal context if creating new
-                    session_id: sessionId,
-                    user_id: userId,
-                    folder_id: folderId,
-                    analysis_result: analysisData,
-                 };
-                  await ctx.runMutation(api.functions.updateSessionContextEnhanced, {
-                    sessionId: sessionId as any,
-                    context: initialContext,
-                  });
-                  console.log(`[aiAgents.analyzeDocuments ACTION] Initialized session context_data with analysis_result for session: ${sessionId}`);
             } else {
-                console.warn(`[aiAgents.analyzeDocuments ACTION] Session ${sessionId} not found. Cannot update context with analysis_result.`);
+                console.log("[Agent] No session or folder found for context update");
+                
+                // Still update the session context even without folder
+                if (session) {
+                  await ctx.runMutation(api.functions.updateSessionContext, {
+                    sessionId: sessionId as Id<'sessions'>,
+                    context: {
+                        ...session.context_data,
+                        planner_focus: "Session initiated with document analysis approach",
+                        knowledge_base: analysisData.analysis_text
+                    }
+                  });
+                }
             }
         } catch (sessionUpdateError) {
             console.error(`[aiAgents.analyzeDocuments ACTION] Failed to update session context for ${sessionId}:`, sessionUpdateError);
@@ -170,8 +165,8 @@ export const planSessionFocus = action({
 
       // If folder_id is provided, try to get analysis result from knowledge base
       if (folderId) {
-        const folderData = await ctx.runQuery(api.functions.getFolderEnhanced, {
-          folderId: folderId as any, // Cast to Id<"folders">
+        const folderData = await ctx.runQuery(api.functions.getFolder, {
+          folderId: folderId as Id<'folders'>,
         });
         
         if (folderData?.knowledge_base) {
@@ -212,15 +207,15 @@ export const planSessionFocus = action({
 
       // Update session context with focus objective
       try {
-        const session = await ctx.runQuery(api.functions.getSessionEnhanced, {sessionId: sessionId as any});
+        const session = await ctx.runQuery(api.functions.getSession, {sessionId: sessionId as any});
         if (session) {
           const currentContext = session.context_data || {};
           const updatedContext = {
             ...currentContext,
             focus_objective: result
           };
-          await ctx.runMutation(api.functions.updateSessionContextEnhanced, {
-            sessionId: sessionId as any,
+          await ctx.runMutation(api.functions.updateSessionContext, {
+            sessionId: sessionId as Id<'sessions'>,
             context: updatedContext,
           });
         }
@@ -269,8 +264,8 @@ export const analyzeSessionPerformance = action({
 
       // Save analysis summary to knowledge base
       if (folderId && result.textSummary) {
-        const folderData = await ctx.runQuery(api.functions.getFolderEnhanced, {
-          folderId: folderId as any, // Cast to Id<"folders">
+        const folderData = await ctx.runQuery(api.functions.getFolder, {
+          folderId: folderId as Id<'folders'>,
         });
         
         const updatedKnowledgeBase = folderData?.knowledge_base 
@@ -278,14 +273,14 @@ export const analyzeSessionPerformance = action({
           : result.textSummary;
 
         await ctx.runMutation(api.functions.updateKnowledgeBase, {
-          folderId: folderId as any, // Cast to Id<"folders">
+          folderId: folderId as Id<'folders'>,
           knowledgeBase: updatedKnowledgeBase
         });
       }
 
       // Update session context with analysis results
       try {
-        const session = await ctx.runQuery(api.functions.getSessionEnhanced, {sessionId: sessionId as any});
+        const session = await ctx.runQuery(api.functions.getSession, {sessionId: sessionId as any});
         if (session) {
           const currentContext = session.context_data || {};
           const updatedContext = {
@@ -293,8 +288,8 @@ export const analyzeSessionPerformance = action({
             analysis_summary: result.textSummary,
             analysis_data: result.analysis || undefined
           };
-          await ctx.runMutation(api.functions.updateSessionContextEnhanced, {
-            sessionId: sessionId as any,
+          await ctx.runMutation(api.functions.updateSessionContext, {
+            sessionId: sessionId as Id<'sessions'>,
             context: updatedContext,
           });
         }
@@ -369,15 +364,15 @@ export const runCompleteAgentWorkflow = action({
       // Update session context with all results
       if (Object.keys(updates).length > 0) {
         try {
-          const session = await ctx.runQuery(api.functions.getSessionEnhanced, {sessionId: sessionId as any});
+          const session = await ctx.runQuery(api.functions.getSession, {sessionId: sessionId as any});
           if (session) {
             const currentContext = session.context_data || {};
             const updatedContext = {
               ...currentContext,
               ...updates
             };
-            await ctx.runMutation(api.functions.updateSessionContextEnhanced, {
-              sessionId: sessionId as any,
+            await ctx.runMutation(api.functions.updateSessionContext, {
+              sessionId: sessionId as Id<'sessions'>,
               context: updatedContext,
             });
           }
@@ -400,8 +395,8 @@ export const runCompleteAgentWorkflow = action({
         }
 
         if (knowledgeBaseUpdates.length > 0) {
-          const folderData = await ctx.runQuery(api.functions.getFolderEnhanced, {
-            folderId: folderId as any, // Cast to Id<"folders">
+          const folderData = await ctx.runQuery(api.functions.getFolder, {
+            folderId: folderId as Id<'folders'>,
           });
 
           const existingKB = folderData?.knowledge_base || "";
@@ -411,7 +406,7 @@ export const runCompleteAgentWorkflow = action({
             : newContent;
 
           await ctx.runMutation(api.functions.updateKnowledgeBase, {
-            folderId: folderId as any, // Cast to Id<"folders">
+            folderId: folderId as Id<'folders'>,
             knowledgeBase: updatedKnowledgeBase
           });
         }
@@ -544,7 +539,7 @@ async function createAgentContextFromSession(
   sessionId: string,
   userId: string
 ): Promise<AgentContext> {
-  const session = await ctx.runQuery(api.functions.getSessionEnhanced, {
+  const session = await ctx.runQuery(api.functions.getSession, {
     sessionId: sessionId as any
   });
 

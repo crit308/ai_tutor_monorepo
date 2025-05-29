@@ -1,71 +1,32 @@
-// convex/functions.ts - THIN re-export layer (NO LOGIC HERE)
-// Just orchestrates modules, doesn't contain implementation
-// This enables WebSocket server to call api.agents.planSessionFocus directly
+// ==========================================
+// CONVEX FUNCTIONS EXPORT FILE
+// ==========================================
+// This file exports all Convex functions to make them available via the API
 
-// Core modules - export everything that exists
-export * from './database/sessions';
-export * from './database/folders';  
-export * from './database/concepts';
-export * from './database/optimization';
-export * from './database/analytics';
-export * from './database/whiteboard';
-export * from './auth';
-export * from './jobs';
-export * from './core';
-
-// Document processing functions
-export { 
-  getPendingEmbeddings, 
-  updateEmbeddingStatus,
-  processEmbeddingQueue,
-  insertUploadedFileRecord as insertUploadedFile, // Alias for compatibility
-  insertUploadedFileRecord,
-  getSessionFiles,
-  processDocumentBatch,
-  analyzeDocumentContent,
-  extractDocumentContent,
-  getDocumentProcessingStats
-} from './core/documentProcessor';
-
-// Enhanced aliases for backward compatibility
+// Folder management functions
 export {
-  createSession as createSessionEnhanced,
-  getSession as getSessionEnhanced,
-  getSessionContext as getSessionContextEnhanced,
-  updateSessionContext as updateSessionContextEnhanced,
-  updateSessionStatus as updateSessionStatusEnhanced,
-  listUserSessions as listUserSessionsEnhanced,
-  deleteSession as deleteSessionEnhanced
-} from './database/sessions';
-
-export {
-  createFolder as createFolderEnhanced,
-  getFolder as getFolderEnhanced,
-  updateFolder as updateFolderEnhanced,
-  deleteFolder as deleteFolderEnhanced,
-  listFolders as listFoldersEnhanced,
-  renameFolder as renameFolderEnhanced
+  createFolder,
+  getFolder,
+  listFolders,
+  updateFolder,
+  renameFolder,
+  deleteFolder,
+  getFolderStats,
+  getUserFolders,
+  getFolderData,
+  updateFolderVectorStore,
+  updateKnowledgeBase
 } from './database/folders';
 
-// File upload and processing
-export {
-  processUploadedFilesForSession
-} from './core/fileUploadActions';
-
-// Background job alias
-export {
-  createBackgroundJob as scheduleBackgroundJob
-} from './jobs';
-
-// Additional exports needed by HTTP endpoints (base names)
+// Session management functions  
 export {
   createSession,
   getSession,
   getSessionContext,
   updateSessionContext,
+  updateSessionStatus,
   listUserSessions,
   deleteSession,
-  updateSessionStatus,
   getSessionMessages,
   logMiniQuizAttempt,
   logUserSummary,
@@ -73,20 +34,10 @@ export {
   checkAuthStatus,
   getCurrentUserInfo,
   getUserSessions,
-  validateSessionContext
+  validateSessionContext,
+  addSessionMessage,
+  updateSessionMessage
 } from './database/sessions';
-
-export {
-  createFolder,
-  getFolder,
-  listFolders,
-  renameFolder,
-  deleteFolder,
-  updateFolder,
-  getUserFolders,
-  getFolderData,
-  updateFolderVectorStore
-} from './database/folders';
 
 // Whiteboard functions
 export {
@@ -98,26 +49,50 @@ export {
   addWhiteboardObject,
   updateWhiteboardObject,
   deleteWhiteboardObject,
-  clearWhiteboardObjects
+  clearWhiteboardObjects,
+  getBoardSummary
 } from './database/whiteboard';
 
 // Analytics functions
 export {
-  insertInteractionLog
+  logInteractionAnalytics,
+  insertInteractionLog,
+  logToolInvocation,
+  logTokenUsage,
+  updateSessionAnalytics
 } from './database/analytics';
 
 // API endpoint functions
 export {
   uploadSessionDocuments,
-  getSessionAnalysisResults as getSessionAnalysis
+  getSessionAnalysisResults
 } from './api/endpoints';
 
-// WebSocket/Whiteboard actions
+// Agent functions
 export {
-  getBoardSummary
-} from './websocket/whiteboardActions';
+  planSessionFocus,
+  analyzeDocuments
+} from './agents/actions';
 
-// Missing functions that HTTP endpoints expect - need to check if they exist
-// Will add these as we find them in the modules
+// Document processing functions
+export {
+  processDocumentBatch,
+  analyzeDocumentContent,
+  getSessionFiles,
+  getPendingEmbeddings,
+  updateEmbeddingStatus,
+  insertUploadedFileRecord,
+  insertUploadedFileRecord as insertUploadedFile
+} from './core/documentProcessor';
+
+// Job functions
+export {
+  processEmbeddingQueueBackground
+} from './jobs/background';
+
+// Concept graph functions
+export {
+  getAllConceptGraphEdges
+} from './database/concepts';
 
 

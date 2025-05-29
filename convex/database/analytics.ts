@@ -629,6 +629,33 @@ export const getErrorMetrics = query({
 });
 
 /**
+ * Insert analytics log entry for non-message interactions
+ */
+export const logInteractionAnalytics = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    interactionType: v.string(),
+    metadata: v.optional(v.any()),
+    userId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const logId = await ctx.db.insert("interaction_logs", {
+      session_id: args.sessionId,
+      user_id: args.userId || "system",
+      role: "system",
+      content: `${args.interactionType} completed`,
+      content_type: "analytics",
+      interaction_type: args.interactionType,
+      timestamp: Date.now(),
+      created_at: Date.now(),
+      data: args.metadata,
+    });
+    
+    return { id: logId };
+  },
+});
+
+/**
  * Insert interaction log entry
  */
 export const insertInteractionLog = mutation({

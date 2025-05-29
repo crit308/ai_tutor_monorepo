@@ -49,11 +49,6 @@ import type * as http from "../http.js";
 import type * as jobs_background from "../jobs/background.js";
 import type * as jobs_crons from "../jobs/crons.js";
 import type * as jobs_index from "../jobs/index.js";
-import type * as websocket_auth from "../websocket/auth.js";
-import type * as websocket_index from "../websocket/index.js";
-import type * as websocket_tutor from "../websocket/tutor.js";
-import type * as websocket_tutorWs from "../websocket/tutorWs.js";
-import type * as websocket_wsAuth from "../websocket/wsAuth.js";
 
 /**
  * A utility for referencing Convex functions in your app's API.
@@ -100,11 +95,6 @@ declare const fullApi: ApiFromModules<{
   "jobs/background": typeof jobs_background;
   "jobs/crons": typeof jobs_crons;
   "jobs/index": typeof jobs_index;
-  "websocket/auth": typeof websocket_auth;
-  "websocket/index": typeof websocket_index;
-  "websocket/tutor": typeof websocket_tutor;
-  "websocket/tutorWs": typeof websocket_tutorWs;
-  "websocket/wsAuth": typeof websocket_wsAuth;
 }>;
 export declare const api: FilterApi<
   typeof fullApi,

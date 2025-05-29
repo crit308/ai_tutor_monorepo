@@ -106,10 +106,10 @@ export const processDocumentBatch = action({
     }
 
     // Log batch processing analytics
-    await ctx.runMutation(api.functions.insertInteractionLog, {
+    await ctx.runMutation(api.functions.logInteractionAnalytics, {
       sessionId: args.sessionId,
       interactionType: "document_batch_upload",
-      data: {
+      metadata: {
         totalFiles: args.files.length,
         successfulFiles: successfulFiles.length,
         failedFiles: results.filter(r => !r.success).length,
@@ -214,10 +214,10 @@ export const analyzeDocumentContent = action({
       });
 
       // Log analysis completion
-      await ctx.runMutation(api.functions.insertInteractionLog, {
+      await ctx.runMutation(api.functions.logInteractionAnalytics, {
         sessionId: args.sessionId,
         interactionType: "document_analysis",
-        data: {
+        metadata: {
           vectorStoreId: args.vectorStoreId,
           analysisType,
           analysisSize: JSON.stringify(analysis).length,

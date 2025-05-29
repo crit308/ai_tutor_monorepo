@@ -103,7 +103,7 @@ export class PlannerAgent extends BaseAgent {
         this.log("info", `Reading knowledge base for folder: ${context.folder_id}`);
         
         try {
-          const folderData = await this.convexCtx.runQuery(api.functions.getFolderEnhanced, {
+          const folderData = await this.convexCtx.runQuery(api.functions.getFolder, {
             folderId: context.folder_id as any
           });
           
