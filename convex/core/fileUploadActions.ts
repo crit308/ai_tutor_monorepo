@@ -2,7 +2,6 @@
 
 import { action, mutation } from "../_generated/server";
 import { v } from "convex/values";
-import { api } from "../_generated/api";
 import { FileUploadManager } from "./fileUploadManager";
 import { Id } from "../_generated/dataModel";
 import { ConvexError } from "convex/values";
@@ -26,7 +25,7 @@ export const processUploadedFilesForSession = action({
       throw new ConvexError("OpenAI API key not configured");
     }
 
-    const session: any = await ctx.runQuery(api.functions.getSession, { sessionId });
+    const session: any = await ctx.runQuery("functions:getSession" as any, { sessionId });
     if (!session || !session.user_id) {
       throw new Error(`Session ${sessionId} not found or missing user_id`);
     }
@@ -55,7 +54,7 @@ export const processUploadedFilesForSession = action({
         openAIFileId = uploadResult.fileId;
         vsIdForFile = uploadResult.vectorStoreId;
 
-        await ctx.runMutation(api.functions.insertUploadedFile, {
+        await ctx.runMutation("functions:insertUploadedFile" as any, {
           supabasePath: `direct_upload://${fileInfo.filename}`,
           userId: session.user_id,
           folderId: session.folder_id || "default_folder_id_placeholder",
@@ -72,7 +71,7 @@ export const processUploadedFilesForSession = action({
       } catch (error) {
         console.error(`[Action] Error processing file ${fileInfo.filename}:`, error);
         results.push({ filename: fileInfo.filename, success: false, error: (error as Error).message });
-        await ctx.runMutation(api.functions.insertUploadedFile, {
+        await ctx.runMutation("functions:insertUploadedFile" as any, {
           supabasePath: `direct_upload://${fileInfo.filename}`,
           userId: session.user_id,
           folderId: session.folder_id || "default_folder_id_placeholder",
@@ -104,13 +103,13 @@ export const processUploadedFilesForSession = action({
       vector_store_id: finalVectorStoreId,
     };
 
-    await ctx.runMutation(api.functions.updateSessionContext, {
+    await ctx.runMutation("functions:updateSessionContext" as any, {
       sessionId: sessionId,
       context: updatedSessionContext,
     });
 
     if (session.folder_id && finalVectorStoreId) {
-      await ctx.runMutation(api.functions.updateFolderVectorStore, {
+      await ctx.runMutation("functions:updateFolderVectorStore" as any, {
         folderId: session.folder_id as Id<'folders'>,
         vectorStoreId: finalVectorStoreId,
       });
@@ -121,7 +120,7 @@ export const processUploadedFilesForSession = action({
         if (results.some(r => r.success && r.vectorStoreId)) {
             try {
                 console.log(`[Action] Triggering document analysis for vector store: ${finalVectorStoreId}`);
-                const analysisActionResponse = await ctx.runAction(api.agents.actions.analyzeDocuments, {
+                const analysisActionResponse = await ctx.runAction("agents/actions:analyzeDocuments" as any, {
                     sessionId: sessionId,
                     userId: session.user_id,
                     vectorStoreId: finalVectorStoreId,

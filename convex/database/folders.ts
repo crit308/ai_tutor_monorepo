@@ -81,8 +81,25 @@ export const createFolder = mutation({
   },
 });
 
+// Define the folder return type to avoid circular inference
+type FolderResult = {
+  _id: string;
+  name: string;
+  user_id: string;
+  created_at: number;
+  updated_at: number;
+  vector_store_id?: string;
+  knowledge_base?: string;
+  stats?: {
+    sessionCount: number;
+    fileCount: number;
+    hasKnowledgeBase: boolean;
+    hasVectorStore: boolean;
+  };
+} | null;
+
 /**
- * Get a specific folder with optional children
+ * Get a specific folder by ID with optional children and stats
  */
 export const getFolder = query({
   args: { 
@@ -90,7 +107,7 @@ export const getFolder = query({
     includeChildren: v.optional(v.boolean()),
     includeStats: v.optional(v.boolean()),
   },
-  handler: async (ctx, { folderId, includeChildren = false, includeStats = false }) => {
+  handler: async (ctx, { folderId, includeChildren = false, includeStats = false }): Promise<FolderResult> => {
     const userId = await requireAuth(ctx);
     
     const folder = await ctx.db.get(folderId);

@@ -1,6 +1,5 @@
 import { v } from "convex/values";
 import { action, mutation, query } from "../_generated/server";
-import { api } from "../_generated/api";
 import { Id } from "../_generated/dataModel";
 import { ConvexError } from "convex/values";
 
@@ -40,7 +39,7 @@ export const processDocumentBatch = action({
     let vectorStoreId: string | undefined;
 
     // Get session to ensure it exists
-    const session = await ctx.runQuery(api.functions.getSession, {
+    const session = await ctx.runQuery("functions:getSession" as any, {
       sessionId: args.sessionId,
     });
 
@@ -86,7 +85,7 @@ export const processDocumentBatch = action({
     // Update session with processing results
     const successfulFiles = results.filter(r => r.success);
     if (successfulFiles.length > 0) {
-      await ctx.runMutation(api.functions.updateSessionContext, {
+      await ctx.runMutation("functions:updateSessionContext" as any, {
         sessionId: args.sessionId,
         context: {
           ...session.context_data,
@@ -106,7 +105,7 @@ export const processDocumentBatch = action({
     }
 
     // Log batch processing analytics
-    await ctx.runMutation(api.functions.logInteractionAnalytics, {
+    await ctx.runMutation("functions:logInteractionAnalytics" as any, {
       sessionId: args.sessionId,
       interactionType: "document_batch_upload",
       metadata: {
@@ -154,7 +153,7 @@ async function processIndividualDocument(
   const fileId = `file_${Date.now()}_${Math.random()}`;
 
   // Store file metadata
-  await ctx.runMutation(insertUploadedFileRecord, {
+  await ctx.runMutation("functions:insertUploadedFileRecord" as any, {
     sessionId: args.sessionId,
     filename: args.file.filename,
     mimeType: args.file.mimeType,
@@ -183,7 +182,7 @@ export const analyzeDocumentContent = action({
     )),
   },
   handler: async (ctx, args): Promise<any> => {
-    const session = await ctx.runQuery(api.functions.getSession, {
+    const session = await ctx.runQuery("functions:getSession" as any, {
       sessionId: args.sessionId,
     });
 
@@ -195,7 +194,7 @@ export const analyzeDocumentContent = action({
     
     try {
       // Trigger document analysis using AI agents
-      const analysis = await ctx.runAction(api.agents.actions.analyzeDocuments, {
+      const analysis = await ctx.runAction("agents/actions:analyzeDocuments" as any, {
         sessionId: args.sessionId,
         userId: session.user_id,
         vectorStoreId: args.vectorStoreId,
@@ -203,7 +202,7 @@ export const analyzeDocumentContent = action({
       });
 
       // Update session with analysis results
-      await ctx.runMutation(api.functions.updateSessionContext, {
+      await ctx.runMutation("functions:updateSessionContext" as any, {
         sessionId: args.sessionId,
         context: {
           ...session.context_data,
@@ -214,7 +213,7 @@ export const analyzeDocumentContent = action({
       });
 
       // Log analysis completion
-      await ctx.runMutation(api.functions.logInteractionAnalytics, {
+      await ctx.runMutation("functions:logInteractionAnalytics" as any, {
         sessionId: args.sessionId,
         interactionType: "document_analysis",
         metadata: {
@@ -296,7 +295,7 @@ export const processEmbeddingQueue: any = action({
     const batchSize = args.batchSize || 10;
 
     // Get pending embedding tasks
-    const pendingFiles: any = await ctx.runQuery(api.functions.getPendingEmbeddings, {
+    const pendingFiles: any = await ctx.runQuery("functions:getPendingEmbeddings" as any, {
       limit: batchSize,
     });
 
@@ -315,7 +314,7 @@ export const processEmbeddingQueue: any = action({
         await new Promise(resolve => setTimeout(resolve, 50));
 
         // Update status to completed
-        await ctx.runMutation(api.functions.updateEmbeddingStatus, {
+        await ctx.runMutation("functions:updateEmbeddingStatus" as any, {
           fileId: file._id,
           status: "completed",
         });
@@ -328,7 +327,7 @@ export const processEmbeddingQueue: any = action({
 
       } catch (error) {
         // Update status to failed
-        await ctx.runMutation(api.functions.updateEmbeddingStatus, {
+        await ctx.runMutation("functions:updateEmbeddingStatus" as any, {
           fileId: file._id,
           status: "failed",
         });

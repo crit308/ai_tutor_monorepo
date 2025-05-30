@@ -1,5 +1,4 @@
 import { cronJobs } from "convex/server";
-import { internal } from "../_generated/api";
 
 const crons = cronJobs();
 
@@ -7,29 +6,32 @@ const crons = cronJobs();
 crons.interval(
   "process embedding queue",
   { minutes: 5 },
-  internal.jobs.background.processEmbeddingQueueBackground,
+  "jobs/background:processEmbeddingQueueBackground" as any,
+  {}
 );
 
 // Clean up old logs daily at 2 AM
-crons.daily(
+crons.cron(
   "cleanup old logs",
-  { hourUTC: 2, minuteUTC: 0 },
-  internal.jobs.background.cleanupOldLogs,
-  {},
+  "0 2 * * *", // Daily at 2 AM UTC
+  "jobs/background:cleanupOldLogs" as any,
+  { daysToKeep: 30 }
 );
 
 // Process session analytics hourly
-crons.hourly(
+crons.interval(
   "batch process session analytics",
-  { minuteUTC: 0 },
-  internal.jobs.background.batchProcessSessionAnalytics,
+  { hours: 1 },
+  "jobs/background:batchProcessSessionAnalytics" as any,
+  {}
 );
 
 // System health check every 15 minutes
 crons.interval(
   "system health check",
   { minutes: 15 },
-  internal.jobs.background.systemHealthCheck,
+  "jobs/background:systemHealthCheck" as any,
+  {}
 );
 
 export default crons; 

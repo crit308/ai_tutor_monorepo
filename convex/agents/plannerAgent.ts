@@ -3,7 +3,6 @@
 
 import { BaseAgent, createAgentConfig, AgentUtils } from "./base";
 import { AgentContext, AgentResponse, FocusObjective, PlannerOutput, ActionSpec } from "./types";
-import { api } from "../_generated/api";
 import type { ActionCtx } from "../_generated/server";
 
 export interface PlannerInput {
@@ -103,13 +102,14 @@ export class PlannerAgent extends BaseAgent {
         this.log("info", `Reading knowledge base for folder: ${context.folder_id}`);
         
         try {
-          const folderData = await this.convexCtx.runQuery(api.functions.getFolder, {
+          // Use runQuery with a simple type to avoid circular inference
+          const folder: any = await this.convexCtx.runQuery("functions:getFolder" as any, {
             folderId: context.folder_id as any
           });
           
-          if (folderData?.knowledge_base) {
+          if (folder?.knowledge_base) {
             this.log("info", `Knowledge base found for folder: ${context.folder_id}`);
-            return folderData.knowledge_base;
+            return folder.knowledge_base;
           }
         } catch (dbError) {
           this.log("error", "Failed to query folder knowledge base", dbError);
@@ -210,7 +210,8 @@ export class PlannerAgent extends BaseAgent {
       // Query concept graph from Convex database
       if (this.convexCtx) {
         this.log("info", "Fetching concept graph edges from database");
-        const edges = await this.convexCtx.runQuery(api.functions.getAllConceptGraphEdges, {});
+        // Use runQuery with a simple type to avoid circular inference
+        const edges: any = await this.convexCtx.runQuery("functions:getAllConceptGraphEdges" as any, {});
         
         this.conceptGraphCache.edges = edges;
         this.conceptGraphCache.updatedAt = Date.now();

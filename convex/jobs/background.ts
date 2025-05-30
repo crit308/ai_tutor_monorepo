@@ -25,14 +25,40 @@ export interface EmbeddingJob {
   priority: "low" | "medium" | "high";
 }
 
+// Define return types to avoid circular inference
+type EmbeddingQueueResult = {
+  processedCount: number;
+  successCount: number;
+  failedCount: number;
+  message: string;
+};
+
+type CleanupResult = {
+  deletedCount: number;
+};
+
+type AnalyticsResult = {
+  processedSessions: number;
+  totalSessions: number;
+  message: string;
+};
+
+type HealthStatus = {
+  pendingEmbeddings: number;
+  failedJobsLastHour: number;
+  activeSessionsLastHour: number;
+  systemLoad: string;
+  lastUpdated: number;
+};
+
 // --- Internal Functions for Cron Jobs ---
 
 export const processEmbeddingQueueBackground = internalAction({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<EmbeddingQueueResult> => {
     try {
       // For now, return a mock result since internal.documentProcessor.processEmbeddingQueue doesn't exist yet
-      const result = {
+      const result: EmbeddingQueueResult = {
         processedCount: 0,
         successCount: 0,
         failedCount: 0,
@@ -52,7 +78,7 @@ export const processEmbeddingQueueBackground = internalAction({
 
 export const cleanupOldLogs = internalMutation({
   args: { daysToKeep: v.optional(v.number()) },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<CleanupResult> => {
     try {
       const daysToKeep = args.daysToKeep || 30;
       const cutoffTime = Date.now() - (daysToKeep * 24 * 60 * 60 * 1000);
@@ -80,10 +106,10 @@ export const cleanupOldLogs = internalMutation({
 
 export const batchProcessSessionAnalytics = internalAction({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<AnalyticsResult> => {
     try {
       // For now, return a mock result since internal.tutorEndpoints.processSessionAnalytics doesn't exist yet
-      const result = {
+      const result: AnalyticsResult = {
         processedSessions: 0,
         totalSessions: 0,
         message: "Session analytics processing not yet implemented"
@@ -99,10 +125,10 @@ export const batchProcessSessionAnalytics = internalAction({
 
 export const systemHealthCheck = internalMutation({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<HealthStatus> => {
     try {
       // For now, return a mock health status since getSystemHealth doesn't exist yet
-      const healthStatus = {
+      const healthStatus: HealthStatus = {
         pendingEmbeddings: 0,
         failedJobsLastHour: 0,
         activeSessionsLastHour: 0,

@@ -7,12 +7,18 @@ import { requireAuth, checkRateLimit } from "../auth";
 // CONCEPT GRAPH CRUD OPERATIONS
 // ==========================================
 
+// Define the edge result type to avoid circular inference
+type ConceptGraphEdge = {
+  prereq: string;
+  concept: string;
+};
+
 /**
  * Get all concept graph edges (prerequisite relationships)
  */
 export const getAllConceptGraphEdges = query({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<ConceptGraphEdge[]> => {
     const edges = await ctx.db
       .query("concept_graph")
       .collect();
