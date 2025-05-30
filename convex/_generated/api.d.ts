@@ -28,6 +28,7 @@ import type * as auth_config from "../auth/config.js";
 import type * as auth_index from "../auth/index.js";
 import type * as auth_middleware from "../auth/middleware.js";
 import type * as auth_websocket from "../auth/websocket.js";
+import type * as auth from "../auth.js";
 import type * as core_config from "../core/config.js";
 import type * as core_documentProcessor from "../core/documentProcessor.js";
 import type * as core_fileUploadActions from "../core/fileUploadActions.js";
@@ -74,6 +75,7 @@ declare const fullApi: ApiFromModules<{
   "auth/index": typeof auth_index;
   "auth/middleware": typeof auth_middleware;
   "auth/websocket": typeof auth_websocket;
+  auth: typeof auth;
   "core/config": typeof core_config;
   "core/documentProcessor": typeof core_documentProcessor;
   "core/fileUploadActions": typeof core_fileUploadActions;

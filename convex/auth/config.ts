@@ -14,12 +14,11 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   providers: [Password],
 });
 
-// JWT configuration with fallback support for Supabase migration
-export const JWT_SECRET = process.env.JWT_SECRET || process.env.SUPABASE_JWT_SECRET || '';
-export const SUPABASE_JWT_SECRET = process.env.SUPABASE_JWT_SECRET || '';
+// JWT configuration
+export const JWT_SECRET = process.env.JWT_SECRET || '';
 
 /**
- * Enhanced JWT verification with support for both Convex and Supabase tokens
+ * JWT verification for Convex tokens
  */
 export async function verifyJWT(token: string): Promise<jose.JWTPayload> {
     if (!JWT_SECRET) {
@@ -27,27 +26,16 @@ export async function verifyJWT(token: string): Promise<jose.JWTPayload> {
     }
 
     try {
-        // Try Convex JWT format first
         const secret = new TextEncoder().encode(JWT_SECRET);
         const { payload } = await jose.jwtVerify(token, secret);
         return payload;
-    } catch (convexError) {
-        // Fallback to Supabase JWT for migration compatibility
-        if (SUPABASE_JWT_SECRET && SUPABASE_JWT_SECRET !== JWT_SECRET) {
-            try {
-                const supabaseSecret = new TextEncoder().encode(SUPABASE_JWT_SECRET);
-                const { payload } = await jose.jwtVerify(token, supabaseSecret);
-                return payload;
-            } catch (supabaseError) {
-                throw new Error(`JWT verification failed: ${convexError}`);
-            }
-        }
-        throw new Error(`JWT verification failed: ${convexError}`);
+    } catch (error) {
+        throw new Error(`JWT verification failed: ${error}`);
     }
 }
 
 /**
- * Extract user ID from JWT payload with multiple format support
+ * Extract user ID from JWT payload
  */
 export function getUserIdFromPayload(payload: jose.JWTPayload): string {
     // Try different user ID fields for compatibility
@@ -76,32 +64,9 @@ export function getUserMetadataFromPayload(payload: jose.JWTPayload): {
 }
 
 /**
- * Legacy Supabase token migration helper
- * Gradually migrates users from Supabase to Convex auth
- */
-export async function migrateSupabaseUser(
-    supabasePayload: jose.JWTPayload
-): Promise<{ userId: string; migrated: boolean }> {
-    const email = supabasePayload.email as string;
-    const userId = getUserIdFromPayload(supabasePayload);
-    
-    if (!email || !userId) {
-        throw new ConvexError('Invalid Supabase token: missing email or user ID');
-    }
-    
-    // This would typically involve creating a Convex user record
-    // and linking it to the Supabase user for seamless migration
-    return {
-        userId,
-        migrated: true, // Flag indicating this user has been migrated
-    };
-}
-
-/**
  * Environment-based feature flags for auth
  */
 export const authConfig = {
-    useSupabaseCompatibility: process.env.ENABLE_SUPABASE_COMPAT === 'true',
     allowAnonymousAccess: process.env.ALLOW_ANONYMOUS === 'true',
     enableRateLimit: process.env.ENABLE_RATE_LIMIT !== 'false',
     jwtExpirationHours: parseInt(process.env.JWT_EXPIRATION_HOURS || '24'),

@@ -8,8 +8,7 @@
 export const ENV = {
   NODE_ENV: process.env.NODE_ENV || 'development',
   CONVEX_URL: process.env.CONVEX_URL || '',
-  JWT_SECRET: process.env.JWT_SECRET || process.env.SUPABASE_JWT_SECRET || '',
-  SUPABASE_JWT_SECRET: process.env.SUPABASE_JWT_SECRET || '',
+  JWT_SECRET: process.env.JWT_SECRET || '',
   WS_PORT: Number(process.env.WS_PORT || 8080),
   OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY || '',

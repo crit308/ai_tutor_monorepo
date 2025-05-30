@@ -16,7 +16,6 @@
   },
   "dependencies": {
     "@convex-dev/auth": "^0.0.86",
-    "@supabase/supabase-js": "^2.49.8",
     "@types/jsonwebtoken": "^9.0.9",
     "axios": "^1.8.4",
     "concurrently": "^9.1.2",
