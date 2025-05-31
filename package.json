@@ -4,10 +4,12 @@
   "description": "AI Tutor Monorepo - Unified Convex Deployment",
   "main": "index.js",
   "scripts": {
-    "dev": "concurrently \"npm run convex:dev\" \"npm run frontend:dev\"",
+    "convex:generate": "npx convex dev --once",
     "convex:dev": "npx convex dev",
     "convex:deploy": "npx convex deploy",
     "frontend:dev": "cd frontend && npm run dev",
+    "dev:prepare": "npm run convex:generate",
+    "dev": "npm run dev:prepare && concurrently \"npm run convex:dev\" \"npm run frontend:dev\"",
     "test": "jest",
     "test:watch": "jest --watch",
     "lint": "eslint . --ext .ts,.tsx",
