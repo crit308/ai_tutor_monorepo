@@ -1,7 +1,7 @@
 import { query, mutation } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
-import { requireAuth, checkRateLimit } from "../auth";
+import { requireAuth, checkRateLimit } from "../auth/middleware";
 
 // ==========================================
 // CONCEPT GRAPH CRUD OPERATIONS

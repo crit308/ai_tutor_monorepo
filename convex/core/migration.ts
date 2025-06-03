@@ -1,6 +1,6 @@
 import { query, mutation } from "../_generated/server";
 import { v } from "convex/values";
-import { requireAuth } from "../auth";
+import { requireAuth } from "../auth/middleware";
 
 // ==========================================
 // MIGRATION VALIDATION TOOLS

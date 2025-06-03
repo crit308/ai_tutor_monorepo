@@ -6,16 +6,26 @@
 
 import { ConvexError } from "convex/values";
 import { QueryCtx, MutationCtx } from "../_generated/server";
+import { auth } from "../auth";
 
 /**
  * Authorization middleware for Convex functions
  */
 export async function requireAuth(ctx: QueryCtx | MutationCtx): Promise<string> {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-        throw new ConvexError('Authentication required');
+    console.log("=== REQUIRE AUTH CALLED ===");
+    try {
+        const userId = await auth.getUserId(ctx);
+        console.log("getUserId result:", userId);
+        if (!userId) {
+            console.log("No userId found, throwing auth error");
+            throw new ConvexError('Authentication required');
+        }
+        console.log("Auth successful, userId:", userId);
+        return userId;
+    } catch (error) {
+        console.log("Auth error in requireAuth:", error);
+        throw error;
     }
-    return identity.subject;
 }
 
 /**
@@ -41,16 +51,22 @@ export async function getCurrentUser(ctx: QueryCtx | MutationCtx): Promise<{
     name?: string;
     image?: string;
 } | null> {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
         return null;
     }
     
+    // Get user info from Convex Auth's user store
+    const user = await ctx.db
+      .query("users")
+      .filter((q) => q.eq(q.field("_id"), userId))
+      .first();
+    
     return {
-        id: identity.subject,
-        email: identity.email,
-        name: identity.name,
-        image: identity.pictureUrl,
+        id: userId,
+        email: user?.email,
+        name: user?.name,
+        image: user?.image,
     };
 }
 
@@ -58,21 +74,27 @@ export async function getCurrentUser(ctx: QueryCtx | MutationCtx): Promise<{
  * Admin authorization check
  */
 export async function requireAdmin(ctx: QueryCtx | MutationCtx): Promise<string> {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
+    const userId = await auth.getUserId(ctx);
+    if (!userId) {
         throw new ConvexError('Authentication required');
     }
     
+    // Get user info from Convex Auth's user store
+    const user = await ctx.db
+      .query("users")
+      .filter((q) => q.eq(q.field("_id"), userId))
+      .first();
+    
     // Check for admin role (can be customized based on your admin system)
-    const isAdmin = identity.email?.endsWith('@admin.com') || 
-                   (identity as any).role === 'admin' ||
-                   process.env.ADMIN_EMAILS?.split(',').includes(identity.email || '');
+    const isAdmin = user?.email?.endsWith('@admin.com') || 
+                   (user as any)?.role === 'admin' ||
+                   process.env.ADMIN_EMAILS?.split(',').includes(user?.email || '');
     
     if (!isAdmin) {
         throw new ConvexError('Admin access required');
     }
     
-    return identity.subject;
+    return userId;
 }
 
 /**

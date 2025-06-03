@@ -2,16 +2,14 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
+
+// Import authentication utilities from new auth modules
+import { requireAuth } from "../auth/middleware";
 import { auth } from "../auth";
-import { 
-  requireAuth, 
-  authenticateWebSocket,
-  getUserIdFromPayload,
-  verifyJWT 
-} from "../auth";
 
 const http = httpRouter();
 
+// Add Convex Auth HTTP routes for authentication endpoints
 auth.addHttpRoutes(http);
 
 http.route({

@@ -1,14 +1,10 @@
 /**
  * @fileoverview Authentication module main exports for unified Convex deployment
  * 
- * Re-exports all authentication functionality from the auth module
+ * Re-exports utilities and middleware for authentication.
+ * The main `convexAuth` instance (including `signIn`, `auth`, etc.) is defined 
+ * and exported from `convex/auth.ts`.
  */
 
-// Configuration and JWT handling
-export * from './config';
-
-// Middleware and authorization
-export * from './middleware';
-
-// WebSocket authentication
-export * from './websocket'; 
+// Middleware and authorization helpers (from ./middleware.ts)
+export * from './middleware'; 

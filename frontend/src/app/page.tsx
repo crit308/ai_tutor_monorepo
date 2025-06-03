@@ -7,6 +7,7 @@ import { shallow } from 'zustand/shallow';
 import * as api from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import AuthForm from '@/components/AuthForm';
+import { AuthDebugTest } from '@/components/AuthDebugTest';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -223,6 +224,8 @@ export default function HomePage() {
               <CardDescription>Select a folder and upload documents to begin.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              <AuthDebugTest />
+              
               <FolderList
                 folders={folders || []}
                 selectedFolderId={selectedFolderId}
