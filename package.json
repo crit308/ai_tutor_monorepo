@@ -17,6 +17,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@convex-dev/agent": "^0.1.5",
     "@convex-dev/auth": "^0.0.86",
     "@types/jsonwebtoken": "^9.0.9",
     "axios": "^1.8.4",

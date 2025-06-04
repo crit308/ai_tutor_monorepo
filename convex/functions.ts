@@ -75,6 +75,15 @@ export {
   analyzeDocuments
 } from './agents/actions';
 
+// Streaming functions
+export {
+  createSessionThread,
+  listThreadMessages,
+  sendStreamingMessage,
+  getOrCreateSessionThread,
+  migrateSessionToThread
+} from './agents/streaming';
+
 // Document processing functions
 export {
   processDocumentBatch,
