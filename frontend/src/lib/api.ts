@@ -12,8 +12,13 @@ import {
   FolderResponse,
 } from './types';
 import { getAuthToken } from './authToken';
-import { convex } from './convex';
+import { ConvexReactClient } from 'convex/react';
 import { api as convexApi } from 'convex_generated/api';
+import { Id } from 'convex_generated/dataModel';
+
+// Note: For authenticated calls, use the ConvexReactClient from the provider context
+// This fallback client is for non-authenticated calls only
+import { convex as fallbackConvex } from './convex';
 
 // Default to the local Convex proxy if no environment variable is set.
 const API_BASE_URL =
@@ -52,17 +57,22 @@ apiClient.interceptors.response.use(
 
 // --- Session Management ---
 
-export const startSession = async (folderId: string, metadata?: {
-  clientVersion?: string;
-  userAgent?: string;
-  timezone?: string;
-}): Promise<StartSessionResponse> => {
+export const startSession = async (
+  folderId: string, 
+  metadata?: {
+    clientVersion?: string;
+    userAgent?: string;
+    timezone?: string;
+  },
+  convexClient?: ConvexReactClient
+): Promise<StartSessionResponse> => {
+  const convex = convexClient || fallbackConvex;
+  
   try {
-    console.log(`Creating new session for folder ${folderId} via enhanced Convex...`);
+    console.log(`Creating new session for folder ${folderId} via Convex...`);
     
-    // Use the enhanced createSession function
-    const res = await convex.mutation(convexApi.functions.createSessionEnhanced, { 
-      folderId,
+    const res = await convex.mutation(convexApi.functions.createSession, { 
+      folderId: folderId as Id<"folders">,
       metadata: {
         clientVersion: "2.0.0",
         userAgent: typeof window !== 'undefined' ? window.navigator.userAgent : undefined,
@@ -71,122 +81,88 @@ export const startSession = async (folderId: string, metadata?: {
       }
     });
     
-    console.log('Enhanced session created:', res);
-    return { session_id: res.id as string, message: 'Session started with enhanced features' };
+    console.log('Session created:', res);
+    return { session_id: res.id as string, message: 'Session started successfully' };
   } catch (error) {
-    console.error('Error creating enhanced session:', error);
-    
-    // Fallback to basic session creation if enhanced fails
-    try {
-      console.log('Falling back to basic session creation...');
-      const res = await convex.mutation(convexApi.functions.startSession, { folderId });
-      return { session_id: res.id as string, message: 'Session started (basic)' };
-    } catch (fallbackError) {
-      console.error('Both enhanced and basic session creation failed:', fallbackError);
-      throw fallbackError;
-    }
+    console.error('Error creating session:', error);
+    throw error;
   }
 };
 
-// Enhanced session listing
 export const listUserSessions = async (options?: {
   folderId?: string;
   limit?: number;
   includeEnded?: boolean;
   sortBy?: 'created_at' | 'updated_at';
   sortOrder?: 'asc' | 'desc';
-}) => {
+}, convexClient?: ConvexReactClient) => {
+  const convex = convexClient || fallbackConvex;
+  
   try {
-    console.log('Fetching user sessions with enhanced options...');
-    const sessions = await convex.query(convexApi.functions.listUserSessionsEnhanced, options || {});
-    console.log('Enhanced sessions fetched:', sessions);
+    console.log('Fetching user sessions...');
+    const sessions = await convex.query(convexApi.functions.listUserSessions, {
+      folderId: options?.folderId as Id<"folders"> | undefined,
+      limit: options?.limit || 50,
+      includeEnded: options?.includeEnded,
+      sortBy: options?.sortBy,
+      sortOrder: options?.sortOrder
+    });
+    console.log('Sessions fetched:', sessions);
     return sessions;
   } catch (error) {
-    console.error('Error fetching enhanced sessions:', error);
-    
-    // Fallback to basic session listing
-    try {
-      console.log('Falling back to basic session listing...');
-      const sessions = await convex.query(convexApi.functions.listUserSessions, { 
-        userId: 'current', // This will be handled by auth
-        limit: options?.limit || 50 
-      });
-      return { sessions: sessions.sessions };
-    } catch (fallbackError) {
-      console.error('Both enhanced and basic session listing failed:', fallbackError);
-      throw fallbackError;
-    }
+    console.error('Error fetching sessions:', error);
+    throw error;
   }
 };
 
-// Enhanced session context management
 export const updateSessionContext = async (
   sessionId: string, 
   context: any, 
   options?: {
     expectedVersion?: number;
     merge?: boolean;
-  }
+  },
+  convexClient?: ConvexReactClient
 ) => {
+  const convex = convexClient || fallbackConvex;
+  
   try {
-    console.log('Updating session context with enhanced features...');
-    const result = await convex.mutation(convexApi.functions.updateSessionContextEnhanced, {
-      sessionId,
+    console.log('Updating session context...');
+    const result = await convex.mutation(convexApi.functions.updateSessionContext, {
+      sessionId: sessionId as Id<"sessions">,
       context,
       expectedVersion: options?.expectedVersion,
       merge: options?.merge ?? true
     });
-    console.log('Enhanced context update result:', result);
+    console.log('Context update result:', result);
     return result;
   } catch (error) {
-    console.error('Error updating enhanced session context:', error);
-    
-    // Fallback to basic context update
-    try {
-      console.log('Falling back to basic context update...');
-      await convex.mutation(convexApi.functions.updateSessionContext, { sessionId, context });
-      return { success: true };
-    } catch (fallbackError) {
-      console.error('Both enhanced and basic context update failed:', fallbackError);
-      throw fallbackError;
-    }
+    console.error('Error updating session context:', error);
+    throw error;
   }
 };
 
-// Enhanced session deletion
 export const deleteSession = async (sessionId: string, options?: {
   deleteRelatedData?: boolean;
-}) => {
+}, convexClient?: ConvexReactClient) => {
+  const convex = convexClient || fallbackConvex;
+  
   try {
-    console.log('Deleting session with enhanced cleanup...');
-    const result = await convex.mutation(convexApi.functions.deleteSessionEnhanced, {
-      sessionId,
-      deleteRelatedData: options?.deleteRelatedData ?? true
+    console.log('Deleting session...');
+    const result = await convex.mutation(convexApi.functions.deleteSession, {
+      sessionId: sessionId as Id<"sessions">
     });
-    console.log('Enhanced session deletion result:', result);
+    console.log('Session deletion result:', result);
     return result;
   } catch (error) {
-    console.error('Error with enhanced session deletion:', error);
+    console.error('Error deleting session:', error);
     throw error;
   }
 };
 
 // --- Document Upload ---
 
-// Add function to get upload URL from Convex
-export const generateFileUploadUrl = async (): Promise<string> => {
-  try {
-    const uploadUrl = await convex.mutation(convexApi.functions.generateFileUploadUrl);
-    if (!uploadUrl) {
-      throw new Error("Failed to get an upload URL from Convex.");
-    }
-    return uploadUrl;
-  } catch (error) {
-    console.error('Error generating file upload URL:', error);
-    throw error;
-  }
-};
-
+// Placeholder implementation - file upload will need to be implemented
 export const uploadDocuments = async (
   sessionId: string,
   files: File[],
@@ -200,58 +176,14 @@ export const uploadDocuments = async (
     };
   }
 
-  console.log(`[API] Starting upload process for ${files.length} files to session ${sessionId}`);
-
-  const uploadedFileInfos: Array<{ storageId: string; filename: string; mimeType: string }> = [];
-
-  for (const file of files) {
-    try {
-      console.log(`[API] Requesting upload URL for ${file.name}`);
-      const postUrl = await generateFileUploadUrl();
-      console.log(`[API] Upload URL received for ${file.name}. Posting file...`);
-
-      const uploadResult = await fetch(postUrl, {
-        method: "POST",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-
-      if (!uploadResult.ok) {
-        throw new Error(`Failed to upload ${file.name} directly to Convex storage. Status: ${uploadResult.status} ${uploadResult.statusText}`);
-      }
-
-      const { storageId } = await uploadResult.json(); // Convex returns { storageId: Id<"_storage"> }
-      console.log(`[API] File ${file.name} uploaded to Convex storage. Storage ID: ${storageId}`);
-      uploadedFileInfos.push({ storageId, filename: file.name, mimeType: file.type });
-    } catch (error) {
-      console.error(`[API] Error uploading file ${file.name}:`, error);
-      // Stop the batch if one file fails direct upload
-      throw new Error(`Failed to upload ${file.name} to Convex storage: ${(error as Error).message}`);
-    }
-  }
-
-  // All files uploaded to Convex storage, now trigger backend processing action
-  try {
-    console.log(`[API] All files uploaded to Convex storage. Triggering backend processing for session ${sessionId}.`);
-    const processingResponse = await convex.action(convexApi.functions.processUploadedFilesForSession, {
-      sessionId,
-      uploadedFileInfos,
-    });
-    console.log('[API] Backend processing response:', processingResponse);
-    // The action should return an UploadDocumentsResponse compatible structure
-    return processingResponse as UploadDocumentsResponse;
-  } catch (error) {
-    console.error('[API] Error triggering backend file processing action:', error);
-    throw error; // Re-throw to be caught by the UI
-  }
+  console.log(`[API] Upload functionality needs to be implemented for ${files.length} files to session ${sessionId}`);
+  
+  // Placeholder implementation - you'll need to implement actual file upload
+  throw new Error("File upload functionality not yet implemented");
 };
 
 // --- Generation Steps ---
-// Note: The frontend reqs imply these might be fire-and-forget,
-// or you might need status endpoints depending on backend design.
-// Keep /plan trigger for initial setup after analysis
-// Renamed for clarity
-/*
+
 export const triggerPlanGeneration = async (sessionId: string): Promise<{ message: string }> => {
   try {
     console.log(`Triggering lesson plan generation for session ${sessionId}...`);
@@ -263,84 +195,6 @@ export const triggerPlanGeneration = async (sessionId: string): Promise<{ messag
     throw error;
   }
 };
-*/
-
-/* Removed - Orchestrator handles content flow
-export const triggerContentGeneration = async (sessionId: string): Promise<{ message: string }> => {
-  try {
-    console.log(`Triggering lesson content generation for session ${sessionId}...`);
-    const response = await apiClient.post<{ message: string }>(`/sessions/${sessionId}/content`);
-    console.log('Content generation triggered:', response.data);
-    return response.data;
-  } catch (error) {
-    console.error('Error triggering content generation:', error);
-    throw error;
-  }
-};
-*/
-
-// --- Data Fetching ---
-
-// Keep getLessonPlan if needed for initial display or context, but less critical now
-/*
-export const getLessonPlan = async (sessionId: string): Promise<LessonPlan> => {
-  try {
-    console.log(`Fetching lesson plan for session ${sessionId}...`);
-    const response = await apiClient.get<LessonPlan>(`/sessions/${sessionId}/plan`);
-    console.log('Lesson plan fetched:', response.data);
-    return response.data;
-  } catch (error) {
-    console.error('Error fetching lesson plan:', error);
-    throw error;
-  }
-};
-*/
-
-// Remove getLessonContent - content comes via /interact
-/*
-export const getLessonContent = async (sessionId: string): Promise<LessonContent> => {
-  try {
-    console.log(`Fetching lesson content for session ${sessionId}...`);
-    const response = await apiClient.get<LessonContent>(`/sessions/${sessionId}/lesson`);
-    console.log('Lesson content fetched:', response.data);
-    return response.data;
-  } catch (error) {
-    console.error('Error fetching lesson content:', error);
-    throw error;
-  }
-};
-*/
-
-// Remove getQuiz - quiz questions come via /interact
-/*
-export const getQuiz = async (sessionId: string): Promise<Quiz> => {
-  try {
-    console.log(`Fetching quiz for session ${sessionId}...`);
-    const response = await apiClient.get<Quiz>(`/sessions/${sessionId}/quiz`);
-    console.log('Quiz fetched:', response.data);
-    return response.data;
-  } catch (error) {
-    console.error('Error fetching quiz:', error);
-    throw error;
-  }
-};
-*/
-
-// --- Quiz Submission & Feedback ---
-// Remove submitQuiz - answers are sent via /interact
-/*
-export const submitQuiz = async (sessionId: string, answers: QuizUserAnswers): Promise<QuizFeedback> => {
-  try {
-    console.log(`Submitting quiz answers for session ${sessionId}...`);
-    const response = await apiClient.post<QuizFeedback>(`/sessions/${sessionId}/quiz/submit`, answers);
-    console.log('Quiz feedback received:', response.data);
-    return response.data;
-  } catch (error) {
-    console.error('Error submitting quiz:', error);
-    throw error;
-  }
-};
-*/
 
 // +++ NEW Interaction Endpoint +++
 export const interactWithTutor = async (sessionId: string, interactionData: InteractionRequestData): Promise<InteractionResponseData> => {
@@ -385,7 +239,6 @@ export const getSessionAnalysis = async (sessionId: string): Promise<SessionAnal
 };
 
 // --- Mini-Quiz/Summary Logging (Optional) ---
-// Define endpoints if your backend supports logging these interactions
 
 export const logMiniQuizAttempt = async (sessionId: string, attemptData: any): Promise<void> => {
     try {
@@ -394,7 +247,6 @@ export const logMiniQuizAttempt = async (sessionId: string, attemptData: any): P
         console.log('Mini-quiz attempt logged.');
     } catch (error) {
         console.error('Error logging mini-quiz attempt:', error);
-        // Decide if this error should propagate or be silently handled
     }
 };
 
@@ -405,13 +257,11 @@ export const logUserSummary = async (sessionId: string, summaryData: any): Promi
         console.log('User summary logged.');
     } catch (error) {
         console.error('Error logging user summary:', error);
-        // Decide if this error should propagate or be silently handled
     }
 };
 
 // --- Folder Management API Calls ---
 
-// Enhanced Folder Management
 export const createFolder = async (
     folderData: FolderCreateRequest & {
         metadata?: {
@@ -419,50 +269,45 @@ export const createFolder = async (
             subject?: string;
             difficulty?: 'beginner' | 'intermediate' | 'advanced';
         };
-    }
+    },
+    convexClient?: ConvexReactClient
 ): Promise<FolderResponse> => {
+    const convex = convexClient || fallbackConvex;
+    
     try {
-        console.log('Creating new folder via enhanced Convex:', folderData.name);
-        const folder = await convex.mutation(convexApi.functions.createFolderEnhanced, { 
+        console.log('Creating new folder via Convex:', folderData.name);
+        const folder = await convex.mutation(convexApi.functions.createFolder, { 
             name: folderData.name,
             metadata: folderData.metadata
         });
-        console.log('Enhanced folder created:', folder);
+        console.log('Folder created:', folder);
         return {
-            id: folder.id,
-            name: folder.name,
-            created_at: new Date(folder.created_at).toISOString(),
+            id: folder.id as string,
+            name: folderData.name,
+            created_at: new Date().toISOString(),
         };
     } catch (error) {
-        console.error('Error creating enhanced folder:', error);
-        
-        // Fallback to basic folder creation
-        try {
-            console.log('Falling back to basic folder creation...');
-            const folder = await convex.mutation(convexApi.functions.createFolder, { name: folderData.name });
-            return {
-                id: folder._id as string,
-                name: folder.name,
-                created_at: new Date(folder.created_at).toISOString(),
-            };
-        } catch (fallbackError) {
-            console.error('Both enhanced and basic folder creation failed:', fallbackError);
-            throw fallbackError;
-        }
+        console.error('Error creating folder:', error);
+        throw error;
     }
 };
 
-export const getFolders = async (options?: {
-    search?: string;
-    limit?: number;
-    includeStats?: boolean;
-    sortBy?: 'name' | 'created_at' | 'updated_at';
-    sortOrder?: 'asc' | 'desc';
-}): Promise<FolderResponse[]> => {
+export const getFolders = async (
+    options?: {
+        search?: string;
+        limit?: number;
+        includeStats?: boolean;
+        sortBy?: 'name' | 'created_at' | 'updated_at';
+        sortOrder?: 'asc' | 'desc';
+    },
+    convexClient?: ConvexReactClient
+): Promise<FolderResponse[]> => {
+    const convex = convexClient || fallbackConvex;
+    
     try {
-        console.log('Fetching folders via enhanced Convex...');
+        console.log('Fetching folders via Convex...');
         const result = await convex.query(convexApi.functions.listFoldersEnhanced, options || {});
-        console.log('Enhanced folders fetched:', result);
+        console.log('Folders fetched:', result);
         
         return result.folders.map((folder: any) => ({
             id: folder._id,
@@ -471,13 +316,12 @@ export const getFolders = async (options?: {
             stats: folder.stats,
         }));
     } catch (error) {
-        console.error('Error fetching enhanced folders:', error);
-        
+        console.error('Error fetching folders:', error);
         // Fallback to basic folder listing
         try {
             console.log('Falling back to basic folder listing...');
-            const folders = await convex.query(convexApi.functions.listFolders, {});
-            return folders.map(folder => ({
+            const result = await convex.query(convexApi.functions.listFolders, {});
+            return result.folders.map((folder: any) => ({
                 id: folder._id as string,
                 name: folder.name,
                 created_at: new Date(folder.created_at).toISOString(),
@@ -489,11 +333,14 @@ export const getFolders = async (options?: {
     }
 };
 
-// Enhanced folder operations
-export const getFolderStats = async (folderId?: string) => {
+export const getFolderStats = async (folderId?: string, convexClient?: ConvexReactClient) => {
+    const convex = convexClient || fallbackConvex;
+    
     try {
         console.log('Fetching folder statistics...');
-        const stats = await convex.query(convexApi.functions.getFolderStats, folderId ? { folderId } : {});
+        const stats = await convex.query(convexApi.functions.getFolderStats, 
+            folderId ? { folderId: folderId as Id<"folders"> } : {}
+        );
         console.log('Folder stats fetched:', stats);
         return stats;
     } catch (error) {
@@ -507,34 +354,39 @@ export const deleteFolder = async (
     options?: {
         deleteRelatedData?: boolean;
         reassignSessionsTo?: string;
-    }
+    },
+    convexClient?: ConvexReactClient
 ) => {
+    const convex = convexClient || fallbackConvex;
+    
     try {
-        console.log('Deleting folder with enhanced cleanup...');
-        const result = await convex.mutation(convexApi.functions.deleteFolderEnhanced, {
-            folderId,
+        console.log('Deleting folder...');
+        const result = await convex.mutation(convexApi.functions.deleteFolder, {
+            folderId: folderId as Id<"folders">,
             deleteRelatedData: options?.deleteRelatedData ?? false,
-            reassignSessionsTo: options?.reassignSessionsTo
+            reassignSessionsTo: options?.reassignSessionsTo as Id<"folders"> | undefined
         });
-        console.log('Enhanced folder deletion result:', result);
+        console.log('Folder deletion result:', result);
         return result;
     } catch (error) {
-        console.error('Error with enhanced folder deletion:', error);
+        console.error('Error deleting folder:', error);
         throw error;
     }
 };
 
-export const renameFolder = async (folderId: string, name: string) => {
+export const renameFolder = async (folderId: string, name: string, convexClient?: ConvexReactClient) => {
+    const convex = convexClient || fallbackConvex;
+    
     try {
-        console.log('Renaming folder with enhanced validation...');
-        const result = await convex.mutation(convexApi.functions.renameFolderEnhanced, {
-            folderId,
+        console.log('Renaming folder...');
+        const result = await convex.mutation(convexApi.functions.renameFolder, {
+            folderId: folderId as Id<"folders">,
             name
         });
-        console.log('Enhanced folder rename result:', result);
+        console.log('Folder rename result:', result);
         return result;
     } catch (error) {
-        console.error('Error with enhanced folder rename:', error);
+        console.error('Error renaming folder:', error);
         throw error;
     }
 };
@@ -582,10 +434,24 @@ export interface ChatHistoryMessage {
   whiteboard_snapshot_index?: number;
 }
 
-export async function fetchSessionMessages(sessionId: string, beforeMessageId?: string, limit: number = 30): Promise<ChatHistoryMessage[]> {
+export async function fetchSessionMessages(sessionId: string, beforeMessageId?: string, limit: number = 30, convexClient?: ConvexReactClient): Promise<ChatHistoryMessage[]> {
+  const convex = convexClient || fallbackConvex;
+  
   try {
       console.log('Fetching session messages via Convex...');
-      return await convex.query(convexApi.functions.getSessionMessages, { sessionId });
+      const messages = await convex.query(convexApi.functions.getSessionMessages, { 
+        sessionId: sessionId as Id<"sessions"> 
+      });
+      
+      // Transform the messages to match the expected interface
+      return messages.map((message: any) => ({
+        id: message._id,
+        role: message.role || 'assistant',
+        content: message.content || '',
+        interaction: message.interaction,
+        whiteboard_actions: message.whiteboard_actions,
+        whiteboard_snapshot_index: message.whiteboard_snapshot_index,
+      }));
   } catch (error) {
       console.error('Error fetching session messages via Convex:', error);
       throw error;

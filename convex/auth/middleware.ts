@@ -14,16 +14,26 @@ import { auth } from "../auth";
 export async function requireAuth(ctx: QueryCtx | MutationCtx): Promise<string> {
     console.log("=== REQUIRE AUTH CALLED ===");
     try {
+        // Check if auth is available
+        console.log("Auth object available:", !!auth);
+        console.log("Auth getUserId function available:", typeof auth.getUserId);
+        
         const userId = await auth.getUserId(ctx);
         console.log("getUserId result:", userId);
+        console.log("getUserId type:", typeof userId);
+        
         if (!userId) {
             console.log("No userId found, throwing auth error");
-            throw new ConvexError('Authentication required');
+            const authError = new ConvexError('Authentication required');
+            console.log("Auth error created:", authError);
+            throw authError;
         }
         console.log("Auth successful, userId:", userId);
         return userId;
     } catch (error) {
         console.log("Auth error in requireAuth:", error);
+        console.log("Error name:", error instanceof Error ? error.name : 'unknown');
+        console.log("Error message:", error instanceof Error ? error.message : String(error));
         throw error;
     }
 }

@@ -154,7 +154,125 @@ export const getFolder = query({
 });
 
 /**
- * List user folders with filtering and pagination
+ * Enhanced folder listing with advanced features and better performance
+ */
+export const listFoldersEnhanced = query({
+  args: {
+    search: v.optional(v.string()),
+    limit: v.optional(v.number()),
+    includeStats: v.optional(v.boolean()),
+    sortBy: v.optional(v.union(
+      v.literal("name"),
+      v.literal("created_at"),
+      v.literal("updated_at")
+    )),
+    sortOrder: v.optional(v.union(
+      v.literal("asc"),
+      v.literal("desc")
+    )),
+  },
+  handler: async (ctx, { 
+    search, 
+    limit = 50, 
+    includeStats = true,
+    sortBy = "updated_at",
+    sortOrder = "desc"
+  }) => {
+    const userId = await requireAuth(ctx);
+    
+    let query = ctx.db
+      .query("folders")
+      .withIndex("by_user", (q) => q.eq("user_id", userId));
+    
+    const folders = await query.collect();
+    
+    // Apply search filter
+    let filteredFolders = folders;
+    if (search && search.trim()) {
+      const searchTerm = search.toLowerCase().trim();
+      filteredFolders = folders.filter(folder => 
+        folder.name.toLowerCase().includes(searchTerm) ||
+        (folder.knowledge_base && folder.knowledge_base.toLowerCase().includes(searchTerm))
+      );
+    }
+    
+    // Apply sorting
+    filteredFolders.sort((a, b) => {
+      let aValue, bValue;
+      
+      switch (sortBy) {
+        case "name":
+          aValue = a.name.toLowerCase();
+          bValue = b.name.toLowerCase();
+          break;
+        case "created_at":
+          aValue = a.created_at;
+          bValue = b.created_at;
+          break;
+        case "updated_at":
+        default:
+          aValue = a.updated_at;
+          bValue = b.updated_at;
+          break;
+      }
+      
+      if (sortOrder === "desc") {
+        return aValue > bValue ? -1 : aValue < bValue ? 1 : 0;
+      } else {
+        return aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
+      }
+    });
+    
+    // Apply limit
+    const limitedFolders = filteredFolders.slice(0, limit);
+    
+    // Add stats if requested
+    const result = await Promise.all(
+      limitedFolders.map(async (folder) => {
+        const folderData: any = {
+          _id: folder._id,
+          name: folder.name,
+          created_at: folder.created_at,
+          updated_at: folder.updated_at,
+          vector_store_id: folder.vector_store_id,
+          knowledge_base: folder.knowledge_base,
+        };
+        
+        if (includeStats) {
+          const sessionCount = await ctx.db
+            .query("sessions")
+            .withIndex("by_folder", (q) => q.eq("folder_id", folder._id))
+            .collect()
+            .then(sessions => sessions.length);
+          
+          const fileCount = await ctx.db
+            .query("uploaded_files")
+            .withIndex("by_folder", (q) => q.eq("folder_id", folder._id))
+            .collect()
+            .then(files => files.length);
+          
+          folderData.stats = {
+            sessionCount,
+            fileCount,
+            hasKnowledgeBase: !!folder.knowledge_base,
+            hasVectorStore: !!folder.vector_store_id,
+          };
+        }
+        
+        return folderData;
+      })
+    );
+    
+    return {
+      folders: result,
+      hasMore: filteredFolders.length > limit,
+      total: filteredFolders.length,
+    };
+  },
+});
+
+/**
+ * List user folders with filtering and pagination (basic version)
  */
 export const listFolders = query({
   args: {

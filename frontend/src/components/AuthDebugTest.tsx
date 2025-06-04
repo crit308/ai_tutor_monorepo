@@ -1,29 +1,41 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { useQuery } from 'convex/react';
+import React, { useState } from 'react';
+import { useConvex } from 'convex/react';
 import { useConvexAuth } from 'convex/react';
 import { api } from 'convex_generated/api';
+import { Button } from './ui/button';
 
 export const AuthDebugTest: React.FC = () => {
     const { isAuthenticated, isLoading } = useConvexAuth();
-    const [hasTestedAuth, setHasTestedAuth] = useState(false);
+    const convex = useConvex();
+    const [debugResult, setDebugResult] = useState<any>(null);
+    const [testing, setTesting] = useState(false);
     
-    // Use the authenticated query
-    const debugResult = useQuery(api.auth.debugAuth, {});
-    
-    useEffect(() => {
-        if (!isLoading && !hasTestedAuth) {
+    const testAuth = async () => {
+        setTesting(true);
+        try {
             console.log('=== AUTH DEBUG TEST COMPONENT ===');
             console.log('isAuthenticated:', isAuthenticated);
             console.log('isLoading:', isLoading);
-            console.log('debugResult:', debugResult);
-            setHasTestedAuth(true);
+            
+            if (isAuthenticated) {
+                const result = await convex.query(api.auth.debugAuth, {});
+                console.log('debugResult:', result);
+                setDebugResult(result);
+            } else {
+                setDebugResult({ error: 'Not authenticated' });
+            }
+        } catch (error) {
+            console.error('Auth debug test failed:', error);
+            setDebugResult({ error: error instanceof Error ? error.message : 'Unknown error' });
+        } finally {
+            setTesting(false);
         }
-    }, [isAuthenticated, isLoading, debugResult, hasTestedAuth]);
+    };
     
     if (isLoading) {
-        return <div>Testing authentication...</div>;
+        return <div>Loading authentication...</div>;
     }
     
     return (
@@ -31,7 +43,19 @@ export const AuthDebugTest: React.FC = () => {
             <h3 className="font-semibold">Auth Debug Test</h3>
             <p>Authenticated: {isAuthenticated ? 'Yes' : 'No'}</p>
             <p>Loading: {isLoading ? 'Yes' : 'No'}</p>
-            <p>Backend Auth Result: {debugResult ? JSON.stringify(debugResult) : 'null'}</p>
+            <Button 
+                onClick={testAuth} 
+                disabled={testing || isLoading}
+                size="sm"
+                variant="outline"
+            >
+                {testing ? 'Testing...' : 'Test Backend Auth'}
+            </Button>
+            {debugResult && (
+                <div className="mt-2 p-2 bg-white rounded text-xs">
+                    <strong>Backend Result:</strong> {JSON.stringify(debugResult, null, 2)}
+                </div>
+            )}
         </div>
     );
 }; 

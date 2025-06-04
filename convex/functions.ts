@@ -8,6 +8,7 @@ export {
   createFolder,
   getFolder,
   listFolders,
+  listFoldersEnhanced,
   updateFolder,
   renameFolder,
   deleteFolder,

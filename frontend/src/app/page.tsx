@@ -6,6 +6,7 @@ import { SessionState, useSessionStore } from '@/store/sessionStore';
 import { shallow } from 'zustand/shallow';
 import * as api from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAuthenticatedApi } from '@/hooks/useAuthenticatedApi';
 import AuthForm from '@/components/AuthForm';
 import { AuthDebugTest } from '@/components/AuthDebugTest';
 import { Button } from '@/components/ui/button';
@@ -59,6 +60,7 @@ export default function HomePage() {
   const router = useRouter();
   const { toast } = useToast();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { getFolders, createFolder } = useAuthenticatedApi();
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [folders, setFolders] = useState<FolderResponse[] | null>(null);
   const selectedFolderId = useSessionStore((state) => state.folderId);
@@ -77,33 +79,40 @@ export default function HomePage() {
   const resetSession = useSessionStore((state) => state.resetSession);
   const setLoadingMessage = useSessionStore((state) => state.setLoadingMessage);
 
+  // Memoize the folder fetching function to prevent infinite loops
+  const fetchFolders = useCallback(async () => {
+    if (!isAuthenticated) {
+      setFolders(null);
+      setPageLoading(false);
+      return;
+    }
+
+    setPageLoading(true);
+    setFolders(null);
+    
+    try {
+      const fetchedFolders = await getFolders();
+      setFolders(fetchedFolders);
+      if (selectedFolderId && !fetchedFolders.some(f => f.id === selectedFolderId)) {
+        setSelectedFolderId(null);
+      }
+    } catch (err) {
+      console.error("Failed to fetch folders:", err);
+      toast({ title: "Error", description: "Could not fetch your folders.", variant: "destructive" });
+      setFolders([]);
+    } finally {
+      setPageLoading(false);
+    }
+  }, [isAuthenticated, getFolders, selectedFolderId, setSelectedFolderId, toast]);
+
   useEffect(() => {
     if (authLoading) {
       setPageLoading(true);
       return;
     }
 
-    if (isAuthenticated) {
-      setPageLoading(true);
-      setFolders(null);
-      api.getFolders()
-        .then(fetchedFolders => {
-          setFolders(fetchedFolders);
-          if (selectedFolderId && !fetchedFolders.some(f => f.id === selectedFolderId)) {
-            setSelectedFolderId(null);
-          }
-        })
-        .catch(err => {
-          console.error("Failed to fetch folders:", err);
-          toast({ title: "Error", description: "Could not fetch your folders.", variant: "destructive" });
-          setFolders([]);
-        })
-        .finally(() => setPageLoading(false));
-    } else {
-      setFolders(null);
-      setPageLoading(false);
-    }
-  }, [isAuthenticated, authLoading, toast, setSelectedFolderId]);
+    fetchFolders();
+  }, [authLoading, fetchFolders]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
@@ -188,7 +197,7 @@ export default function HomePage() {
     }
     setIsCreatingFolder(true);
     try {
-      const newFolder = await api.createFolder({ name: newFolderName });
+      const newFolder = await createFolder({ name: newFolderName });
       setFolders(prev => prev ? [newFolder, ...prev] : [newFolder]);
       setSelectedFolderId(newFolder.id);
       setNewFolderName('');
@@ -224,7 +233,7 @@ export default function HomePage() {
               <CardDescription>Select a folder and upload documents to begin.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <AuthDebugTest />
+              {/* <AuthDebugTest /> - Temporarily disabled to prevent infinite loops */}
               
               <FolderList
                 folders={folders || []}
