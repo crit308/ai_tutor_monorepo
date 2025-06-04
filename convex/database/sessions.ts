@@ -8,6 +8,7 @@ import {
   checkRateLimit,
   getCurrentUser 
 } from "../auth/middleware";
+import { auth } from "../auth";
 
 // ==========================================
 // SESSION CRUD OPERATIONS
@@ -27,7 +28,35 @@ export const createSession = mutation({
     }))
   },
   handler: async (ctx, { folderId, initialContext, metadata }) => {
-    const userId = await requireAuth(ctx);
+    console.log("=== CREATE SESSION CALLED ===");
+    console.log("Args:", { folderId, initialContext: !!initialContext, metadata });
+    
+    // Enhanced authentication with retry logic
+    let userId: string;
+    try {
+      userId = await requireAuth(ctx);
+      console.log("Auth successful in createSession, userId:", userId);
+    } catch (authError) {
+      console.error("Auth failed in createSession:", authError);
+      
+      // Try direct auth call as fallback
+      try {
+        console.log("Attempting direct auth call...");
+        const directUserId = await auth.getUserId(ctx);
+        console.log("Direct auth result:", directUserId, "type:", typeof directUserId);
+        
+        if (directUserId) {
+          userId = directUserId;
+          console.log("Direct auth succeeded, userId:", userId);
+        } else {
+          console.error("Direct auth also returned null");
+          throw new ConvexError("Authentication failed - no user session found");
+        }
+      } catch (directAuthError) {
+        console.error("Direct auth also failed:", directAuthError);
+        throw new ConvexError("Authentication required - please refresh the page and try again");
+      }
+    }
     
     // Rate limiting for session creation
     if (!checkRateLimit(userId, 20, 60000)) {
@@ -37,10 +66,17 @@ export const createSession = mutation({
     // Verify folder ownership if folder is provided
     let folderData = null;
     if (folderId) {
+      console.log("Verifying folder ownership for:", folderId);
       folderData = await ctx.db.get(folderId);
-      if (!folderData || folderData.user_id !== userId) {
-        throw new Error("Folder not found or access denied");
+      if (!folderData) {
+        console.error("Folder not found:", folderId);
+        throw new Error("Folder not found");
       }
+      if (folderData.user_id !== userId) {
+        console.error("Folder access denied. Folder user_id:", folderData.user_id, "Auth userId:", userId);
+        throw new Error("Folder access denied");
+      }
+      console.log("Folder ownership verified");
     }
     
     const now = Date.now();
@@ -68,34 +104,45 @@ export const createSession = mutation({
     
     const contextData = { ...defaultContext, ...initialContext };
     
-         // Create the session
-     const sessionId = await ctx.db.insert("sessions", {
-       user_id: userId,
-       folder_id: folderId,
-       context_data: contextData,
-       created_at: now,
-       updated_at: now,
-       analysis_status: undefined,
-     });
+    console.log("Creating session with userId:", userId, "folderId:", folderId);
     
-    // Update context with session_id
-    contextData.session_id = sessionId;
-    await ctx.db.patch(sessionId, {
-      context_data: contextData,
-    });
-    
-    // Update folder's last_session_created if folder exists
-    if (folderId && folderData) {
-      await ctx.db.patch(folderId, {
+    try {
+      // Create the session
+      const sessionId = await ctx.db.insert("sessions", {
+        user_id: userId,
+        folder_id: folderId,
+        context_data: contextData,
+        created_at: now,
         updated_at: now,
+        analysis_status: undefined,
       });
+      
+      console.log("Session created successfully:", sessionId);
+      
+      // Update context with session_id
+      contextData.session_id = sessionId;
+      await ctx.db.patch(sessionId, {
+        context_data: contextData,
+      });
+      
+      // Update folder's last_session_created if folder exists
+      if (folderId && folderData) {
+        await ctx.db.patch(folderId, {
+          updated_at: now,
+        });
+      }
+      
+      console.log("Session setup completed:", sessionId);
+      
+      return { 
+        id: sessionId,
+        folder_id: folderId,
+        created_at: now 
+      };
+    } catch (dbError) {
+      console.error("Database error during session creation:", dbError);
+      throw new Error(`Failed to create session: ${dbError instanceof Error ? dbError.message : 'Unknown database error'}`);
     }
-    
-    return { 
-      id: sessionId,
-      folder_id: folderId,
-      created_at: now 
-    };
   },
 });
 

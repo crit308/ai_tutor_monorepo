@@ -60,7 +60,7 @@ export default function HomePage() {
   const router = useRouter();
   const { toast } = useToast();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
-  const { getFolders, createFolder } = useAuthenticatedApi();
+  const { getFolders, createFolder, startSession, uploadDocuments } = useAuthenticatedApi();
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [folders, setFolders] = useState<FolderResponse[] | null>(null);
   const selectedFolderId = useSessionStore((state) => state.folderId);
@@ -142,7 +142,23 @@ export default function HomePage() {
 
     try {
       console.log(`Starting session for ${isNewFolder ? 'new' : 'existing'} folder: ${selectedFolderId}`);
-      const sessionResponse = await api.startSession(selectedFolderId);
+      
+      // Add authentication check before session creation
+      console.log('Auth status before session creation:', { isAuthenticated, authLoading });
+      
+      // Wait a moment to ensure auth state is stable
+      if (authLoading) {
+        setLoadingMessage('Waiting for authentication...');
+        console.log('Auth still loading, waiting...');
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      
+      // Double-check authentication
+      if (!isAuthenticated) {
+        throw new Error('Authentication lost. Please refresh the page and try again.');
+      }
+      
+      const sessionResponse = await startSession(selectedFolderId);
       const currentSessionId = sessionResponse.session_id;
       setSessionId(currentSessionId);
       console.log(`Session started with ID: ${currentSessionId}`);
@@ -154,7 +170,7 @@ export default function HomePage() {
         setLoading('loading');
         setLoadingMessage(`Uploading ${selectedFiles.length} document(s) for session ${currentSessionId}...`);
         console.log(`Uploading ${selectedFiles.length} files for session ${currentSessionId}...`);
-        const uploadResponse = await api.uploadDocuments(currentSessionId, selectedFiles);
+        const uploadResponse = await uploadDocuments(currentSessionId, selectedFiles);
 
         console.log('Upload response:', uploadResponse);
 
@@ -187,7 +203,7 @@ export default function HomePage() {
       setLoadingMessage('An error occurred.');
       toast({ title: "Upload Failed", description: errorMessage, variant: "destructive" });
     }
-  }, [isAuthenticated, selectedFolderId, selectedFiles, router, setLoading, setSessionId, setVectorStoreId, setSelectedFolderId, setError, toast, setLoadingMessage, resetSession]);
+  }, [isAuthenticated, authLoading, selectedFolderId, selectedFiles, router, setLoading, setSessionId, setVectorStoreId, setSelectedFolderId, setError, toast, setLoadingMessage, resetSession, startSession, uploadDocuments]);
 
   const handleCreateFolder = async (e: React.FormEvent) => {
     e.preventDefault();

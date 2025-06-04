@@ -105,4 +105,16 @@ export {
   getAllConceptGraphEdges
 } from './database/concepts';
 
+// Debug and utility functions
+export { debugAuth } from './auth';
+
+// File management functions
+export {
+  generateUploadUrl,
+  storeFileMetadata,
+  listSessionFiles,
+  getFileUrl,
+  deleteFile
+} from './database/files';
+
 

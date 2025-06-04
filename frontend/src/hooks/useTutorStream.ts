@@ -1,10 +1,10 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import { useQuery, useMutation } from 'convex/react';
-import { api } from '../../convex/_generated/api';
+import { api } from 'convex_generated/api';
 import { useSessionStore } from '@/store/sessionStore';
 import { useAuthToken } from '@convex-dev/auth/react';
 import { TutorInteractionResponse, WhiteboardAction } from '@/lib/types';
-import { Id } from '../../convex/_generated/dataModel';
+import { Id } from 'convex_generated/dataModel';
 
 // Define ChatMessage interface locally since it's not in the main types file
 interface ChatMessage {

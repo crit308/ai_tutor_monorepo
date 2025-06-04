@@ -30,6 +30,20 @@ export default defineSchema({
     .index("by_user", ["user_id"])
     .index("by_folder", ["folder_id"]),
 
+  files: defineTable({
+    session_id: v.string(),
+    user_id: v.string(),
+    storage_id: v.id("_storage"),
+    file_name: v.string(),
+    file_type: v.string(),
+    file_size: v.number(),
+    upload_status: v.string(),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_session", ["session_id"])
+    .index("by_user", ["user_id"]),
+
   session_messages: defineTable({
     session_id: v.string(),
     turn_no: v.number(),
@@ -318,4 +332,58 @@ export default defineSchema({
   })
     .index("by_component", ["component"])
     .index("by_timestamp", ["timestamp"]),
+
+  user_model_updates: defineTable({
+    user_id: v.string(),
+    context_data: v.any(),
+    metadata: v.optional(v.any()),
+    created_at: v.number(),
+  }).index("by_user_created", ["user_id", "created_at"]),
+
+  mini_quiz_attempts: defineTable({
+    session_id: v.string(),
+    user_id: v.string(),
+    attempt_data: v.any(),
+    created_at: v.number(),
+  })
+    .index("by_session", ["session_id"])
+    .index("by_user", ["user_id"]),
+
+  user_summaries: defineTable({
+    session_id: v.string(),
+    user_id: v.string(),
+    summary_data: v.any(),
+    created_at: v.number(),
+  })
+    .index("by_session", ["session_id"])
+    .index("by_user", ["user_id"]),
+
+  concept_graph_nodes: defineTable({
+    user_id: v.string(),
+    session_id: v.optional(v.string()),
+    concept_id: v.string(),
+    name: v.string(),
+    description: v.optional(v.string()),
+    mastery_level: v.number(),
+    prerequisites: v.array(v.string()),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_user", ["user_id"])
+    .index("by_session", ["session_id"])
+    .index("by_concept_id", ["concept_id"]),
+
+  concept_graph_edges: defineTable({
+    user_id: v.string(),
+    session_id: v.optional(v.string()),
+    from_concept: v.string(),
+    to_concept: v.string(),
+    relationship_type: v.string(),
+    strength: v.number(),
+    created_at: v.number(),
+  })
+    .index("by_user", ["user_id"])
+    .index("by_session", ["session_id"])
+    .index("by_from_concept", ["from_concept"])
+    .index("by_to_concept", ["to_concept"]),
 }); 

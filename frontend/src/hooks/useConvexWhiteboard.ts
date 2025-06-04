@@ -1,9 +1,9 @@
 import { useEffect, useCallback } from 'react';
 import { useQuery, useMutation } from 'convex/react';
-import { api } from '../../convex/_generated/api';
+import { api } from 'convex_generated/api';
 import { useSessionStore } from '@/store/sessionStore';
 import { CanvasObjectSpec, WhiteboardAction } from '@/lib/types';
-import { Id } from '../../convex/_generated/dataModel';
+import { Id } from 'convex_generated/dataModel';
 
 /**
  * React hook that manages persistent whiteboard objects via Convex real-time subscriptions.

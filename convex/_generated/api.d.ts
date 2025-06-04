@@ -34,6 +34,7 @@ import type * as core_sessionManager from "../core/sessionManager.js";
 import type * as core_utils from "../core/utils.js";
 import type * as database_analytics from "../database/analytics.js";
 import type * as database_concepts from "../database/concepts.js";
+import type * as database_files from "../database/files.js";
 import type * as database_folders from "../database/folders.js";
 import type * as database_index from "../database/index.js";
 import type * as database_optimization from "../database/optimization.js";
@@ -86,6 +87,7 @@ declare const fullApi: ApiFromModules<{
   "core/utils": typeof core_utils;
   "database/analytics": typeof database_analytics;
   "database/concepts": typeof database_concepts;
+  "database/files": typeof database_files;
   "database/folders": typeof database_folders;
   "database/index": typeof database_index;
   "database/optimization": typeof database_optimization;

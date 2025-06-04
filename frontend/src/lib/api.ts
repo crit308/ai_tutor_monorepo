@@ -68,8 +68,17 @@ export const startSession = async (
 ): Promise<StartSessionResponse> => {
   const convex = convexClient || fallbackConvex;
   
+  // Ensure we have a proper Convex client
+  if (!convex) {
+    throw new Error('Convex client not available - authentication may not be properly initialized');
+  }
+  
   try {
     console.log(`Creating new session for folder ${folderId} via Convex...`);
+    console.log('Using convex client:', !!convex);
+    
+    // Add a small delay to ensure auth state is stable
+    await new Promise(resolve => setTimeout(resolve, 100));
     
     const res = await convex.mutation(convexApi.functions.createSession, { 
       folderId: folderId as Id<"folders">,
@@ -83,8 +92,23 @@ export const startSession = async (
     
     console.log('Session created:', res);
     return { session_id: res.id as string, message: 'Session started successfully' };
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error creating session:', error);
+    
+    // Enhanced error handling for auth failures
+    if (error?.message?.includes?.('Authentication required')) {
+      const errorMessage = 'Authentication session expired. Please refresh the page and try again.';
+      console.error('Auth error detected:', errorMessage);
+      throw new Error(errorMessage);
+    }
+    
+    // Handle Convex errors with more context
+    if (error?.name === 'ConvexError') {
+      const enhancedMessage = `Session creation failed: ${error.message || 'Unknown Convex error'}`;
+      console.error('Convex error:', enhancedMessage);
+      throw new Error(enhancedMessage);
+    }
+    
     throw error;
   }
 };
@@ -162,11 +186,13 @@ export const deleteSession = async (sessionId: string, options?: {
 
 // --- Document Upload ---
 
-// Placeholder implementation - file upload will need to be implemented
 export const uploadDocuments = async (
   sessionId: string,
   files: File[],
+  convexClient?: ConvexReactClient
 ): Promise<UploadDocumentsResponse> => {
+  const convex = convexClient || fallbackConvex;
+  
   if (files.length === 0) {
     return {
       vector_store_id: null,
@@ -176,10 +202,60 @@ export const uploadDocuments = async (
     };
   }
 
-  console.log(`[API] Upload functionality needs to be implemented for ${files.length} files to session ${sessionId}`);
+  console.log(`[API] Uploading ${files.length} files to session ${sessionId}...`);
   
-  // Placeholder implementation - you'll need to implement actual file upload
-  throw new Error("File upload functionality not yet implemented");
+  try {
+    const uploadedFiles: any[] = [];
+    
+    for (const file of files) {
+      console.log(`Uploading file: ${file.name} (${file.size} bytes)`);
+      
+      // Step 1: Generate upload URL
+      const uploadUrl = await convex.mutation(convexApi.functions.generateUploadUrl, {});
+      
+      // Step 2: Upload file to Convex storage
+      const uploadResponse = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': file.type },
+        body: file,
+      });
+      
+      if (!uploadResponse.ok) {
+        throw new Error(`Failed to upload ${file.name}: ${uploadResponse.statusText}`);
+      }
+      
+      const { storageId } = await uploadResponse.json();
+      
+      // Step 3: Store file metadata in database
+      const fileId = await convex.mutation(convexApi.functions.storeFileMetadata, {
+        sessionId: sessionId as Id<"sessions">,
+        storageId,
+        fileName: file.name,
+        fileType: file.type,
+        fileSize: file.size,
+      });
+      
+      uploadedFiles.push({
+        id: fileId,
+        name: file.name,
+        size: file.size,
+        type: file.type,
+      });
+      
+      console.log(`Successfully uploaded: ${file.name}`);
+    }
+    
+    return {
+      vector_store_id: `session_${sessionId}`, // Placeholder vector store ID
+      files_received: uploadedFiles,
+      analysis_status: 'completed',
+      message: `Successfully uploaded ${uploadedFiles.length} file(s).`,
+    };
+    
+  } catch (error) {
+    console.error('Error uploading files:', error);
+    throw error;
+  }
 };
 
 // --- Generation Steps ---

@@ -4,9 +4,21 @@ import { useCallback } from 'react';
 import { useConvex } from 'convex/react';
 import * as api from '@/lib/api';
 import { FolderResponse } from '@/lib/types';
+import { api as convexApi } from 'convex_generated/api';
 
 export function useAuthenticatedApi() {
   const convex = useConvex();
+
+  const debugAuth = useCallback(async () => {
+    try {
+      const result = await convex.query(convexApi.functions.debugAuth, {});
+      console.log('Auth debug result:', result);
+      return result;
+    } catch (error) {
+      console.error('Auth debug error:', error);
+      return { error: error instanceof Error ? error.message : String(error) };
+    }
+  }, [convex]);
 
   const getFolders = useCallback(async (options?: {
     search?: string;
@@ -40,8 +52,43 @@ export function useAuthenticatedApi() {
   }, [convex]);
 
   const startSession = useCallback(async (folderId: string, metadata?: any) => {
-    return api.startSession(folderId, metadata, convex);
-  }, [convex]);
+    // Pre-validate authentication state
+    console.log('Starting session with authenticated API...');
+    
+    try {
+      // Check auth first
+      const authCheck = await debugAuth();
+      console.log('Auth check before session creation:', authCheck);
+      
+      if (!authCheck.isAuthenticated) {
+        throw new Error(`Authentication failed: ${authCheck.error || 'Not authenticated'}`);
+      }
+      
+      return await api.startSession(folderId, metadata, convex);
+    } catch (error) {
+      console.error('Session creation failed in authenticated API:', error);
+      throw error;
+    }
+  }, [convex, debugAuth]);
+
+  const uploadDocuments = useCallback(async (sessionId: string, files: File[]) => {
+    console.log('Uploading documents with authenticated API...');
+    
+    try {
+      // Check auth first
+      const authCheck = await debugAuth();
+      console.log('Auth check before file upload:', authCheck);
+      
+      if (!authCheck.isAuthenticated) {
+        throw new Error(`Authentication failed: ${authCheck.error || 'Not authenticated'}`);
+      }
+      
+      return await api.uploadDocuments(sessionId, files, convex);
+    } catch (error) {
+      console.error('File upload failed in authenticated API:', error);
+      throw error;
+    }
+  }, [convex, debugAuth]);
 
   const listUserSessions = useCallback(async (options?: any) => {
     return api.listUserSessions(options, convex);
@@ -71,12 +118,14 @@ export function useAuthenticatedApi() {
   }, [convex]);
 
   return {
+    debugAuth,
     getFolders,
     createFolder,
     getFolderStats,
     deleteFolder,
     renameFolder,
     startSession,
+    uploadDocuments,
     listUserSessions,
     updateSessionContext,
     deleteSession,
