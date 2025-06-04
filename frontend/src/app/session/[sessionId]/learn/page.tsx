@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useSessionStore } from '@/store/sessionStore';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAuthToken } from '@convex-dev/auth/react';
-import { useTutorStream } from '../../../../../lib/useTutorStream';
+import { useTutorStream } from '@/hooks/useTutorStream';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertTriangle } from 'lucide-react';

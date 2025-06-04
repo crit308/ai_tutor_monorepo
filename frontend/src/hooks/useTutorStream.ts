@@ -1,10 +1,10 @@
-import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from 'convex_generated/api';
-import { useSessionStore } from '@/store/sessionStore';
 import { useAuthToken } from '@convex-dev/auth/react';
 import { TutorInteractionResponse, WhiteboardAction } from '@/lib/types';
 import { Id } from 'convex_generated/dataModel';
+import { useThreadMessages, useSmoothText, optimisticallySendMessage, toUIMessages } from "@convex-dev/agent/react";
 
 // Define ChatMessage interface locally since it's not in the main types file
 interface ChatMessage {
@@ -28,32 +28,26 @@ interface SessionState {
   messages: ChatMessage[];
   userModelState: any;
   focusObjective: any;
-  loadingState: 'idle' | 'loading' | 'streaming';
+  loadingState: 'idle' | 'loading' | 'streaming' | 'connecting' | 'error';
   loadingMessage: string;
 }
 
 /**
- * Enhanced tutor stream hook that combines:
- * - Convex for persistent chat message storage and real-time sync
- * - Minimal WebSocket for AI response streaming
- * - Real-time updates when messages are added by other clients
+ * Enhanced tutor stream hook using Convex agent streaming instead of WebSocket
+ * - Uses Convex agent component for AI responses
+ * - Real-time message synchronization
+ * - Automatic vector store creation and knowledge base generation
  */
 export function useTutorStream(
   sessionId: string,
   handlers: TutorStreamHandlers = {}
 ) {
   const jwt = useAuthToken();
-  const wsRef = useRef<WebSocket | null>(null);
   const isComponentMountedRef = useRef(true);
   
-  // Convex integration for persistent messages
-  const sessionMessages = useQuery(
-    api.getSessionMessages,
-    sessionId ? { sessionId: sessionId as Id<"sessions"> } : 'skip'
-  );
-  
-  // Using the newly created addSessionMessage function
-  const addMessage = useMutation(api.addSessionMessage);
+  // Agent streaming functions
+  const getOrCreateThread = useMutation(api.functions.getOrCreateSessionThread);
+  const sendStreamingMessage = useMutation(api.functions.sendStreamingMessage);
   
   // Local state for streaming and session info
   const [sessionState, setSessionState] = useState<SessionState>({
@@ -64,22 +58,56 @@ export function useTutorStream(
     loadingMessage: ''
   });
   
-  const [streamingMessage, setStreamingMessage] = useState<{
-    id: string;
-    content: string;
-    isComplete: boolean;
-  } | null>(null);
+  const [threadId, setThreadId] = useState<string | null>(null);
 
-  // Sync Convex messages to local state
+  // Initialize agent thread for this session
   useEffect(() => {
-    if (sessionMessages) {
-      const transformedMessages: ChatMessage[] = sessionMessages.map((msg: any) => ({
-        id: msg._id,
+    if (sessionId && !threadId) {
+      console.log('[useTutorStream] Initializing agent thread for session:', sessionId);
+      setSessionState(prev => ({ ...prev, loadingState: 'connecting' }));
+      
+      getOrCreateThread({ sessionId: sessionId as Id<"sessions"> })
+        .then((newThreadId) => {
+          console.log('[useTutorStream] Agent thread created:', newThreadId);
+          setThreadId(newThreadId);
+          setSessionState(prev => ({ ...prev, loadingState: 'idle' }));
+        })
+        .catch((error) => {
+          console.error('[useTutorStream] Failed to create agent thread:', error);
+          setSessionState(prev => ({ 
+            ...prev, 
+            loadingState: 'error',
+            loadingMessage: 'Failed to initialize AI tutor'
+          }));
+          handlers.onError?.('Failed to initialize AI tutor');
+        });
+    }
+  }, [sessionId, threadId, getOrCreateThread, handlers]);
+
+  // Use Convex agent thread messages with streaming
+  const agentMessages = useThreadMessages(
+    api.functions.listThreadMessages,
+    threadId ? { threadId } : "skip",
+    { 
+      initialNumItems: 20,
+      stream: true,
+    }
+  );
+
+  // Convert agent messages to UI format
+  const uiMessages = agentMessages.results ? toUIMessages(agentMessages.results) : [];
+
+  // Sync agent messages to local state
+  useEffect(() => {
+    if (uiMessages) {
+      const transformedMessages: ChatMessage[] = uiMessages.map((msg: any, index: number) => ({
+        id: msg.key || `msg-${index}`,
         role: msg.role as 'user' | 'assistant',
-        content: msg.text || '',
-        interaction: msg.payload_json as TutorInteractionResponse,
-        whiteboard_actions: msg.payload_json?.whiteboard_actions,
-        createdAt: msg.created_at
+        content: msg.content || '',
+        interaction: msg.metadata as TutorInteractionResponse,
+        whiteboard_actions: msg.metadata?.whiteboard_actions,
+        createdAt: Date.now(), // Agent messages don't have timestamps
+        isStreaming: msg.isStreaming || false
       }));
       
       setSessionState(prev => ({
@@ -87,279 +115,137 @@ export function useTutorStream(
         messages: transformedMessages,
         loadingState: prev.loadingState === 'loading' ? 'idle' : prev.loadingState
       }));
-    }
-  }, [sessionMessages]);
 
-  // Connect to tutor WebSocket for streaming
-  const connect = useCallback(() => {
-    if (!isComponentMountedRef.current || !sessionId || !jwt) return;
-
-    // Close existing connection
-    if (wsRef.current) {
-      wsRef.current.close();
-    }
-
-    const wsOrigin = process.env.NEXT_PUBLIC_BACKEND_WS_ORIGIN || 'ws://localhost:8080';
-    const wsUrl = `${wsOrigin}/ws/tutor/${sessionId}?token=${jwt}`;
-
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      console.log('[useTutorStream] Connected to tutor WebSocket');
-      setSessionState(prev => ({ ...prev, loadingState: 'idle' }));
-    };
-
-    ws.onmessage = (event) => {
-      if (wsRef.current !== ws || !isComponentMountedRef.current) return;
-
-      try {
-        const parsedData = JSON.parse(event.data);
-
-        // Handle heartbeat
-        if (parsedData?.type === 'heartbeat_ack') {
-          console.debug('[useTutorStream] Heartbeat ack received');
-          return;
-        }
-
-        // Handle streaming AI response deltas
-        if (parsedData?.type === 'AI_STREAM_DELTA') {
-          const delta = parsedData.delta;
-          const isComplete = parsedData.isComplete;
-          
-          setStreamingMessage(prev => {
-            const newContent = (prev?.content || '') + delta;
-            return {
-              id: prev?.id || `stream-${Date.now()}`,
-              content: newContent,
-              isComplete
-            };
-          });
-          
-          handlers.onRawResponse?.(delta);
-          
-          // If complete, persist to Convex
-          if (isComplete) {
-            const finalContent = (streamingMessage?.content || '') + delta;
-            if (finalContent.trim()) {
-              addMessage({
-                sessionId: sessionId as Id<"sessions">,
-                role: 'assistant',
-                text: finalContent,
-                payloadJson: {
-                  response_type: 'message',
-                  text: finalContent
-                }
-              }).then(() => {
-                setStreamingMessage(null);
-                setSessionState(prev => ({ ...prev, loadingState: 'idle' }));
-              }).catch(error => {
-                console.error('[useTutorStream] Failed to persist streamed message:', error);
-                handlers.onError?.('Failed to save message');
-                setSessionState(prev => ({ ...prev, loadingState: 'idle' }));
-              });
-            } else {
-              setStreamingMessage(null);
-              setSessionState(prev => ({ ...prev, loadingState: 'idle' }));
-            }
-          }
-          return;
-        }
-
-        // Handle AI streaming errors
-        if (parsedData?.type === 'AI_STREAM_ERROR') {
-          console.error('[useTutorStream] AI streaming error:', parsedData.error);
-          setStreamingMessage(null);
-          setSessionState(prev => ({ ...prev, loadingState: 'idle' }));
-          handlers.onError?.(parsedData.error || 'AI service error');
-          return;
-        }
-
-        // Handle tutor connection acknowledgment
-        if (parsedData?.type === 'TUTOR_CONNECTED') {
-          console.log('[useTutorStream] Tutor connection established');
-          return;
-        }
-
-        // Handle complete interaction responses (for complex interactions)
-        if (parsedData?.content_type && parsedData?.data) {
-          const message: ChatMessage = {
-            id: `msg-${Date.now()}`,
-            role: 'assistant',
-            content: parsedData.data.text || parsedData.data.explanation_text || 'Response received',
-            interaction: parsedData.data as TutorInteractionResponse,
-            whiteboard_actions: parsedData.whiteboard_actions
-          };
-
-          // Persist to Convex
-          addMessage({
-            sessionId: sessionId as Id<"sessions">,
-            role: 'assistant',
-            text: message.content,
-            payloadJson: parsedData
-          }).catch(error => {
-            console.error('[useTutorStream] Failed to persist interaction:', error);
-          });
-
-          // Handle whiteboard actions
-          if (parsedData.whiteboard_actions) {
-            handlers.onWhiteboardAction?.(parsedData.whiteboard_actions);
-          }
-
+      // Call message handler for new messages
+      const prevLength = sessionState.messages.length;
+      if (transformedMessages.length > prevLength) {
+        const newMessages = transformedMessages.slice(prevLength);
+        newMessages.forEach(message => {
           handlers.onMessage?.(message);
-          return;
-        }
-
-        // Handle user message confirmations
-        if (parsedData?.type === 'USER_MESSAGE_RECEIVED') {
-          console.log('[useTutorStream] User message confirmed by server');
-          return;
-        }
-
-        console.warn('[useTutorStream] Unknown message type:', parsedData?.type);
-
-      } catch (error) {
-        console.error('[useTutorStream] Failed to parse WebSocket message:', error);
-        handlers.onError?.('Failed to parse server response');
+          
+          // Handle whiteboard actions
+          if (message.whiteboard_actions) {
+            handlers.onWhiteboardAction?.(message.whiteboard_actions);
+          }
+        });
       }
-    };
+    }
+  }, [uiMessages, handlers]);
 
-    ws.onclose = () => {
-      console.log('[useTutorStream] Tutor WebSocket closed');
-      setSessionState(prev => ({ ...prev, loadingState: 'idle' }));
-    };
+  // Set up optimistic message sending with agent streaming
+  const sendMessageWithOptimistic = useMutation(api.functions.sendStreamingMessage);
 
-    ws.onerror = (error) => {
-      console.error('[useTutorStream] Tutor WebSocket error:', error);
-      setSessionState(prev => ({ ...prev, loadingState: 'idle' }));
-      handlers.onError?.('Connection error');
-    };
-
-  }, [sessionId, jwt, handlers, addMessage, streamingMessage]);
-
-  // Auto-connect when dependencies change
-  useEffect(() => {
-    connect();
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-    };
-  }, [connect]);
-
-  // Send user message
+  // Send user message using Convex agent streaming
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim()) return;
-
-    try {
-      // Persist user message to Convex immediately
-      await addMessage({
-        sessionId: sessionId as Id<"sessions">,
-        role: 'user',
-        text: text.trim(),
-        payloadJson: { text: text.trim() }
-      });
-
-      // Send to WebSocket for AI processing
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({
-          type: 'USER_MESSAGE',
-          text: text.trim(),
-          timestamp: Date.now()
-        }));
-
-        setSessionState(prev => ({ 
-          ...prev, 
-          loadingState: 'streaming',
-          loadingMessage: 'AI is thinking...'
-        }));
-      } else {
-        console.warn('[useTutorStream] WebSocket not connected');
-        handlers.onError?.('Not connected to tutor service');
-      }
-
-    } catch (error) {
-      console.error('[useTutorStream] Failed to send message:', error);
-      handlers.onError?.('Failed to send message');
-    }
-  }, [sessionId, addMessage, handlers]);
-
-  // Trigger AI response for a given prompt
-  const triggerAIResponse = useCallback(async (prompt: string) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      console.warn('[useTutorStream] WebSocket not connected for AI response');
+    if (!threadId) {
+      console.warn('[useTutorStream] No thread ID available');
+      handlers.onError?.('AI tutor not ready');
       return;
     }
 
     try {
-      wsRef.current.send(JSON.stringify({
-        type: 'STREAM_AI_RESPONSE',
-        prompt,
-        timestamp: Date.now()
-      }));
-
+      console.log('[useTutorStream] Sending message to agent:', text);
+      
       setSessionState(prev => ({ 
         ...prev, 
         loadingState: 'streaming',
-        loadingMessage: 'Generating response...'
+        loadingMessage: 'AI is thinking...'
       }));
+
+      // Send message to agent with optimistic updates
+      await sendMessageWithOptimistic({
+        threadId,
+        message: text.trim(),
+        sessionId: sessionId as Id<"sessions">
+      });
+
+      console.log('[useTutorStream] Message sent to agent successfully');
+
+    } catch (error) {
+      console.error('[useTutorStream] Failed to send message:', error);
+      setSessionState(prev => ({ ...prev, loadingState: 'error' }));
+      handlers.onError?.('Failed to send message');
+    }
+  }, [sessionId, threadId, sendMessageWithOptimistic, handlers]);
+
+  // Trigger AI response for interaction types
+  const triggerAIResponse = useCallback(async (interactionType: string, data?: any) => {
+    if (!threadId) {
+      console.warn('[useTutorStream] No thread ID available for interaction');
+      return;
+    }
+
+    try {
+      console.log('[useTutorStream] Triggering AI interaction:', interactionType);
+      
+      setSessionState(prev => ({ 
+        ...prev, 
+        loadingState: 'streaming',
+        loadingMessage: 'Processing interaction...'
+      }));
+
+      // Create interaction message for the agent
+      const interactionMessage = `User interaction: ${interactionType}${data ? ` with data: ${JSON.stringify(data)}` : ''}`;
+      
+      await sendMessageWithOptimistic({
+        threadId,
+        message: interactionMessage,
+        sessionId: sessionId as Id<"sessions">
+      });
 
     } catch (error) {
       console.error('[useTutorStream] Failed to trigger AI response:', error);
-      handlers.onError?.('Failed to trigger AI response');
+      setSessionState(prev => ({ ...prev, loadingState: 'error' }));
+      handlers.onError?.('Failed to process interaction');
     }
-  }, [handlers]);
+  }, [threadId, sessionId, sendStreamingMessage, handlers]);
 
-  // Send heartbeat
-  const sendHeartbeat = useCallback(() => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'heartbeat' }));
-    }
-  }, []);
+  // Send interaction (next, start, answer, etc.)
+  const sendInteraction = useCallback(async (
+    type: 'start' | 'next' | 'answer' | 'summary' | 'previous',
+    data?: Record<string, any>
+  ) => {
+    console.log(`[useTutorStream] Sending interaction: ${type}`, data);
+    
+    const interactionPrompt = generateInteractionPrompt(type, data);
+    await triggerAIResponse(type, data);
+  }, [triggerAIResponse]);
 
   // Cleanup on unmount
   useEffect(() => {
+    isComponentMountedRef.current = true;
     return () => {
       isComponentMountedRef.current = false;
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
     };
   }, []);
 
-  // Combine persistent messages with streaming message
-  const allMessages = useMemo(() => {
-    const messages = [...sessionState.messages];
-    
-    // Add streaming message if active
-    if (streamingMessage && !streamingMessage.isComplete) {
-      messages.push({
-        id: streamingMessage.id,
-        role: 'assistant' as const,
-        content: streamingMessage.content,
-        isStreaming: true
-      });
-    }
-    
-    return messages;
-  }, [sessionState.messages, streamingMessage]);
-
   return {
-    // State
-    sessionState: {
-      ...sessionState,
-      messages: allMessages
-    },
-    isConnected: wsRef.current?.readyState === WebSocket.OPEN,
-    isStreaming: streamingMessage !== null && !streamingMessage.isComplete,
-    
-    // Actions
+    ...sessionState,
     sendMessage,
+    sendInteraction,
     triggerAIResponse,
-    sendHeartbeat,
-    connect,
-    
-    // Raw WebSocket access for advanced use cases
-    ws: wsRef.current
+    isConnected: threadId !== null && sessionState.loadingState !== 'error',
+    threadId
   };
+}
+
+// Helper function to generate prompts for different interaction types
+function generateInteractionPrompt(type: string, data?: any): string {
+  switch (type) {
+    case 'start':
+      return 'Please start the tutoring session. Introduce the topic and begin with an engaging question or explanation.';
+    case 'next':
+      return 'Continue to the next part of the lesson. Move forward with the learning progression.';
+    case 'answer':
+      return data?.answer 
+        ? `User answered: ${data.answer}. Please provide feedback and continue the lesson.`
+        : 'User provided an answer. Please provide feedback and continue.';
+    case 'summary':
+      return 'Please provide a summary of what we have learned so far in this session.';
+    case 'previous':
+      return 'Go back to the previous topic or question in the lesson.';
+    default:
+      return `Handle interaction type: ${type}`;
+  }
 } 

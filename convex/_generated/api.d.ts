@@ -29,6 +29,7 @@ import type * as core_fileUploadActions from "../core/fileUploadActions.js";
 import type * as core_fileUploadManager from "../core/fileUploadManager.js";
 import type * as core_index from "../core/index.js";
 import type * as core_migration from "../core/migration.js";
+import type * as core_openAIVectorStore from "../core/openAIVectorStore.js";
 import type * as core_serviceUtils from "../core/serviceUtils.js";
 import type * as core_sessionManager from "../core/sessionManager.js";
 import type * as core_utils from "../core/utils.js";
@@ -82,6 +83,7 @@ declare const fullApi: ApiFromModules<{
   "core/fileUploadManager": typeof core_fileUploadManager;
   "core/index": typeof core_index;
   "core/migration": typeof core_migration;
+  "core/openAIVectorStore": typeof core_openAIVectorStore;
   "core/serviceUtils": typeof core_serviceUtils;
   "core/sessionManager": typeof core_sessionManager;
   "core/utils": typeof core_utils;

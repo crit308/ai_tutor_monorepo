@@ -117,4 +117,10 @@ export {
   deleteFile
 } from './database/files';
 
+// OpenAI Vector Store functions
+export {
+  createVectorStoreAndProcessFiles,
+  generateKnowledgeBase
+} from './core/openAIVectorStore';
+
 

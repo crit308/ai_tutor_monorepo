@@ -206,6 +206,7 @@ export const uploadDocuments = async (
   
   try {
     const uploadedFiles: any[] = [];
+    const fileContents: { filename: string; content: string; mimeType: string }[] = [];
     
     for (const file of files) {
       console.log(`Uploading file: ${file.name} (${file.size} bytes)`);
@@ -235,6 +236,16 @@ export const uploadDocuments = async (
         fileSize: file.size,
       });
       
+      // Step 4: Convert file to base64 for OpenAI processing
+      const arrayBuffer = await file.arrayBuffer();
+      const base64Content = Buffer.from(arrayBuffer).toString('base64');
+      
+      fileContents.push({
+        filename: file.name,
+        content: base64Content,
+        mimeType: file.type,
+      });
+      
       uploadedFiles.push({
         id: fileId,
         name: file.name,
@@ -245,11 +256,30 @@ export const uploadDocuments = async (
       console.log(`Successfully uploaded: ${file.name}`);
     }
     
+    // Step 5: Get session data to determine folder ID
+    const session = await convex.query(convexApi.functions.getSession, {
+      sessionId: sessionId as Id<"sessions">
+    });
+    
+    if (!session) {
+      throw new Error('Session not found');
+    }
+    
+    // Step 6: Trigger OpenAI vector store creation and processing
+    console.log(`[API] Triggering OpenAI vector store creation for ${fileContents.length} files...`);
+    const vectorStoreResult = await convex.action(convexApi.functions.createVectorStoreAndProcessFiles, {
+      sessionId: sessionId as Id<"sessions">,
+      files: fileContents,
+      folderId: session.folder_id || undefined,
+    });
+    
+    console.log(`[API] Vector store created:`, vectorStoreResult);
+    
     return {
-      vector_store_id: `session_${sessionId}`, // Placeholder vector store ID
+      vector_store_id: vectorStoreResult.vectorStoreId,
       files_received: uploadedFiles,
-      analysis_status: 'completed',
-      message: `Successfully uploaded ${uploadedFiles.length} file(s).`,
+      analysis_status: vectorStoreResult.analysis ? 'completed' : 'pending',
+      message: `Successfully uploaded and processed ${uploadedFiles.length} file(s). Vector store: ${vectorStoreResult.vectorStoreId}`,
     };
     
   } catch (error) {
