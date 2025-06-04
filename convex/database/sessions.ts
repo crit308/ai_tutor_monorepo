@@ -1,4 +1,4 @@
-import { query, mutation } from "../_generated/server";
+import { query, mutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { ConvexError } from "convex/values";
@@ -1001,5 +1001,38 @@ export const updateSessionMessage = mutation({
     await ctx.db.patch(messageId, updates);
     
     return { success: true };
+  },
+});
+
+// ==========================================
+// INTERNAL FUNCTIONS (for use by other Convex functions)
+// ==========================================
+
+/**
+ * Internal getSession function (no auth required)
+ */
+export const getSessionInternal = internalQuery({
+  args: { 
+    sessionId: v.id("sessions"),
+    includeContext: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { sessionId, includeContext = true }) => {
+    const session = await ctx.db.get(sessionId);
+    if (!session) {
+      return null;
+    }
+    
+    const result = {
+      _id: session._id,
+      user_id: session.user_id,
+      folder_id: session.folder_id,
+      created_at: session.created_at,
+      updated_at: session.updated_at,
+      ended_at: session.ended_at,
+      analysis_status: session.analysis_status,
+      context_data: includeContext ? session.context_data : undefined,
+    };
+    
+    return result;
   },
 }); 

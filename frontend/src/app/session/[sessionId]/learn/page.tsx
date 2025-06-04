@@ -40,24 +40,14 @@ function InnerLearnPage() {
 
   const {
     currentInteractionContent,
-    loadingState,
-    error,
-    connectionStatus,
-    sendInteraction,
     sessionEndedConfirmed,
-    messages,
     whiteboardMode,
     fabricCanvas,
     setIsQuestionLocked,
   } = useSessionStore(
     useShallow((state: SessionState) => ({
       currentInteractionContent: state.currentInteractionContent,
-      loadingState: state.loadingState,
-      error: state.error,
-      connectionStatus: state.connectionStatus,
-      sendInteraction: state.sendInteraction,
       sessionEndedConfirmed: state.sessionEndedConfirmed,
-      messages: state.messages,
       whiteboardMode: state.whiteboardMode,
       fabricCanvas: state.fabricCanvas,
       setIsQuestionLocked: state.setIsQuestionLocked,
@@ -70,8 +60,11 @@ function InnerLearnPage() {
   const { dispatchWhiteboardAction } = useWhiteboard();
 
   const streamHandlers = React.useMemo(() => ({
-    onWhiteboardStateReceived: (actions: WhiteboardAction[]) => {
-        console.log('[LearnPage] Received whiteboard state actions:', actions);
+    onMessage: (message: any) => {
+      console.log('[LearnPage] Received message:', message);
+    },
+    onWhiteboardAction: (actions: WhiteboardAction[]) => {
+        console.log('[LearnPage] Received whiteboard actions:', actions);
         if (actions && actions.some(action => 
             action.type === "ADD_OBJECTS" && 
             action.objects.some(obj => obj.metadata?.role === 'option_selector'))
@@ -84,23 +77,30 @@ function InnerLearnPage() {
             dispatchWhiteboardAction(actions);
         }
     },
-    getFabricCanvasInstance: () => {
-        return useSessionStore.getState().fabricCanvas;
-    },
-    onInteractionResponse: (response: InteractionResponseData) => {
-        if (response.content_type === 'error') {
-            const errorData = response.data as ErrorResponse;
-            toast({
-                title: `Tutor Error${errorData.error_code ? ` (${errorData.error_code})` : ''}`,
-                description: errorData.message || 'An unknown error occurred.',
-                variant: 'destructive',
-                duration: 7000,
-            });
-        }
+    onError: (error: string) => {
+        console.error('[LearnPage] Tutor stream error:', error);
+        toast({
+            title: 'Tutor Error',
+            description: error,
+            variant: 'destructive',
+            duration: 7000,
+        });
     }
   }), [dispatchWhiteboardAction, toast]);
 
-  const { latency } = useTutorStream(sessionId || '', streamHandlers);
+  const { 
+    messages,
+    loadingState,
+    isConnected,
+    sendMessage,
+    sendInteraction,
+    hasExecutorStarted,
+    latency 
+  } = useTutorStream(sessionId || '', streamHandlers);
+
+  // Connection status and error derived from new system
+  const connectionStatus = isConnected ? 'connected' : loadingState === 'connecting' ? 'connecting' : 'error';
+  const error = loadingState === 'error' ? { message: 'Connection error' } : null;
 
   useEffect(() => {
     return () => {
@@ -164,7 +164,7 @@ function InnerLearnPage() {
   };
   const statusColor = getStatusColor(connectionStatus);
 
-  const isLoading = authLoading || connectionStatus === 'connecting' || connectionStatus === 'reconnecting';
+  const isLoading = authLoading || connectionStatus === 'connecting' || connectionStatus === 'reconnecting' || (isConnected && !hasExecutorStarted);
   const isAuthError = connectionStatus === 'auth_error';
   const isConnectionError = connectionStatus === 'error';
   const isErrorState = isAuthError || isConnectionError;
@@ -222,7 +222,16 @@ function InnerLearnPage() {
   };
 
   if (isLoading) {
-    return <div className="flex items-center justify-center h-screen w-screen"><LoadingSpinner message={connectionStatus === 'connecting' ? "Connecting..." : connectionStatus === 'reconnecting' ? "Reconnecting..." : "Initializing Session..."} /></div>;
+    let loadingMessage = "Initializing Session...";
+    if (connectionStatus === 'connecting') {
+      loadingMessage = "Connecting...";
+    } else if (connectionStatus === 'reconnecting') {
+      loadingMessage = "Reconnecting...";
+    } else if (isConnected && !hasExecutorStarted) {
+      loadingMessage = "Analyzing knowledge base and creating lesson plan...";
+    }
+    
+    return <div className="flex items-center justify-center h-screen w-screen"><LoadingSpinner message={loadingMessage} /></div>;
   }
 
   if (isErrorState || missingCredentials) {

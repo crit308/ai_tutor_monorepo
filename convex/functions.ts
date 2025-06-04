@@ -16,7 +16,8 @@ export {
   getUserFolders,
   getFolderData,
   updateFolderVectorStore,
-  updateKnowledgeBase
+  updateKnowledgeBase,
+  getFolderInternal
 } from './database/folders';
 
 // Session management functions  
@@ -37,7 +38,8 @@ export {
   getUserSessions,
   validateSessionContext,
   addSessionMessage,
-  updateSessionMessage
+  updateSessionMessage,
+  getSessionInternal
 } from './database/sessions';
 
 // Whiteboard functions

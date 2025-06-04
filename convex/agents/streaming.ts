@@ -4,6 +4,7 @@ import { components, api } from "../_generated/api";
 import { paginationOptsValidator } from "convex/server";
 import { internal } from "../_generated/api";
 import { requireAuth } from "../auth/middleware";
+import { Id } from "../_generated/dataModel";
 
 /**
  * Create a new thread for streaming messages, linked to a session
@@ -226,17 +227,104 @@ export const generateStreamingResponse = internalAction({
         order: "asc",
       });
       
-      // Get latest user message
-      const userMessages = messages.page.filter((msg: any) => msg.role === "user");
+      // Get latest user message (check both direct role and nested message.role)
+      const userMessages = messages.page.filter((msg: any) => 
+        msg.role === "user" || msg.message?.role === "user"
+      );
       const latestUserMessage = userMessages[userMessages.length - 1];
       
       if (!latestUserMessage) {
-        console.error("No user message found in thread");
+        console.error("No user message found in thread, available messages:", 
+          messages.page.map((m: any) => ({ id: m._id, role: m.role, messageRole: m.message?.role, text: m.text?.slice(0, 50) }))
+        );
         return null;
       }
       
-              // Use a simple system prompt for now
-        const systemPrompt = "You are a helpful AI tutor. Provide clear, educational responses that help students learn effectively.";
+              // Get enhanced system prompt with knowledge base context
+      let systemPrompt = "You are a helpful AI tutor. Provide clear, educational responses that help students learn effectively.";
+      
+      if (args.sessionId) {
+        try {
+          // Get session to access knowledge base
+          const session = await ctx.runQuery(internal.functions.getSessionInternal, {
+            sessionId: args.sessionId
+          });
+          
+          if (session && session.folder_id) {
+            // Get folder with knowledge base
+            const folder = await ctx.runQuery(internal.functions.getFolderInternal, {
+              folderId: session.folder_id as Id<"folders">
+            });
+            
+            if (folder && folder.knowledge_base) {
+              const knowledgeBase = folder.knowledge_base;
+              
+              // Check if this is an internal planner message
+              const latestMessage = messages.page[messages.page.length - 1];
+              const messageContent: string = (latestMessage?.message?.content || latestMessage?.text || "") as string;
+              
+              if (messageContent.includes("INTERNAL_PLANNER_MESSAGE")) {
+                // This is the planner agent
+                systemPrompt = `You are the Planner Agent in a two-agent tutoring system.
+
+**KNOWLEDGE BASE CONTENT:**
+${knowledgeBase}
+
+**YOUR ROLE AS PLANNER:**
+1. Analyze the knowledge base content thoroughly
+2. Identify key learning objectives and concepts
+3. Determine the best learning path and focus areas
+4. Create a lesson plan with clear objectives
+5. Hand off to the Executor Agent with specific instructions
+
+**TASK:**
+Analyze the knowledge base and create a comprehensive lesson plan. Then provide handoff instructions to the Executor Agent.
+
+Your response should include:
+1. Analysis of the knowledge base content
+2. Key concepts and learning objectives identified
+3. Recommended learning sequence
+4. Specific instructions for the Executor Agent
+5. Clear handoff message
+
+After your analysis, end with: "HANDOFF_TO_EXECUTOR: [your specific instructions for the Executor Agent]"
+
+Do not interact with the student directly - your role is purely planning and analysis.`;
+              } else {
+                // This is the executor agent or normal tutoring
+                systemPrompt = `You are the Executor Agent in a two-agent tutoring system.
+
+**KNOWLEDGE BASE CONTENT:**
+${knowledgeBase}
+
+**YOUR ROLE AS EXECUTOR:**
+- Start the actual tutoring session with the student
+- Welcome the student with an engaging, warm introduction
+- Begin teaching based on the lesson plan from the Planner Agent
+- Provide engaging, interactive tutoring based on the uploaded materials
+- Ask questions, give explanations, and guide the student's learning
+- Use the whiteboard feature when helpful (mention drawing diagrams or visual aids)
+- Encourage active participation and critical thinking
+
+**INSTRUCTIONS:**
+- If you receive EXECUTOR_START or handoff instructions from the Planner Agent, follow them closely
+- Start by welcoming the student and introducing the topic
+- Begin with fundamental concepts before moving to advanced topics
+- Ask engaging questions to assess understanding
+- Provide clear explanations with examples
+- Be encouraging and supportive
+- Use a conversational, friendly tone
+- When appropriate, suggest visual elements for the whiteboard
+- Never mention internal messages or the two-agent system to the student
+
+When you receive EXECUTOR_START instructions, immediately begin the tutoring session with a warm welcome.`;
+              }
+            }
+          }
+        } catch (error) {
+          console.log("[Agent Streaming] Could not load knowledge base context:", error);
+        }
+      }
 
       // Create streaming message
       const streamId = await ctx.runMutation(components.agent.streams.create, {
@@ -255,8 +343,8 @@ export const generateStreamingResponse = internalAction({
       const openaiMessages = [
         { role: "system" as const, content: systemPrompt },
         ...messages.page.map((msg: any) => ({
-          role: msg.role as "user" | "assistant",
-          content: msg.text || msg.content || "",
+          role: (msg.message?.role || msg.role) as "user" | "assistant",
+          content: msg.message?.content || msg.text || msg.content || "",
         }))
       ];
 
@@ -297,6 +385,57 @@ export const generateStreamingResponse = internalAction({
       }
       
       console.log(`[Agent Streaming] Completed OpenAI stream, response length: ${fullResponse.length}`);
+      
+      // Finish the stream and save the final message
+      await ctx.runMutation(components.agent.streams.finish, {
+        streamId,
+      });
+      
+      // Also add the complete message to the thread for persistence
+      await ctx.runMutation(components.agent.messages.addMessages, {
+        threadId: args.threadId,
+        messages: [{
+          message: {
+            role: "assistant",
+            content: fullResponse,
+          },
+        }],
+      });
+
+      // Check if this was a planner agent response that needs handoff to executor
+      if (fullResponse.includes("HANDOFF_TO_EXECUTOR:")) {
+        console.log("[Agent Streaming] Planner completed, triggering executor agent...");
+        
+        // Extract handoff instructions
+        const handoffMatch = fullResponse.match(/HANDOFF_TO_EXECUTOR:\s*(.+)/s);
+        const executorInstructions = handoffMatch ? handoffMatch[1].trim() : "Begin the tutoring session based on the lesson plan.";
+        
+        // Trigger executor agent automatically
+        const executorMessage = `EXECUTOR_START: ${executorInstructions}
+
+Begin the tutoring session now. Welcome the student and start teaching based on the lesson plan.`;
+
+        // Add executor message to thread
+        await ctx.runMutation(components.agent.messages.addMessages, {
+          threadId: args.threadId,
+          messages: [{
+            message: {
+              role: "user",
+              content: executorMessage,
+            },
+          }],
+        });
+
+        // Schedule executor agent to run immediately
+        try {
+          await ctx.scheduler.runAfter(0, internal.agents.streaming.generateStreamingResponse, {
+            threadId: args.threadId,
+            sessionId: args.sessionId,
+          });
+        } catch (error) {
+          console.error("[Agent Streaming] Failed to schedule executor agent:", error);
+        }
+      }
     
     } catch (error) {
       console.error("[Agent Streaming] Error generating response:", error);
@@ -442,5 +581,64 @@ export const migrateSessionToThread = mutation({
       threadId,
       migratedCount: agentMessages.length,
     };
+  },
+});
+
+/**
+ * Trigger lesson planner automatically when knowledge base is created
+ */
+export const triggerLessonPlanner = internalAction({
+  args: {
+    threadId: v.string(),
+    sessionId: v.id("sessions"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    try {
+      console.log("[Agent Streaming] Triggering lesson planner for session:", args.sessionId);
+      
+      // Add planner message to thread to start the lesson planning process
+      const plannerMessage = `INTERNAL_PLANNER_MESSAGE: Initialize two-agent learning session
+
+You are the Planner Agent. Your task is to:
+1. ANALYZE the knowledge base from uploaded materials
+2. IDENTIFY key learning objectives and concepts  
+3. CREATE a lesson plan with focus objectives
+4. HANDOFF to the Executor Agent with instructions
+
+After analysis, you must hand off to the Executor Agent who will:
+- Start the actual tutoring session
+- Welcome the student with an engaging introduction
+- Begin teaching based on your plan
+- Use a conversational, encouraging tone
+
+IMPORTANT: Your planning message should be INTERNAL ONLY and not shown to the student. The first visible message should be from the Executor Agent welcoming the student.
+
+Analyze the knowledge base and create the handoff instructions now.`;
+
+      // Add the planner message to the thread
+      await ctx.runMutation(components.agent.messages.addMessages, {
+        threadId: args.threadId,
+        messages: [{
+          message: {
+            role: "user",
+            content: plannerMessage,
+          },
+        }],
+      });
+
+      // Trigger the planner agent to respond
+      await ctx.scheduler.runAfter(0, internal.agents.streaming.generateStreamingResponse, {
+        threadId: args.threadId,
+        sessionId: args.sessionId,
+      });
+
+      console.log("[Agent Streaming] Lesson planner triggered successfully");
+      
+    } catch (error) {
+      console.error("[Agent Streaming] Failed to trigger lesson planner:", error);
+    }
+    
+    return null;
   },
 }); 

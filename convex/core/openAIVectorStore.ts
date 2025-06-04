@@ -381,6 +381,7 @@ LEARNING OBJECTIVES:
         await ctx.runMutation("functions:updateKnowledgeBase" as any, {
           folderId: session.folder_id as Id<'folders'>,
           knowledgeBase: analysisText,
+          sessionId: sessionId, // Pass sessionId to trigger lesson planner
         });
       }
       

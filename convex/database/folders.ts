@@ -1,7 +1,8 @@
-import { query, mutation } from "../_generated/server";
+import { query, mutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { Id } from "../_generated/dataModel";
+import { internal } from "../_generated/api";
 import { 
   requireAuth, 
   requireAuthAndOwnership,
@@ -454,8 +455,9 @@ export const updateKnowledgeBase = mutation({
   args: {
     folderId: v.id("folders"),
     knowledgeBase: v.string(),
+    sessionId: v.optional(v.id("sessions")), // Optional session to trigger lesson planner
   },
-  handler: async (ctx, { folderId, knowledgeBase }) => {
+  handler: async (ctx, { folderId, knowledgeBase, sessionId }) => {
     const userId = await requireAuth(ctx);
     
     // Verify folder exists and user has access
@@ -475,10 +477,27 @@ export const updateKnowledgeBase = mutation({
       updated_at: Date.now(),
     });
     
+    // If a session is provided, trigger the lesson planner automatically
+    if (sessionId) {
+      // Verify session belongs to this folder and user
+      const session = await ctx.db.get(sessionId);
+      if (session && session.user_id === userId && session.folder_id === folderId) {
+        // Check if session has an agent thread
+        if (session.context_data?.agent_thread_id) {
+          // Schedule lesson planner to start automatically
+          await ctx.scheduler.runAfter(1000, internal.agents.streaming.triggerLessonPlanner, {
+            threadId: session.context_data.agent_thread_id,
+            sessionId: sessionId,
+          });
+        }
+      }
+    }
+    
     return { 
       success: true,
       folderId,
       knowledgeBaseLength: knowledgeBase.trim().length,
+      lessonPlannerTriggered: !!sessionId,
     };
   },
 });
@@ -1054,5 +1073,32 @@ export const updateFolderVectorStore = mutation({
     });
     
     return { success: true };
+  },
+});
+
+// ==========================================
+// INTERNAL FUNCTIONS (for use by other Convex functions)
+// ==========================================
+
+/**
+ * Internal getFolder function (no auth required)
+ */
+export const getFolderInternal = internalQuery({
+  args: { folderId: v.id("folders") },
+  handler: async (ctx, { folderId }) => {
+    const folder = await ctx.db.get(folderId);
+    if (!folder) {
+      return null;
+    }
+    
+    return {
+      _id: folder._id,
+      name: folder.name,
+      user_id: folder.user_id,
+      created_at: folder.created_at,
+      updated_at: folder.updated_at,
+      vector_store_id: folder.vector_store_id,
+      knowledge_base: folder.knowledge_base,
+    };
   },
 }); 
