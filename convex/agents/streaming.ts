@@ -218,57 +218,114 @@ export const generateStreamingResponse = internalAction({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    // Create streaming message
-    const streamId = await ctx.runMutation(components.agent.streams.create, {
-      threadId: args.threadId,
-      order: 1, // This should be calculated properly
-      stepOrder: 0,
-    });
-    
-    // Here you would integrate with your AI service
-    // For now, I'll create a simple example
-    const response = "This is a streaming response from the AI tutor.";
-    
-    // Send the response as deltas with correct format
-    const delta = {
-      streamId,
-      start: 0,
-      end: response.length,
-      parts: [{
-        type: "text-delta" as const,
-        textDelta: response,
-      }],
-    };
-    
-    await ctx.runMutation(components.agent.streams.addDelta, delta);
-    
-    // Finish the stream
-    await ctx.runMutation(components.agent.streams.finish, {
-      streamId,
-    });
-    
-    // Also add to session_messages for backward compatibility
-    if (args.sessionId) {
-      const session = await ctx.runQuery(api.functions.getSession, {
-        sessionId: args.sessionId,
-        includeContext: false,
+    try {
+      // Get thread messages for context
+      const messages = await ctx.runQuery(components.agent.messages.listMessagesByThreadId, {
+        threadId: args.threadId,
+        paginationOpts: { numItems: 20, cursor: null },
+        order: "asc",
       });
       
-      if (session) {
-        const existingMessages = await ctx.runQuery(api.functions.getSessionMessages, {
-          sessionId: args.sessionId,
-        });
-        
-        const nextTurnNo = (existingMessages?.length || 0) + 1;
-        
-        await ctx.runMutation(api.functions.addSessionMessage, {
-          sessionId: args.sessionId,
-          role: "assistant",
-          text: response,
-          payloadJson: {},
-        });
+      // Get latest user message
+      const userMessages = messages.page.filter((msg: any) => msg.role === "user");
+      const latestUserMessage = userMessages[userMessages.length - 1];
+      
+      if (!latestUserMessage) {
+        console.error("No user message found in thread");
+        return null;
       }
+      
+              // Use a simple system prompt for now
+        const systemPrompt = "You are a helpful AI tutor. Provide clear, educational responses that help students learn effectively.";
+
+      // Create streaming message
+      const streamId = await ctx.runMutation(components.agent.streams.create, {
+        threadId: args.threadId,
+        order: messages.page.length + 1,
+        stepOrder: 0,
+      });
+      
+      // Initialize OpenAI for streaming
+      const { OpenAI } = await import('openai');
+      const openai = new OpenAI({ 
+        apiKey: process.env.OPENAI_API_KEY 
+      });
+
+      // Convert thread messages to OpenAI format
+      const openaiMessages = [
+        { role: "system" as const, content: systemPrompt },
+        ...messages.page.map((msg: any) => ({
+          role: msg.role as "user" | "assistant",
+          content: msg.text || msg.content || "",
+        }))
+      ];
+
+      console.log(`[Agent Streaming] Starting OpenAI stream for thread: ${args.threadId}`);
+
+      // Create OpenAI streaming completion
+      const stream = await openai.chat.completions.create({
+        model: "gpt-4",
+        messages: openaiMessages,
+        stream: true,
+        temperature: 0.7,
+        max_tokens: 2000
+      });
+
+      let fullResponse = "";
+      let chunkIndex = 0;
+      
+      // Stream response chunks
+      for await (const chunk of stream) {
+        const text = chunk.choices[0]?.delta?.content || "";
+        if (text) {
+          fullResponse += text;
+          
+          // Send streaming delta
+          const delta = {
+            streamId,
+            start: chunkIndex,
+            end: chunkIndex + text.length,
+            parts: [{
+              type: "text-delta" as const,
+              textDelta: text,
+            }],
+          };
+          
+          await ctx.runMutation(components.agent.streams.addDelta, delta);
+          chunkIndex += text.length;
+        }
+      }
+      
+      console.log(`[Agent Streaming] Completed OpenAI stream, response length: ${fullResponse.length}`);
+    
+    } catch (error) {
+      console.error("[Agent Streaming] Error generating response:", error);
+      
+      // Send error message as stream
+      const errorMessage = `I apologize, but I encountered an error: ${error instanceof Error ? error.message : String(error)}`;
+      
+      const streamId = await ctx.runMutation(components.agent.streams.create, {
+        threadId: args.threadId,
+        order: 1,
+        stepOrder: 0,
+      });
+      
+      const delta = {
+        streamId,
+        start: 0,
+        end: errorMessage.length,
+        parts: [{
+          type: "text-delta" as const,
+          textDelta: errorMessage,
+        }],
+      };
+      
+      await ctx.runMutation(components.agent.streams.addDelta, delta);
     }
+    
+    // Note: stream is automatically finished when no more deltas are sent
+    
+          // Note: backward compatibility with session_messages is handled in sendStreamingMessage
     
     return null;
   },
