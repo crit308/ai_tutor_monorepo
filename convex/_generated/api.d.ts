@@ -50,6 +50,7 @@ import type * as legacy_migration_bridge from "../legacy/migration_bridge.js";
 import type * as metrics from "../metrics.js";
 import type * as sessions from "../sessions.js";
 import type * as skills_educational_content from "../skills/educational_content.js";
+import type * as test_day3_metrics from "../test_day3_metrics.js";
 
 import type {
   ApiFromModules,
@@ -108,6 +109,7 @@ declare const fullApi: ApiFromModules<{
   metrics: typeof metrics;
   sessions: typeof sessions;
   "skills/educational_content": typeof skills_educational_content;
+  test_day3_metrics: typeof test_day3_metrics;
 }>;
 declare const fullApiWithMounts: typeof fullApi;
 

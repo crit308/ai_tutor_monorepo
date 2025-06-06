@@ -93,7 +93,41 @@ export const getActiveSkillCount = query({
   },
 });
 
-// Timeout wrapper utility for Convex actions
+// Batch efficiency tracking for MVP validation
+export const logBatchEfficiency = mutation({
+  args: {
+    batch_id: v.string(),
+    operations_count: v.number(),
+    actions_created: v.number(),
+    websocket_reduction: v.number(),
+    session_id: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await ctx.db.insert("batch_efficiency", {
+      ...args,
+      timestamp: Date.now(),
+    });
+  },
+});
+
+// Migration log table for tracking cleanup activities
+export const logMigrationActivity = mutation({
+  args: {
+    action: v.string(),
+    details: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await ctx.db.insert("migration_log", {
+      action: args.action,
+      details: args.details,
+      timestamp: Date.now(),
+    });
+  },
+});
+
+// Enhanced timeout wrapper utility for Convex actions
 export function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number = 5000,
@@ -105,4 +139,68 @@ export function withTimeout<T>(
       setTimeout(() => reject(new Error(errorMessage)), timeoutMs)
     )
   ]);
-} 
+}
+
+// Utility to handle timeout errors gracefully
+export function handleTimeoutError(elapsed_ms: number, timeoutMs: number = 5000) {
+  if (elapsed_ms > timeoutMs) {
+    return {
+      payload: {
+        message_text: "Drawing is taking longer than expected, please try again.",
+        message_type: "error"
+      },
+      actions: []
+    };
+  }
+  return null;
+}
+
+// Performance monitoring query
+export const getPerformanceMetrics = query({
+  args: {
+    skill: v.optional(v.string()),
+    time_range_hours: v.optional(v.number()),
+  },
+  returns: v.object({
+    total_calls: v.number(),
+    success_rate: v.number(),
+    average_latency_ms: v.number(),
+    p95_latency_ms: v.number(),
+    timeout_count: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const timeRangeMs = (args.time_range_hours || 24) * 60 * 60 * 1000;
+    const cutoffTime = Date.now() - timeRangeMs;
+    
+    let query = ctx.db
+      .query("skill_metrics")
+      .filter(q => q.gte(q.field("timestamp"), cutoffTime));
+    
+    if (args.skill) {
+      query = query.filter(q => q.eq(q.field("skill"), args.skill));
+    }
+    
+    const metrics = await query.collect();
+    
+    const successMetrics = metrics.filter(m => m.status === "success" && m.elapsed_ms);
+    const errorMetrics = metrics.filter(m => m.status === "error");
+    const timeoutMetrics = errorMetrics.filter(m => 
+      m.error?.includes("timeout") || (m.elapsed_ms && m.elapsed_ms > 5000)
+    );
+    
+    const latencies = successMetrics.map(m => m.elapsed_ms!).sort((a, b) => a - b);
+    const avgLatency = latencies.length > 0 
+      ? latencies.reduce((sum, l) => sum + l, 0) / latencies.length 
+      : 0;
+    const p95Index = Math.floor(latencies.length * 0.95);
+    const p95Latency = latencies.length > 0 ? latencies[p95Index] || 0 : 0;
+    
+    return {
+      total_calls: metrics.length,
+      success_rate: metrics.length > 0 ? successMetrics.length / metrics.length : 0,
+      average_latency_ms: Math.round(avgLatency),
+      p95_latency_ms: p95Latency,
+      timeout_count: timeoutMetrics.length,
+    };
+  },
+}); 
