@@ -46,6 +46,10 @@ import type * as http from "../http.js";
 import type * as jobs_background from "../jobs/background.js";
 import type * as jobs_crons from "../jobs/crons.js";
 import type * as jobs_index from "../jobs/index.js";
+import type * as legacy_migration_bridge from "../legacy/migration_bridge.js";
+import type * as metrics from "../metrics.js";
+import type * as sessions from "../sessions.js";
+import type * as skills_educational_content from "../skills/educational_content.js";
 
 import type {
   ApiFromModules,
@@ -100,6 +104,10 @@ declare const fullApi: ApiFromModules<{
   "jobs/background": typeof jobs_background;
   "jobs/crons": typeof jobs_crons;
   "jobs/index": typeof jobs_index;
+  "legacy/migration_bridge": typeof legacy_migration_bridge;
+  metrics: typeof metrics;
+  sessions: typeof sessions;
+  "skills/educational_content": typeof skills_educational_content;
 }>;
 declare const fullApiWithMounts: typeof fullApi;
 

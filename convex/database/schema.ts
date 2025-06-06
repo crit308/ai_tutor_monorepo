@@ -386,4 +386,44 @@ export default defineSchema({
     .index("by_session", ["session_id"])
     .index("by_from_concept", ["from_concept"])
     .index("by_to_concept", ["to_concept"]),
+
+  // Skills Migration Tables (MVP)
+  skill_metrics: defineTable({
+    skill: v.string(),
+    content_type: v.optional(v.string()),
+    batch_id: v.string(),
+    session_id: v.string(),
+    elapsed_ms: v.optional(v.number()),
+    error: v.optional(v.string()),
+    timestamp: v.number(),
+    status: v.union(v.literal("started"), v.literal("success"), v.literal("error")),
+  })
+    .index("by_session", ["session_id"])
+    .index("by_skill", ["skill"])
+    .index("by_batch", ["batch_id"]),
+
+  whiteboard_actions: defineTable({
+    session_id: v.string(),
+    action: v.any(),
+    payload: v.any(),
+    batch_id: v.string(),
+    timestamp: v.number(),
+  })
+    .index("by_session", ["session_id"])
+    .index("by_batch", ["batch_id"]),
+
+  batch_efficiency: defineTable({
+    batch_id: v.string(),
+    operations_count: v.number(),
+    actions_created: v.number(),
+    websocket_reduction: v.number(),
+    session_id: v.string(),
+    timestamp: v.number(),
+  }).index("by_session", ["session_id"]),
+
+  migration_log: defineTable({
+    action: v.string(),
+    details: v.string(),
+    timestamp: v.number(),
+  }).index("by_timestamp", ["timestamp"]),
 }); 
