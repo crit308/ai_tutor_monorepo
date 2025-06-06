@@ -39,6 +39,7 @@ function InnerLearnPage() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   const {
+    messages: storeMessages,
     currentInteractionContent,
     sessionEndedConfirmed,
     whiteboardMode,
@@ -46,6 +47,7 @@ function InnerLearnPage() {
     setIsQuestionLocked,
   } = useSessionStore(
     useShallow((state: SessionState) => ({
+      messages: state.messages,
       currentInteractionContent: state.currentInteractionContent,
       sessionEndedConfirmed: state.sessionEndedConfirmed,
       whiteboardMode: state.whiteboardMode,
@@ -59,44 +61,53 @@ function InnerLearnPage() {
 
   const { dispatchWhiteboardAction } = useWhiteboard();
 
-  const streamHandlers = React.useMemo(() => ({
-    onMessage: (message: any) => {
-      console.log('[LearnPage] Received message:', message);
-    },
-    onWhiteboardAction: (actions: WhiteboardAction[]) => {
-        console.log('[LearnPage] Received whiteboard actions:', actions);
-        if (actions && actions.some(action => 
-            action.type === "ADD_OBJECTS" && 
-            action.objects.some(obj => obj.metadata?.role === 'option_selector'))
-        ) {
-            console.log('[LearnPage] Whiteboard actions include new option_selectors. UNLOCKING options via direct store call.');
-            useSessionStore.getState().setIsQuestionLocked(false);
-        }
+  // Create stable handlers using useCallback
+  const onMessage = useCallback((message: any) => {
+    console.log('[LearnPage] Received message:', message);
+  }, []);
 
-        if (actions && actions.length > 0) {
-            dispatchWhiteboardAction(actions);
-        }
-    },
-    onError: (error: string) => {
-        console.error('[LearnPage] Tutor stream error:', error);
-        toast({
-            title: 'Tutor Error',
-            description: error,
-            variant: 'destructive',
-            duration: 7000,
-        });
+  const onWhiteboardAction = useCallback((actions: WhiteboardAction[]) => {
+    console.log('[LearnPage] Received whiteboard actions:', actions);
+    if (actions && actions.some(action => 
+        action.type === "ADD_OBJECTS" && 
+        action.objects.some(obj => obj.metadata?.role === 'option_selector'))
+    ) {
+        console.log('[LearnPage] Whiteboard actions include new option_selectors. UNLOCKING options via direct store call.');
+        useSessionStore.getState().setIsQuestionLocked(false);
     }
-  }), [dispatchWhiteboardAction, toast]);
+
+    if (actions && actions.length > 0) {
+        dispatchWhiteboardAction(actions);
+    }
+  }, [dispatchWhiteboardAction]);
+
+  const onError = useCallback((error: string) => {
+    console.error('[LearnPage] Tutor stream error:', error);
+    toast({
+        title: 'Tutor Error',
+        description: error,
+        variant: 'destructive',
+        duration: 7000,
+    });
+  }, [toast]);
+
+  const streamHandlers = React.useMemo(() => ({
+    onMessage,
+    onWhiteboardAction,
+    onError
+  }), [onMessage, onWhiteboardAction, onError]);
 
   const { 
-    messages,
     loadingState,
     isConnected,
     sendMessage,
     sendInteraction,
-    hasExecutorStarted,
+    hasTutorStarted,
     latency 
   } = useTutorStream(sessionId || '', streamHandlers);
+
+  // Use messages from the global store instead of from the hook
+  const messages = storeMessages;
 
   // Connection status and error derived from new system
   const connectionStatus = isConnected ? 'connected' : loadingState === 'connecting' ? 'connecting' : 'error';
@@ -164,7 +175,7 @@ function InnerLearnPage() {
   };
   const statusColor = getStatusColor(connectionStatus);
 
-  const isLoading = authLoading || connectionStatus === 'connecting' || connectionStatus === 'reconnecting' || (isConnected && !hasExecutorStarted);
+  const isLoading = authLoading || connectionStatus === 'connecting' || connectionStatus === 'reconnecting' || (isConnected && !hasTutorStarted);
   const isAuthError = connectionStatus === 'auth_error';
   const isConnectionError = connectionStatus === 'error';
   const isErrorState = isAuthError || isConnectionError;
@@ -227,7 +238,7 @@ function InnerLearnPage() {
       loadingMessage = "Connecting...";
     } else if (connectionStatus === 'reconnecting') {
       loadingMessage = "Reconnecting...";
-    } else if (isConnected && !hasExecutorStarted) {
+    } else if (isConnected && !hasTutorStarted) {
       loadingMessage = "Analyzing knowledge base and creating lesson plan...";
     }
     

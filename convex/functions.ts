@@ -79,7 +79,6 @@ export {
 
 // Streaming functions
 export {
-  createSessionThread,
   listThreadMessages,
   sendStreamingMessage,
   getOrCreateSessionThread,

@@ -1,9 +1,11 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
-import { useQuery, useMutation, usePaginatedQuery } from 'convex/react';
-import { api } from 'convex_generated/api';
+import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
+import { useQuery, useMutation } from 'convex/react';
+import { api } from '../../../convex/_generated/api';
 import { useAuthToken } from '@convex-dev/auth/react';
+import { useThreadMessages, toUIMessages, optimisticallySendMessage, type UIMessage } from '@convex-dev/agent/react';
 import { TutorInteractionResponse, WhiteboardAction } from '@/lib/types';
-import { Id } from 'convex_generated/dataModel';
+import { Id } from '../../../convex/_generated/dataModel';
+import { useSessionStore } from '@/store/sessionStore';
 
 // Define ChatMessage interface locally since it's not in the main types file
 interface ChatMessage {
@@ -36,23 +38,9 @@ interface SessionState {
 function generateInteractionPrompt(type: string, data?: any): string {
   switch (type) {
     case 'plan_and_start':
-      return `INTERNAL_PLANNER_MESSAGE: Initialize two-agent learning session
+      return `INTERNAL_PLANNER_MESSAGE: Start AI tutoring session
 
-You are the Planner Agent. Your task is to:
-1. ANALYZE the knowledge base from uploaded materials
-2. IDENTIFY key learning objectives and concepts  
-3. CREATE a lesson plan with focus objectives
-4. HANDOFF to the Executor Agent with instructions
-
-After analysis, you must hand off to the Executor Agent who will:
-- Start the actual tutoring session
-- Welcome the student with an engaging introduction
-- Begin teaching based on your plan
-- Use a conversational, encouraging tone
-
-IMPORTANT: Your planning message should be INTERNAL ONLY and not shown to the student. The first visible message should be from the Executor Agent welcoming the student.
-
-Analyze the knowledge base and create the handoff instructions now.`;
+Please analyze the uploaded knowledge base materials and start the tutoring session immediately. Welcome the student and begin teaching the key concepts from the uploaded content.`;
     case 'start':
       return `You are an AI tutor starting a new learning session. Your role is to:
 
@@ -91,47 +79,64 @@ Start the tutoring session now.`;
 }
 
 /**
- * Enhanced tutor stream hook using Convex agent streaming instead of WebSocket
+ * Enhanced tutor stream hook using Convex agent streaming with proper streaming support
  * - Uses Convex agent component for AI responses
- * - Real-time message synchronization
+ * - Real-time message synchronization with streaming
  * - Automatic vector store creation and knowledge base generation
  */
 export function useTutorStream(
   sessionId: string,
   handlers: TutorStreamHandlers = {}
 ) {
+  // Use ref to store handlers to avoid effect dependencies
+  const handlersRef = useRef(handlers);
+  handlersRef.current = handlers;
   const jwt = useAuthToken();
   const isComponentMountedRef = useRef(true);
   
   // Agent streaming functions
   const getOrCreateThread = useMutation(api.functions.getOrCreateSessionThread);
-  const sendStreamingMessage = useMutation(api.functions.sendStreamingMessage);
   
   // Local state for streaming and session info
   const [sessionState, setSessionState] = useState<SessionState>({
     messages: [],
-    userModelState: {},
+    userModelState: null,
     focusObjective: null,
     loadingState: 'idle',
     loadingMessage: ''
   });
   
   const [threadId, setThreadId] = useState<string | null>(null);
+  const [hasAutoStarted, setHasAutoStarted] = useState(false);
+  const [hasTutorStarted, setHasTutorStarted] = useState(false);
 
-  // Set up optimistic message sending with agent streaming
-  const sendMessageWithOptimistic = useMutation(api.functions.sendStreamingMessage);
+  // Set up proper Convex Agent streaming with useThreadMessages
+  const agentMessages = useThreadMessages(
+    api.functions.listThreadMessages,
+    threadId ? { threadId } : "skip",
+    { 
+      initialNumItems: 50,
+      stream: true 
+    }
+  );
+
+  // Set up message sending with agent streaming
+  const sendMessageMutation = useMutation(api.functions.sendStreamingMessage);
 
   // Send user message using Convex agent streaming
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim()) return;
     if (!threadId) {
       console.warn('[useTutorStream] No thread ID available');
-      handlers.onError?.('AI tutor not ready');
+              handlersRef.current.onError?.('AI tutor not ready');
       return;
     }
 
     try {
       console.log('[useTutorStream] Sending message to agent:', text);
+      console.log('[useTutorStream] Auth token available:', !!jwt);
+      console.log('[useTutorStream] ThreadId:', threadId);
+      console.log('[useTutorStream] SessionId:', sessionId);
       
       setSessionState(prev => ({ 
         ...prev, 
@@ -139,8 +144,8 @@ export function useTutorStream(
         loadingMessage: 'AI is thinking...'
       }));
 
-      // Send message to agent with optimistic updates
-      await sendMessageWithOptimistic({
+      // Send message to agent
+      await sendMessageMutation({
         threadId,
         message: text.trim(),
         sessionId: sessionId as Id<"sessions">
@@ -151,41 +156,9 @@ export function useTutorStream(
     } catch (error) {
       console.error('[useTutorStream] Failed to send message:', error);
       setSessionState(prev => ({ ...prev, loadingState: 'error' }));
-      handlers.onError?.('Failed to send message');
+              handlersRef.current.onError?.('Failed to send message');
     }
-  }, [sessionId, threadId, sendMessageWithOptimistic, handlers]);
-
-  // Trigger AI response for interaction types
-  const triggerAIResponse = useCallback(async (interactionType: string, data?: any) => {
-    if (!threadId) {
-      console.warn('[useTutorStream] No thread ID available for interaction');
-      return;
-    }
-
-    try {
-      console.log('[useTutorStream] Triggering AI interaction:', interactionType);
-      
-      setSessionState(prev => ({ 
-        ...prev, 
-        loadingState: 'streaming',
-        loadingMessage: 'Processing interaction...'
-      }));
-
-      // Create interaction message for the agent
-      const interactionMessage = `User interaction: ${interactionType}${data ? ` with data: ${JSON.stringify(data)}` : ''}`;
-      
-      await sendMessageWithOptimistic({
-        threadId,
-        message: interactionMessage,
-        sessionId: sessionId as Id<"sessions">
-      });
-
-    } catch (error) {
-      console.error('[useTutorStream] Failed to trigger AI response:', error);
-      setSessionState(prev => ({ ...prev, loadingState: 'error' }));
-      handlers.onError?.('Failed to process interaction');
-    }
-  }, [threadId, sessionId, sendMessageWithOptimistic, handlers]);
+  }, [sessionId, threadId, sendMessageMutation, jwt]);
 
   // Send interaction (next, start, answer, etc.)
   const sendInteraction = useCallback(async (
@@ -204,6 +177,11 @@ export function useTutorStream(
       await sendMessage(interactionPrompt);
     }
   }, [sendMessage]);
+
+  // Trigger AI response for interaction types (deprecated - use sendInteraction instead)
+  const triggerAIResponse = useCallback(async (interactionType: string, data?: any) => {
+    await sendInteraction(interactionType as any, data);
+  }, [sendInteraction]);
 
   // Initialize agent thread for this session
   useEffect(() => {
@@ -224,93 +202,235 @@ export function useTutorStream(
             loadingState: 'error',
             loadingMessage: 'Failed to initialize AI tutor'
           }));
-          handlers.onError?.('Failed to initialize AI tutor');
+          handlersRef.current.onError?.('Failed to initialize AI tutor');
         });
     }
-  }, [sessionId, threadId, getOrCreateThread, handlers]);
+  }, [sessionId, threadId, getOrCreateThread]);
 
-  // Use our existing Convex streaming function
-  const agentMessages = usePaginatedQuery(
-    api.functions.listThreadMessages,
-    threadId ? { threadId } : "skip",
-    { initialNumItems: 20 }
-  );
-
-  // Convert agent messages to UI format  
-  const uiMessages = agentMessages?.results || [];
-
-  // Sync agent messages to local state
-  useEffect(() => {
-    if (uiMessages && uiMessages.length > 0) {
-      const allTransformedMessages: ChatMessage[] = uiMessages.map((msg: any, index: number) => {
-        // Agent messages have the structure: { message: { role, content }, text, ... }
-        // Extract role from message.role or default to 'assistant' for responses
-        let role: 'user' | 'assistant' = 'assistant';
-        let content = '';
+  // Convert agent messages to UI format and sync to local state
+  const previousResultsRef = useRef<{results: any[], converted?: UIMessage[]}>({results: []});
+  
+  const uiMessages = useMemo(() => {
+    try {
+      if (!agentMessages?.results) {
+        console.log('[useTutorStream] No agent messages results available');
+        return [];
+      }
+      
+      // Check if the results actually changed (deep comparison of content)
+      const currentResults = agentMessages.results;
+      const previousResults = previousResultsRef.current.results;
+      
+      // Simple change detection based on length and last message content
+      if (currentResults.length === previousResults.length && currentResults.length > 0) {
+        const lastCurrent = currentResults[currentResults.length - 1];
+        const lastPrevious = previousResults[previousResults.length - 1];
         
-        if (msg.message?.role) {
-          role = msg.message.role as 'user' | 'assistant';
-          content = msg.message.content || msg.text || '';
-        } else {
-          // Fallback: use text field and default to assistant role
-          content = msg.text || msg.content || '';
-          // If content looks like a user message prompt, mark as user
-          if (content.includes('You are an AI tutor') || content.includes('User interaction:') || content.includes('INTERNAL_PLANNER_MESSAGE')) {
-            role = 'user';
-          }
+        if (lastCurrent?.message?.content === lastPrevious?.message?.content &&
+            lastCurrent?.streaming === lastPrevious?.streaming) {
+          console.log('[useTutorStream] Agent messages unchanged, returning cached result');
+          return previousResultsRef.current.converted || [];
         }
-
-        // Filter out internal planner messages from being shown to the user
-        const isInternalMessage = content.includes('INTERNAL_PLANNER_MESSAGE') || 
-                                  content.includes('INTERNAL_SYSTEM_MESSAGE') ||
-                                  content.includes('EXECUTOR_START:') ||
-                                  content.includes('HANDOFF_TO_EXECUTOR:') ||
-                                  (role === 'user' && content.includes('You are the Planner Agent')) ||
-                                  (role === 'assistant' && content.includes('HANDOFF_TO_EXECUTOR:'));
-
-        return {
-          id: msg._id || `msg-${index}`,
-          role,
-          content,
-          interaction: msg.metadata as TutorInteractionResponse,
-          whiteboard_actions: msg.whiteboard_actions,
-          createdAt: msg._creationTime || Date.now(),
-          isStreaming: msg.streaming || false,
-          isInternal: isInternalMessage
-        };
+      }
+      
+      console.log('[useTutorStream] Processing agent messages:', agentMessages.results.length);
+      
+      const validMessages = agentMessages.results.filter(msg => {
+        if (!msg.message || msg.message.content == null) return false;
+        
+        // Handle empty array content
+        if (Array.isArray(msg.message.content) && msg.message.content.length === 0) {
+          return false;
+        }
+        
+        return true;
       });
       
-      // Filter out internal messages for user display
-      const transformedMessages = allTransformedMessages.filter(msg => !msg.isInternal);
+      console.log('[useTutorStream] Valid messages after filtering:', validMessages.length);
       
-      setSessionState(prev => ({
-        ...prev,
-        messages: transformedMessages,
-        loadingState: prev.loadingState === 'loading' ? 'idle' : prev.loadingState
-      }));
-
-      // Call message handler for new messages (only non-internal ones)
-      const prevLength = sessionState.messages.length;
-      if (transformedMessages.length > prevLength) {
-        const newMessages = transformedMessages.slice(prevLength);
-        newMessages.forEach(message => {
-          handlers.onMessage?.(message);
-          
-          // Handle whiteboard actions
-          if (message.whiteboard_actions) {
-            handlers.onWhiteboardAction?.(message.whiteboard_actions);
-          }
-        });
-      }
+      const converted = toUIMessages(validMessages);
+      console.log('[useTutorStream] Converted UI messages:', converted.length);
+      
+      // Cache the results
+      previousResultsRef.current = {
+        results: currentResults,
+        converted: converted
+      };
+      
+      return converted;
+    } catch (error) {
+      console.error('[useTutorStream] Error converting messages to UI format:', error);
+      return [];
     }
-  }, [uiMessages, handlers]);
+  }, [agentMessages?.results]);
 
-  // Auto-start the session once thread is ready (separate effect to avoid circular dependency)
-  const [hasAutoStarted, setHasAutoStarted] = useState(false);
-  const [hasExecutorStarted, setHasExecutorStarted] = useState(false);
+  // Track previous message count to detect new messages
+  const prevMessageCountRef = useRef(0);
+  const lastMessageHashRef = useRef('');
+  const messageIdMapRef = useRef(new Map<string, string>());
+  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   useEffect(() => {
-    if (threadId && !hasAutoStarted && sessionState.loadingState === 'idle') {
+    // Clear any pending updates
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current);
+    }
+    
+    // Debounce the message processing to prevent rapid-fire updates
+    updateTimeoutRef.current = setTimeout(() => {
+      // Check if component is still mounted
+      if (!isComponentMountedRef.current) {
+        return;
+      }
+      
+      if (uiMessages && uiMessages.length > 0) {
+        const allTransformedMessages: ChatMessage[] = uiMessages.map((msg: UIMessage, index: number) => {
+          // Extract role and content from UI message format
+          const role = msg.role as 'user' | 'assistant';
+          const content = msg.content || '';
+
+          // Debug: Log all message content to understand what we're receiving
+          console.log('[useTutorStream] Processing message:', {
+            role,
+            content: content.substring(0, 200) + (content.length > 200 ? '...' : ''),
+            fullLength: content.length
+          });
+
+          // Filter out internal planner messages from being shown to the user
+          // Only filter messages that are truly internal system communications
+          const isInternalMessage = (
+            // User messages that are internal system prompts
+            (role === 'user' && (
+              content.includes('INTERNAL_PLANNER_MESSAGE') || 
+              content.includes('INTERNAL_SYSTEM_MESSAGE') ||
+              content.includes('You are the Planner Agent') ||
+              content.includes('EXECUTOR_START:')
+            )) ||
+            // Assistant messages that are purely internal handoffs (not student-facing)
+            (role === 'assistant' && content.startsWith('INTERNAL_PLANNER_MESSAGE:') && content.includes('HANDOFF_TO_EXECUTOR:'))
+          );
+
+          console.log('[useTutorStream] Message internal check:', {
+            content: content.substring(0, 50) + '...',
+            isInternal: isInternalMessage,
+            role: role
+          });
+
+          // Create stable ID for this message based on content and position
+          const messageKey = msg.key || msg.id;
+          let stableId: string;
+          
+          if (messageKey) {
+            stableId = messageKey;
+          } else {
+            // Create a deterministic ID based on message content and position
+            const contentHash = content.substring(0, 100) + role + index;
+            if (!messageIdMapRef.current.has(contentHash)) {
+              messageIdMapRef.current.set(contentHash, `msg-${messageIdMapRef.current.size}-${Date.now()}`);
+            }
+            stableId = messageIdMapRef.current.get(contentHash)!;
+          }
+
+          return {
+            id: stableId,
+            role,
+            content,
+            interaction: undefined, // These will be parsed from content if needed
+            whiteboard_actions: undefined, // These will be parsed from content if needed
+            createdAt: msg.createdAt?.getTime() || Date.now(),
+            isStreaming: msg.status === 'streaming',
+            isInternal: isInternalMessage
+          };
+        });
+        
+        // Filter out internal messages for user display
+        const transformedMessages = allTransformedMessages.filter(msg => !msg.isInternal);
+        
+        console.log('[useTutorStream] Message filtering results:', {
+          totalMessages: allTransformedMessages.length,
+          internalMessages: allTransformedMessages.filter(msg => msg.isInternal).length,
+          displayMessages: transformedMessages.length,
+          displayMessagePreviews: transformedMessages.map(msg => ({
+            role: msg.role,
+            content: msg.content.substring(0, 50) + '...'
+          }))
+        });
+        
+        // Create a hash to detect if messages actually changed (use stable IDs)
+        const messageHash = transformedMessages.map(msg => `${msg.role}:${msg.content.length}:${msg.id}-${msg.isStreaming ? 1 : 0}-${msg.isInternal ? 1 : 0}`).join('|');
+        
+        // Only update if messages actually changed
+        if (lastMessageHashRef.current !== messageHash) {
+          console.log('[useTutorStream] Messages changed, updating state. Hash:', messageHash.substring(0, 100));
+          lastMessageHashRef.current = messageHash;
+          
+          // Check again if component is still mounted before updating state
+          if (!isComponentMountedRef.current) {
+            return;
+          }
+          
+          // Update local state
+          setSessionState(prev => ({
+            ...prev,
+            messages: transformedMessages,
+            loadingState: prev.loadingState === 'loading' ? 'idle' : prev.loadingState
+          }));
+
+          // Also update the global Zustand store with the same messages
+          console.log('[useTutorStream] Syncing messages to global store:', transformedMessages.length);
+          useSessionStore.setState({ messages: transformedMessages });
+
+          // Call message handler for new messages (only non-internal ones)
+          const prevLength = prevMessageCountRef.current;
+          if (transformedMessages.length > prevLength) {
+            const newMessages = transformedMessages.slice(prevLength);
+            newMessages.forEach(message => {
+              try {
+                // Use setTimeout to break out of the render cycle for handlers
+                setTimeout(() => {
+                  handlersRef.current.onMessage?.(message);
+                  
+                  // Handle whiteboard actions
+                  if (message.whiteboard_actions) {
+                    handlersRef.current.onWhiteboardAction?.(message.whiteboard_actions);
+                  }
+                }, 0);
+              } catch (error) {
+                console.error('[useTutorStream] Error in message handler:', error);
+              }
+            });
+            prevMessageCountRef.current = transformedMessages.length;
+          }
+        } else {
+          console.log('[useTutorStream] Messages unchanged, skipping update');
+        }
+      }
+    }, 50); // 50ms debounce
+    
+    // Cleanup timeout on unmount
+    return () => {
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
+      }
+    };
+  }, [uiMessages]); // Keep handlers separate to prevent excessive re-renders
+
+  // Handle streaming completion separately to avoid circular dependencies
+  useEffect(() => {
+    if (agentMessages?.results && sessionState.loadingState === 'streaming') {
+      const hasStreamingMessages = agentMessages.results.some(msg => 
+        (msg as any).streaming === true
+      );
+      
+      if (!hasStreamingMessages) {
+        setSessionState(prev => ({ ...prev, loadingState: 'idle' }));
+      }
+    }
+  }, [agentMessages?.results]);
+
+  // Auto-start the session once thread is ready (separate effect to avoid circular dependency)
+  useEffect(() => {
+    if (threadId && !hasAutoStarted) {
       console.log('[useTutorStream] Auto-starting tutoring session...');
       setHasAutoStarted(true);
       
@@ -326,18 +446,18 @@ export function useTutorStream(
         sendInteraction('plan_and_start');
       }, 1000);
     }
-  }, [threadId, hasAutoStarted, sessionState.loadingState, sendInteraction]);
+  }, [threadId, hasAutoStarted]);
 
-  // Check if executor has started (first non-internal message from assistant)
+  // Check if tutor has started (first assistant message)
   useEffect(() => {
-    if (sessionState.messages.length > 0 && !hasExecutorStarted) {
+    if (sessionState.messages.length > 0 && !hasTutorStarted) {
       const firstAssistantMessage = sessionState.messages.find(msg => 
         msg.role === 'assistant' && !msg.isInternal
       );
       
       if (firstAssistantMessage) {
-        console.log('[useTutorStream] Executor agent has started, showing interface');
-        setHasExecutorStarted(true);
+        console.log('[useTutorStream] AI tutor has started, showing interface');
+        setHasTutorStarted(true);
         setSessionState(prev => ({ 
           ...prev, 
           loadingState: 'idle',
@@ -345,13 +465,16 @@ export function useTutorStream(
         }));
       }
     }
-  }, [sessionState.messages, hasExecutorStarted]);
+  }, [sessionState.messages, hasTutorStarted]);
 
   // Cleanup on unmount
   useEffect(() => {
     isComponentMountedRef.current = true;
     return () => {
       isComponentMountedRef.current = false;
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -362,7 +485,7 @@ export function useTutorStream(
     triggerAIResponse,
     isConnected: threadId !== null && sessionState.loadingState !== 'error',
     threadId,
-    hasExecutorStarted,
+    hasTutorStarted,
     latency: null // Placeholder for compatibility
   };
 } 

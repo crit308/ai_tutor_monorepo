@@ -484,9 +484,29 @@ export const updateKnowledgeBase = mutation({
       if (session && session.user_id === userId && session.folder_id === folderId) {
         // Check if session has an agent thread
         if (session.context_data?.agent_thread_id) {
-          // Schedule lesson planner to start automatically
-          await ctx.scheduler.runAfter(1000, internal.agents.streaming.triggerLessonPlanner, {
+          // Use the agent to add a planner message and trigger automatic response
+          const plannerMessage = `INTERNAL_PLANNER_MESSAGE: Initialize two-agent learning session
+
+You are the Planner Agent. Your task is to:
+1. ANALYZE the knowledge base from uploaded materials
+2. IDENTIFY key learning objectives and concepts  
+3. CREATE a lesson plan with focus objectives
+4. HANDOFF to the Executor Agent with instructions
+
+After analysis, you must hand off to the Executor Agent who will:
+- Start the actual tutoring session
+- Welcome the student with an engaging introduction
+- Begin teaching based on your plan
+- Use a conversational, encouraging tone
+
+IMPORTANT: Your planning message should be INTERNAL ONLY and not shown to the student. The first visible message should be from the Executor Agent welcoming the student.
+
+Analyze the knowledge base and create the handoff instructions now.`;
+
+          // Save the planner message using the agent and schedule response
+          const { messageId } = await ctx.runMutation(internal.agents.streaming.sendStreamingMessageInternal, {
             threadId: session.context_data.agent_thread_id,
+            message: plannerMessage,
             sessionId: sessionId,
           });
         }
