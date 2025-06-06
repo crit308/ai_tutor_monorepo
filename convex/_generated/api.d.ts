@@ -11,6 +11,7 @@
 import type * as agents_actions from "../agents/actions.js";
 import type * as agents_analyzerAgent from "../agents/analyzerAgent.js";
 import type * as agents_base from "../agents/base.js";
+import type * as agents_enhanced_integration from "../agents/enhanced_integration.js";
 import type * as agents_index from "../agents/index.js";
 import type * as agents_plannerAgent from "../agents/plannerAgent.js";
 import type * as agents_registry from "../agents/registry.js";
@@ -54,9 +55,11 @@ import type * as skills_batch_operations from "../skills/batch_operations.js";
 import type * as skills_educational_content from "../skills/educational_content.js";
 import type * as skills_whiteboard_modifications from "../skills/whiteboard_modifications.js";
 import type * as test_day3_metrics from "../test_day3_metrics.js";
+import type * as validate_day10 from "../validate_day10.js";
 import type * as validate_day4_5 from "../validate_day4_5.js";
 import type * as validate_day6_7 from "../validate_day6_7.js";
 import type * as validate_day8_9 from "../validate_day8_9.js";
+import type * as websockets from "../websockets.js";
 
 import type {
   ApiFromModules,
@@ -76,6 +79,7 @@ declare const fullApi: ApiFromModules<{
   "agents/actions": typeof agents_actions;
   "agents/analyzerAgent": typeof agents_analyzerAgent;
   "agents/base": typeof agents_base;
+  "agents/enhanced_integration": typeof agents_enhanced_integration;
   "agents/index": typeof agents_index;
   "agents/plannerAgent": typeof agents_plannerAgent;
   "agents/registry": typeof agents_registry;
@@ -119,9 +123,11 @@ declare const fullApi: ApiFromModules<{
   "skills/educational_content": typeof skills_educational_content;
   "skills/whiteboard_modifications": typeof skills_whiteboard_modifications;
   test_day3_metrics: typeof test_day3_metrics;
+  validate_day10: typeof validate_day10;
   validate_day4_5: typeof validate_day4_5;
   validate_day6_7: typeof validate_day6_7;
   validate_day8_9: typeof validate_day8_9;
+  websockets: typeof websockets;
 }>;
 declare const fullApiWithMounts: typeof fullApi;
 

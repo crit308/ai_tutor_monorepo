@@ -28,7 +28,13 @@ export const executeWhiteboardSkill = action({
     try {
       let result: {payload: {message_text: string, message_type: string}, actions: any[]};
 
-      // Log the skill call for migration tracking
+      // Log the skill call for migration tracking and metrics
+      await ctx.runMutation(api.metrics.logSkillCall, {
+        skill: args.skill_name,
+        batch_id: "agent-call",
+        session_id: args.session_id,
+      });
+
       await ctx.runAction(api.legacy.migration_bridge.logMigrationCall, {
         legacy_skill: args.skill_name,
         new_skill: "unknown", // Will be updated below
@@ -265,6 +271,20 @@ export const executeWhiteboardSkill = action({
       const elapsed_ms = Date.now() - start_time;
       console.log(`Successfully executed skill: ${args.skill_name} in ${elapsed_ms}ms`);
       
+      // Log success metrics
+      await ctx.runMutation(api.metrics.logSkillSuccess, {
+        skill: args.skill_name,
+        elapsed_ms,
+        batch_id: "agent-call",
+        session_id: args.session_id,
+      });
+
+      // Send result to frontend via WebSocket
+      await ctx.runMutation(api.websockets.sendToSession, {
+        session_id: args.session_id,
+        data: result,
+      });
+      
       return result;
 
     } catch (error) {
@@ -280,14 +300,22 @@ export const executeWhiteboardSkill = action({
         session_id: args.session_id,
       });
       
-      // Return user-friendly error response
-      return {
+      // Send error to frontend via WebSocket
+      const errorResponse = {
         payload: {
           message_text: "I encountered an issue with the whiteboard operation. Please try again.",
           message_type: "error"
         },
         actions: []
       };
+
+      await ctx.runMutation(api.websockets.sendToSession, {
+        session_id: args.session_id,
+        data: errorResponse,
+      });
+      
+      // Return user-friendly error response
+      return errorResponse;
     }
   },
 });
@@ -319,9 +347,9 @@ export const legacyWhiteboardSkillDispatch = action({
   },
 });
 
-// Agent prompt for Day 8-9 complete whiteboard skills
+// Agent prompt for Day 10 complete whiteboard skills with WebSocket integration
 export const WHITEBOARD_SKILLS_PROMPT = `
-## Whiteboard Skills (Convex - Day 8-9 Migration Bridge Complete)
+## Whiteboard Skills (Convex - Day 10 Agent Integration Complete)
 
 **Primary Skills (Convex):**
 1. \`create_educational_content\` - Create MCQs, tables, diagrams
@@ -429,15 +457,24 @@ export const WHITEBOARD_SKILLS_PROMPT = `
 }
 \`\`\`
 
-**Migration Status:**
+**Migration Status (Day 10 Complete):**
 - ✅ All Python backend skills supported via migration bridge
 - ✅ Automatic routing to appropriate Convex actions  
 - ✅ Error handling and metrics logging
 - ✅ Timeout handling (5-second limit)
 - ✅ Session-based tracking
 - ✅ Performance monitoring
+- ✅ **NEW: Real-time WebSocket integration** - All results sent to frontend automatically
+- ✅ **NEW: Enhanced agent integration** - Full Convex action routing with metrics
+- ✅ **NEW: Comprehensive error handling** - WebSocket error delivery to frontend
 
-Use any skill name (legacy or new) - the system will automatically route to the correct Convex implementation.
+**Real-time Features:**
+- All skill results are automatically sent to the frontend via WebSocket
+- Error messages are delivered in real-time to the user interface
+- Session-based message delivery ensures proper routing
+- Automatic cleanup of old WebSocket events
+
+Use any skill name (legacy or new) - the system will automatically route to the correct Convex implementation and deliver results via WebSocket.
 `;
 
 // Validation helper for skill arguments
