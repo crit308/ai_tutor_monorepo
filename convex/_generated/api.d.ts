@@ -56,6 +56,7 @@ import type * as skills_whiteboard_modifications from "../skills/whiteboard_modi
 import type * as test_day3_metrics from "../test_day3_metrics.js";
 import type * as validate_day4_5 from "../validate_day4_5.js";
 import type * as validate_day6_7 from "../validate_day6_7.js";
+import type * as validate_day8_9 from "../validate_day8_9.js";
 
 import type {
   ApiFromModules,
@@ -120,6 +121,7 @@ declare const fullApi: ApiFromModules<{
   test_day3_metrics: typeof test_day3_metrics;
   validate_day4_5: typeof validate_day4_5;
   validate_day6_7: typeof validate_day6_7;
+  validate_day8_9: typeof validate_day8_9;
 }>;
 declare const fullApiWithMounts: typeof fullApi;
 
