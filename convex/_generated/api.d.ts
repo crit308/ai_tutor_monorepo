@@ -50,10 +50,12 @@ import type * as jobs_index from "../jobs/index.js";
 import type * as legacy_migration_bridge from "../legacy/migration_bridge.js";
 import type * as metrics from "../metrics.js";
 import type * as sessions from "../sessions.js";
+import type * as skills_batch_operations from "../skills/batch_operations.js";
 import type * as skills_educational_content from "../skills/educational_content.js";
 import type * as skills_whiteboard_modifications from "../skills/whiteboard_modifications.js";
 import type * as test_day3_metrics from "../test_day3_metrics.js";
 import type * as validate_day4_5 from "../validate_day4_5.js";
+import type * as validate_day6_7 from "../validate_day6_7.js";
 
 import type {
   ApiFromModules,
@@ -112,10 +114,12 @@ declare const fullApi: ApiFromModules<{
   "legacy/migration_bridge": typeof legacy_migration_bridge;
   metrics: typeof metrics;
   sessions: typeof sessions;
+  "skills/batch_operations": typeof skills_batch_operations;
   "skills/educational_content": typeof skills_educational_content;
   "skills/whiteboard_modifications": typeof skills_whiteboard_modifications;
   test_day3_metrics: typeof test_day3_metrics;
   validate_day4_5: typeof validate_day4_5;
+  validate_day6_7: typeof validate_day6_7;
 }>;
 declare const fullApiWithMounts: typeof fullApi;
 

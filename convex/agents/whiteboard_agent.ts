@@ -82,11 +82,14 @@ export const executeWhiteboardSkill = action({
           });
           break;
 
-        // Batch operations (Future Day 6-7)
+        // Batch operations (Day 6-7)
         case "batch_whiteboard_operations":
         case "batch_draw":
-          // This will be implemented in Day 6-7
-          throw new Error(`Batch operations not yet implemented: ${args.skill_name}`);
+          result = await ctx.runAction(api.skills.batch_operations.batchWhiteboardOperations, {
+            ...args.skill_args,
+            session_id: args.session_id,
+          });
+          break;
 
         // Legacy skill redirects
         case "draw_mcq_feedback":
@@ -153,33 +156,66 @@ export const legacyWhiteboardSkillDispatch = action({
   },
 });
 
-// Agent prompt for Day 4-5 whiteboard skills
+// Agent prompt for Day 6-7 whiteboard skills
 export const WHITEBOARD_SKILLS_PROMPT = `
-## Whiteboard Skills (Convex - Day 4-5 Complete)
+## Whiteboard Skills (Convex - Day 6-7 Complete)
 
 **Primary Skills:**
 1. \`create_educational_content\` - Create MCQs, tables, diagrams
    - content_type: "mcq" | "table" | "diagram" 
    - data: Content-specific structure
 
-2. \`modify_whiteboard_objects\` - Update existing objects (NEW Day 4-5)
+2. \`batch_whiteboard_operations\` - Efficient multiple operations (NEW Day 6-7)
+   - operations: Array of {operation_type, data} operations
+   - Supports: "add_text", "add_shape", "update_object", "clear"
+   - Automatically batches and reduces WebSocket calls
+
+3. \`modify_whiteboard_objects\` - Update existing objects (Day 4-5)
    - updates: Array of {object_id, updates} pairs
    - Supports position, size, style changes
 
-3. \`clear_whiteboard\` - Clear content (NEW Day 4-5)
+4. \`clear_whiteboard\` - Clear content (Day 4-5)
    - scope: "all" | "selection" | "mcq" | "diagrams" | "tables" | "assistant_content"
 
-4. \`highlight_object\` - Highlight specific objects (NEW Day 4-5)
+5. \`highlight_object\` - Highlight specific objects (Day 4-5)
    - object_id: ID of object to highlight
    - color: Highlight color (optional)
    - pulse: Whether to animate (optional)
 
-5. \`delete_whiteboard_objects\` - Delete specific objects (NEW Day 4-5)
+6. \`delete_whiteboard_objects\` - Delete specific objects (Day 4-5)
    - object_ids: Array of object IDs to delete
 
 **Examples:**
 
 \`\`\`json
+// Batch operations (Day 6-7)
+{
+  "skill_name": "batch_whiteboard_operations",
+  "skill_args": {
+    "operations": [
+      {
+        "operation_type": "add_text",
+        "data": {
+          "text": "Hello World",
+          "x": 100,
+          "y": 50,
+          "fontSize": 18
+        }
+      },
+      {
+        "operation_type": "add_shape",
+        "data": {
+          "shape_type": "circle",
+          "x": 200,
+          "y": 100,
+          "width": 60,
+          "height": 60
+        }
+      }
+    ]
+  }
+}
+
 // Modify objects
 {
   "skill_name": "modify_whiteboard_objects",
@@ -217,6 +253,7 @@ export const WHITEBOARD_SKILLS_PROMPT = `
 \`\`\`
 
 **Legacy Skills (Auto-redirected):**
+- batch_draw → batch_whiteboard_operations
 - update_object_on_board → modify_whiteboard_objects
 - highlight_object_on_board → highlight_object
 - delete_object_on_board → delete_whiteboard_objects
@@ -228,6 +265,12 @@ All skills include automatic timeout handling, metrics logging, and error recove
 // Helper function to validate skill arguments before routing
 function validateSkillArgs(skill_name: string, skill_args: any): void {
   switch (skill_name) {
+    case "batch_whiteboard_operations":
+    case "batch_draw":
+      if (!skill_args.operations || !Array.isArray(skill_args.operations)) {
+        throw new Error("batch_whiteboard_operations requires 'operations' array");
+      }
+      break;
     case "modify_whiteboard_objects":
       if (!skill_args.updates || !Array.isArray(skill_args.updates)) {
         throw new Error("modify_whiteboard_objects requires 'updates' array");
