@@ -18,6 +18,7 @@ import type * as agents_sessionAnalyzerAgent from "../agents/sessionAnalyzerAgen
 import type * as agents_streaming from "../agents/streaming.js";
 import type * as agents_tests from "../agents/tests.js";
 import type * as agents_types from "../agents/types.js";
+import type * as agents_whiteboard_agent from "../agents/whiteboard_agent.js";
 import type * as api_endpoints from "../api/endpoints.js";
 import type * as api_http from "../api/http.js";
 import type * as auth_index from "../auth/index.js";
@@ -50,7 +51,9 @@ import type * as legacy_migration_bridge from "../legacy/migration_bridge.js";
 import type * as metrics from "../metrics.js";
 import type * as sessions from "../sessions.js";
 import type * as skills_educational_content from "../skills/educational_content.js";
+import type * as skills_whiteboard_modifications from "../skills/whiteboard_modifications.js";
 import type * as test_day3_metrics from "../test_day3_metrics.js";
+import type * as validate_day4_5 from "../validate_day4_5.js";
 
 import type {
   ApiFromModules,
@@ -77,6 +80,7 @@ declare const fullApi: ApiFromModules<{
   "agents/streaming": typeof agents_streaming;
   "agents/tests": typeof agents_tests;
   "agents/types": typeof agents_types;
+  "agents/whiteboard_agent": typeof agents_whiteboard_agent;
   "api/endpoints": typeof api_endpoints;
   "api/http": typeof api_http;
   "auth/index": typeof auth_index;
@@ -109,7 +113,9 @@ declare const fullApi: ApiFromModules<{
   metrics: typeof metrics;
   sessions: typeof sessions;
   "skills/educational_content": typeof skills_educational_content;
+  "skills/whiteboard_modifications": typeof skills_whiteboard_modifications;
   test_day3_metrics: typeof test_day3_metrics;
+  validate_day4_5: typeof validate_day4_5;
 }>;
 declare const fullApiWithMounts: typeof fullApi;
 
