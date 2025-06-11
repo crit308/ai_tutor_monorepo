@@ -467,6 +467,40 @@ export function useTutorStream(
     }
   }, [sessionState.messages, hasTutorStarted]);
 
+  // ===== NEW: Convex realtime whiteboard events =====
+  // Subscribe to realtime_events that the whiteboard_agent writes. This replaces the
+  // legacy WebSocket whiteboard_state handling.
+  const realtimeEvents = useQuery(
+    api.websockets.getSessionMessages,
+    sessionId ? { session_id: sessionId } : "skip"
+  );
+
+  // Keep track of last handled realtime event timestamp to avoid double-processing
+  const lastRealtimeTsRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (!realtimeEvents || realtimeEvents === "skip") return;
+
+    // Filter new events only
+    const newEvents = realtimeEvents.filter((e: any) => e.timestamp > lastRealtimeTsRef.current);
+    if (newEvents.length === 0) return;
+
+    newEvents.forEach((evt: any) => {
+      const data = evt.data;
+      if (data && Array.isArray(data.actions) && data.actions.length > 0) {
+        try {
+          handlersRef.current.onWhiteboardAction?.(data.actions as WhiteboardAction[]);
+        } catch (err) {
+          console.error("[useTutorStream] Error handling realtime whiteboard actions", err);
+        }
+      }
+    });
+
+    // Update last processed timestamp
+    const maxTs = Math.max(...newEvents.map((e: any) => e.timestamp));
+    lastRealtimeTsRef.current = Math.max(lastRealtimeTsRef.current, maxTs);
+  }, [realtimeEvents]);
+
   // Cleanup on unmount
   useEffect(() => {
     isComponentMountedRef.current = true;

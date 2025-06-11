@@ -226,11 +226,16 @@ function validateTableData(data: any) {
 }
 
 function validateDiagramData(data: any) {
-  if (!data.diagram_type || !["flowchart", "timeline", "coordinate_plane"].includes(data.diagram_type)) {
+  // Provide a sensible default if diagram_type omitted
+  if (!data.diagram_type) {
+    data.diagram_type = "flowchart";
+  }
+  if (!["flowchart", "timeline", "coordinate_plane"].includes(data.diagram_type)) {
     throw new Error("Invalid diagram data: diagram_type must be 'flowchart', 'timeline', or 'coordinate_plane'");
   }
   if (!Array.isArray(data.elements)) {
-    throw new Error("Invalid diagram data: elements array required");
+    // If elements not provided, initialize to an empty array so downstream code can still run
+    data.elements = [];
   }
   return data;
 }

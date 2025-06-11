@@ -221,79 +221,114 @@ export const drawDiagramSpecs = action({
     const center_y = 200;
 
     if (args.diagram_type === "flowchart" && args.elements.length > 0) {
-      // Flowchart diagram implementation
-      const box_width = 140;
-      const box_height = 60;
-      const h_gap = 80;
-      const start_x = 50;
-      const start_y = 50;
-      
-      args.elements.forEach((step: any, i: number) => {
-        const x = start_x + i * (box_width + h_gap);
-        const y = start_y;
-        
-        // Box
-        specs.push({
-          id: `${args.diagram_id}-box-${i}`,
-          kind: "rect",
-          x: x,
-          y: y,
-          width: box_width,
-          height: box_height,
-          fill: "#E8F5E9",
-          stroke: "#1B5E20",
-          strokeWidth: 1,
-          metadata: {
-            source: "assistant",
-            role: "flow_box",
-            chart_id: args.diagram_id,
-            step: i,
-            groupId: args.diagram_id
-          }
-        });
-        
-        // Box text
-        specs.push({
-          id: `${args.diagram_id}-box-${i}-text`,
-          kind: "text",
-          x: x + box_width / 2,
-          y: y + box_height / 2,
-          text: step.label || step.text || `Step ${i + 1}`,
-          fontSize: 14,
-          fill: "#1B5E20",
-          textAnchor: "middle",
-          metadata: {
-            source: "assistant",
-            role: "flow_box_text",
-            chart_id: args.diagram_id,
-            step: i,
-            groupId: args.diagram_id
-          }
-        });
-        
-        // Arrow to next box
-        if (i < args.elements.length - 1) {
-          const x1 = x + box_width;
-          const x2 = start_x + (i + 1) * (box_width + h_gap);
-          const y_mid = y + box_height / 2;
-          
+      const n = args.elements.length;
+
+      // Decide layout: if <=4 steps keep simple horizontal, else circular
+      if (n <= 4) {
+        const box_width = 140;
+        const box_height = 60;
+        const h_gap = 80;
+        const start_x = 50;
+        const start_y = 50;
+
+        args.elements.forEach((step: any, i: number) => {
+          const x = start_x + i * (box_width + h_gap);
+          const y = start_y;
+
           specs.push({
-            id: `${args.diagram_id}-arrow-${i}-${i+1}`,
-            kind: "line",
-            points: [x1, y_mid, x2 - 10, y_mid],
-            stroke: "#000000",
-            strokeWidth: 2,
-            metadata: {
-              source: "assistant",
-              role: "flow_arrow",
-              chart_id: args.diagram_id,
-              from: i,
-              to: i + 1,
-              groupId: args.diagram_id
-            }
+            id: `${args.diagram_id}-box-${i}`,
+            kind: "rect",
+            x,
+            y,
+            width: box_width,
+            height: box_height,
+            fill: "#E8F5E9",
+            stroke: "#1B5E20",
+            strokeWidth: 1,
+            metadata: { source:"assistant", role:"flow_box", chart_id:args.diagram_id, step:i, groupId:args.diagram_id }
           });
-        }
-      });
+
+          specs.push({
+            id: `${args.diagram_id}-box-${i}-text`,
+            kind: "text",
+            x: x + box_width/2,
+            y: y + box_height/2,
+            text: step.label || `Step ${i+1}`,
+            fontSize: 14,
+            fill: "#1B5E20",
+            textAnchor:"middle",
+            metadata:{ source:"assistant", role:"flow_box_text", chart_id:args.diagram_id, step:i, groupId:args.diagram_id }
+          });
+
+          if (i < n-1) {
+            const x1 = x + box_width;
+            const x2 = start_x + (i+1)*(box_width + h_gap) -10;
+            const ymid = y + box_height/2;
+            specs.push({
+              id: `${args.diagram_id}-arrow-${i}-${i+1}`,
+              kind:"line",
+              points:[x1, ymid, x2, ymid],
+              stroke:"#000000",
+              strokeWidth:2,
+              metadata:{source:"assistant", role:"flow_arrow", chart_id:args.diagram_id, from:i, to:i+1, groupId:args.diagram_id}
+            });
+          }
+        });
+      } else {
+        // Circular layout
+        const centerX = 400;
+        const centerY = 300;
+        const radius = 200;
+        const box_w = 120;
+        const box_h = 50;
+
+        args.elements.forEach((step:any, i:number)=>{
+          const angle = (2*Math.PI*i)/n - Math.PI/2; // start top
+          const x = centerX + radius*Math.cos(angle) - box_w/2;
+          const y = centerY + radius*Math.sin(angle) - box_h/2;
+
+          specs.push({
+            id:`${args.diagram_id}-box-${i}`,
+            kind:"rect",
+            x, y,
+            width: box_w,
+            height: box_h,
+            fill:"#E8F5E9",
+            stroke:"#1B5E20",
+            strokeWidth:1,
+            metadata:{source:"assistant", role:"flow_box", chart_id:args.diagram_id, step:i, groupId:args.diagram_id}
+          });
+
+          specs.push({
+            id:`${args.diagram_id}-box-${i}-text`,
+            kind:"text",
+            x: x + box_w/2,
+            y: y + box_h/2,
+            text: step.label || `Step ${i+1}`,
+            fontSize:14,
+            fill:"#1B5E20",
+            textAnchor:"middle",
+            metadata:{source:"assistant", role:"flow_box_text", chart_id:args.diagram_id, step:i, groupId:args.diagram_id}
+          });
+
+          // Arrow to next box
+          const nextIndex = (i+1) % n;
+          const angle2 = (2*Math.PI*nextIndex)/n - Math.PI/2;
+          const x1 = centerX + radius*Math.cos(angle);
+          const y1 = centerY + radius*Math.sin(angle);
+          const x2 = centerX + radius*Math.cos(angle2);
+          const y2 = centerY + radius*Math.sin(angle2);
+
+          specs.push({
+            id:`${args.diagram_id}-arrow-${i}-${nextIndex}`,
+            kind:"line",
+            points:[x1, y1, x2, y2],
+            stroke:"#000000",
+            strokeWidth:2,
+            metadata:{source:"assistant", role:"flow_arrow", chart_id:args.diagram_id, from:i, to:nextIndex, groupId:args.diagram_id}
+          });
+        });
+      }
     } else {
       // Simple circular diagram (default)
       specs.push({

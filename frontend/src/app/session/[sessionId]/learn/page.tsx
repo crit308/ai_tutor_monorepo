@@ -27,6 +27,8 @@ import WhiteboardTools from '@/components/whiteboard/WhiteboardTools';
 import type { WhiteboardAction, ErrorResponse, InteractionResponseData } from '@/lib/types';
 import { WhiteboardModeToggle } from '@/components/ui/WhiteboardModeToggle';
 import { fetchSessionMessages } from '@/lib/api';
+import { useQuery } from 'convex/react';
+import { api } from '../../../../../../convex/_generated/api';
 
 function InnerLearnPage() {
   console.log("LearnPage MOUNTING");
@@ -112,6 +114,28 @@ function InnerLearnPage() {
   // Connection status and error derived from new system
   const connectionStatus = isConnected ? 'connected' : loadingState === 'connecting' ? 'connecting' : 'error';
   const error = loadingState === 'error' ? { message: 'Connection error' } : null;
+
+  // Initial whiteboard hydration
+  const initialWbEvents = useQuery(
+    sessionId ? api.database.whiteboard.getWhiteboardActions : "skip",
+    sessionId ? { sessionId } : "skip"
+  );
+  const hydratedRef = React.useRef(false);
+
+  useEffect(() => {
+    if (!hydratedRef.current && initialWbEvents && initialWbEvents !== "skip") {
+      try {
+        const allActions = (initialWbEvents as any[]).map(ev => ev.action);
+        if (allActions.length > 0) {
+          console.log(`[LearnPage] Hydrating whiteboard with ${allActions.length} actions`);
+          dispatchWhiteboardAction(allActions);
+        }
+        hydratedRef.current = true;
+      } catch (err) {
+        console.error('[LearnPage] Error hydrating whiteboard', err);
+      }
+    }
+  }, [initialWbEvents, dispatchWhiteboardAction]);
 
   useEffect(() => {
     return () => {

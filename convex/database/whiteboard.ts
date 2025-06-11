@@ -414,4 +414,34 @@ export const getBoardSummary = query({
       // and not stored in Convex, so we don't include ephemeralSummary here
     };
   },
+});
+
+/**
+ * Get all whiteboard actions for a session (ordered ASC by timestamp).
+ * Used by the front-end to hydrate the canvas on initial load.
+ */
+export const getWhiteboardActions = query({
+  args: {
+    sessionId: v.string(),
+    limit: v.optional(v.number()),
+  },
+  // Return raw action array – each element is {action,payload,timestamp,batch_id}
+  returns: v.array(
+    v.object({
+      action: v.any(),
+      timestamp: v.number(),
+      batch_id: v.optional(v.string()),
+    })
+  ),
+  handler: async (ctx, { sessionId, limit = 1000 }) => {
+    // No auth for now (public board view) – if needed, add requireAuth check similar to others.
+
+    const rows = await ctx.db
+      .query("whiteboard_actions")
+      .withIndex("by_session", (q) => q.eq("session_id", sessionId))
+      .order("asc")
+      .take(limit);
+
+    return rows.map((r) => ({ action: r.action, timestamp: r.timestamp, batch_id: r.batch_id }));
+  },
 }); 

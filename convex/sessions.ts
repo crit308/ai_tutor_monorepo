@@ -17,5 +17,21 @@ export const addWhiteboardAction = mutation({
       batch_id: args.batch_id,
       timestamp: Date.now(),
     });
+
+    // Determine next snapshot index (latest + 1)
+    const latest = await ctx.db
+      .query("whiteboard_snapshots")
+      .withIndex("by_session_snapshot", (q) => q.eq("session_id", args.session_id))
+      .order("desc")
+      .first();
+
+    const nextIndex = latest ? (latest as any).snapshot_index + 1 : 0;
+
+    await ctx.db.insert("whiteboard_snapshots", {
+      session_id: args.session_id,
+      snapshot_index: nextIndex,
+      actions_json: JSON.stringify([args.action]),
+      created_at: Date.now(),
+    });
   },
 }); 

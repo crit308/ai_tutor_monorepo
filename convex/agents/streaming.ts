@@ -1,12 +1,16 @@
 import { requireAuth } from "../auth/middleware";
 import { internalAction, internalMutation, mutation, query } from "../_generated/server";
-import { internal } from "../_generated/api";
+import { internal, api } from "../_generated/api";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { components } from "../_generated/api";
 import { Id } from "../_generated/dataModel";
 import { Agent, vStreamArgs } from "@convex-dev/agent";
 import { openai } from "@ai-sdk/openai";
+import { WHITEBOARD_SKILLS_PROMPT } from "./whiteboard_agent";
+
+// Extra guidance so the LLM emits a pure JSON skill call when drawing is needed
+const JSON_SKILL_INSTRUCTION = `\n\nIf you want to create or modify something on the whiteboard, output ONE and only ONE JSON object with this exact shape:\n{ "skill_name": "<string>", "skill_args": { ... } }\nDo NOT wrap it in markdown fences, do NOT add any explanation before or after. If no drawing is required, just answer normally.`;
 
 // Create the AI Tutor Agent using the Convex Agent component
 const tutorAgent = new Agent(components.agent, {
@@ -205,6 +209,8 @@ export const generateStreamingResponse = internalAction({
       
       // Get enhanced system prompt with knowledge base context
       let customInstructions = "You are a helpful AI tutor. Provide clear, educational responses that help students learn effectively.";
+      // Append whiteboard skills prompt so the model knows how to invoke whiteboard actions
+      customInstructions += "\n\n" + WHITEBOARD_SKILLS_PROMPT + JSON_SKILL_INSTRUCTION;
       
       if (args.sessionId) {
         try {
@@ -253,7 +259,7 @@ ${knowledgeBase}
 - Use a conversational, encouraging tone
 - Make the student feel excited about learning
 
-Start the tutoring session now with your welcome message.`;
+Start the tutoring session now with your welcome message.` + "\n\n" + WHITEBOARD_SKILLS_PROMPT + JSON_SKILL_INSTRUCTION;
               } else {
                 // This is the executor agent or normal tutoring
                 customInstructions = `You are an AI Tutor providing personalized education assistance.
@@ -279,7 +285,7 @@ ${knowledgeBase}
 - When appropriate, suggest visual elements for the whiteboard
 - Focus on helping the student understand and learn effectively
 
-Begin the tutoring session now with a warm welcome and introduction to the topic.`;
+Begin the tutoring session now with a warm welcome and introduction to the topic.` + "\n\n" + WHITEBOARD_SKILLS_PROMPT + JSON_SKILL_INSTRUCTION;
               }
             }
           }
@@ -316,6 +322,34 @@ Begin the tutoring session now with a warm welcome and introduction to the topic
       
       const fullResponse = await result.text;
       console.log(`[Agent Streaming] Completed OpenAI stream, response length: ${fullResponse.length}`);
+      
+      console.log("[Agent Streaming] Raw assistant response:", fullResponse);
+      
+      // === Attempt to parse the response as a whiteboard skill call ===
+      let skillCall: any = null;
+      try {
+        skillCall = JSON.parse(fullResponse);
+      } catch {
+        // Not pure JSON; attempt to extract first JSON-looking substring using regex
+        const match = fullResponse.match(/\{[\s\S]*\}/);
+        if (match) {
+          try { skillCall = JSON.parse(match[0]); } catch {}
+        }
+      }
+
+      if (skillCall && typeof skillCall === "object" && skillCall.skill_name) {
+        console.log(`[Agent Streaming] Detected skill call: ${skillCall.skill_name}`);
+        try {
+          await ctx.runAction(api.agents.whiteboard_agent.executeWhiteboardSkill, {
+            skill_name: skillCall.skill_name,
+            skill_args: skillCall.skill_args || {},
+            session_id: args.sessionId ? args.sessionId.toString() : "unknown",
+            user_id: "ai-tutor",
+          });
+        } catch (e) {
+          console.error("[Agent Streaming] Error executing whiteboard skill:", e);
+        }
+      }
       
       // No need for complex handoff logic - the agent will start tutoring immediately
       
