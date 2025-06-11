@@ -417,6 +417,74 @@ export const getBoardSummary = query({
 });
 
 /**
+ * Find objects on the whiteboard by metadata criteria and/or simple spatial bbox.
+ * Mirrors legacy find_object_on_board behaviour but uses linear scan (no R-tree yet).
+ */
+export const findObjectOnBoard = query({
+  args: {
+    sessionId: v.id("sessions"),
+    metaQuery: v.optional(v.any()), // free-form object of key/value to match in metadata
+    // Bounding box: [x, y, w, h]
+    spatialQuery: v.optional(v.array(v.number())),
+    fields: v.optional(v.array(v.string())),
+  },
+  returns: v.array(v.any()),
+  handler: async (ctx, { sessionId, metaQuery, spatialQuery, fields }) => {
+    // For now no auth enforcement – reuse requireAuth if needed
+
+    // fetch all objects for session
+    const rows = await ctx.db
+      .query("whiteboard_objects")
+      .withIndex("by_session", q => q.eq("session_id", sessionId))
+      .collect();
+
+    const results: any[] = [];
+
+    for (const row of rows) {
+      let spec: any;
+      try { spec = JSON.parse(row.object_spec); } catch { continue; }
+
+      // --- metadata filter ---
+      if (metaQuery && typeof metaQuery === "object") {
+        const md = spec.metadata || {};
+        let metaPass = true;
+        for (const [k, v] of Object.entries(metaQuery)) {
+          if (md[k] !== v) { metaPass = false; break; }
+        }
+        if (!metaPass) continue;
+      }
+
+      // --- spatial filter ---
+      if (spatialQuery) {
+        const [qx, qy, qw, qh] = spatialQuery;
+        let x = spec.x, y = spec.y, w = spec.width, h = spec.height;
+        if ((spec.metadata?.bbox?.length ?? 0) === 4) {
+          const [bx, by, bw, bh] = spec.metadata.bbox;
+          x = bx; y = by; w = bw; h = bh;
+        }
+        if ([x, y, w, h].some(v => typeof v !== "number")) continue; // no coords
+        const intersects = x < qx + qw && x + w > qx && y < qy + qh && y + h > qy;
+        if (!intersects) continue;
+      }
+
+      // --- projection ---
+      if (fields && fields.length) {
+        const projected: any = {};
+        fields.forEach((fieldName: string) => {
+          if (fieldName in spec) projected[fieldName] = spec[fieldName];
+        });
+        if (!("id" in projected) && spec.id) projected.id = spec.id;
+        results.push(projected);
+      } else {
+        results.push(spec);
+      }
+    }
+
+    return results;
+  },
+});
+
+/**
  * Get all whiteboard actions for a session (ordered ASC by timestamp).
  * Used by the front-end to hydrate the canvas on initial load.
  */

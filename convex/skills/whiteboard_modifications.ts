@@ -192,7 +192,7 @@ export const highlightObject = action({
         type: "HIGHLIGHT_OBJECT",
         targetObjectId: args.object_id,
         color: args.color || "#FF5722", // Default highlight color
-        pulse: args.pulse || false,
+        pulse: args.pulse !== undefined ? args.pulse : true,
         batch_id,
       };
 

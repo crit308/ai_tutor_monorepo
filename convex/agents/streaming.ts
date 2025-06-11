@@ -294,6 +294,22 @@ Begin the tutoring session now with a warm welcome and introduction to the topic
         }
       }
 
+      // --- Whiteboard ledger: list current object IDs so model can reference instead of clearing ---
+      try {
+        if (args.sessionId) {
+          const objs = await ctx.runQuery(api.database.whiteboard.getWhiteboardObjects, {
+            sessionId: args.sessionId,
+          });
+          const ids = objs.map((o: any) => o.id).slice(0, 50); // cap to 50 to avoid exceeding context
+          if (ids.length > 0) {
+            customInstructions += `\n\nCurrent objects on the whiteboard (ids): ${ids.join(", ")}. When modifying existing graphics, use modify_whiteboard_objects with these ids instead of clear_whiteboard.`;
+          }
+          customInstructions += "\nAvoid using clear_whiteboard unless absolutely necessary.";
+        }
+      } catch (e) {
+        console.error("[Agent Streaming] Could not append whiteboard ledger", e);
+      }
+
       // Create a new agent instance with custom instructions for this specific response
       const customAgent = new Agent(components.agent, {
         name: "AI Tutor",

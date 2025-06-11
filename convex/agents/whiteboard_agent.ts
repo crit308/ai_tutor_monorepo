@@ -217,13 +217,18 @@ export const executeWhiteboardSkill = action({
           break;
 
         case "find_object_on_board":
-          // For find operations, return a simple success message
+          const found = await ctx.runQuery(api.database.whiteboard.findObjectOnBoard, {
+            sessionId: args.session_id as any,
+            metaQuery: args.skill_args.meta_query || undefined,
+            spatialQuery: args.skill_args.spatial_query || undefined,
+            fields: args.skill_args.fields || undefined,
+          });
           result = {
             payload: {
-              message_text: `Found object: ${args.skill_args.object_id || "unknown"}`,
-              message_type: "status_update"
+              message_text: `Found ${found.length} object(s) matching criteria`,
+              message_type: "status_update",
             },
-            actions: []
+            actions: [],
           };
           break;
 

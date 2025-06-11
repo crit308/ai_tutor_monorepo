@@ -73,6 +73,11 @@ Start the tutoring session now.`;
       return 'Go back to the previous topic or question in the lesson.';
     case 'end_session':
       return 'The user wants to end the tutoring session. Please provide a closing summary and goodbye message.';
+    case 'canvas_click':
+      if (data?.object_id) {
+        return `User clicked on object with ID: ${data.object_id}. Identify the object via find_object_on_board if needed, highlight it on the whiteboard, then explain its significance.`;
+      }
+      return 'User clicked on the canvas.';
     default:
       return `Handle interaction type: ${type}`;
   }
@@ -162,7 +167,7 @@ export function useTutorStream(
 
   // Send interaction (next, start, answer, etc.)
   const sendInteraction = useCallback(async (
-    type: 'start' | 'next' | 'answer' | 'summary' | 'previous' | 'user_message' | 'end_session' | 'plan_and_start',
+    type: 'start' | 'next' | 'answer' | 'summary' | 'previous' | 'user_message' | 'end_session' | 'plan_and_start' | 'canvas_click',
     data?: Record<string, any>
   ) => {
     console.log(`[useTutorStream] Sending interaction: ${type}`, data);
