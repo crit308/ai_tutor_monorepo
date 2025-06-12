@@ -219,6 +219,13 @@ export const generateStreamingResponse = internalAction({
             sessionId: args.sessionId
           });
           
+          if (session) {
+            const focusObjective = session.context_data?.focus_objective;
+            if (focusObjective) {
+              customInstructions += `\n\n**FOCUS OBJECTIVE:**\nTopic: ${focusObjective.topic}\nGoal: ${focusObjective.learning_goal}\nRelevant Concepts: ${focusObjective.relevant_concepts?.join(", ") || ""}`;
+            }
+          }
+          
           if (session && session.folder_id) {
             // Get folder with knowledge base
             const folder = await ctx.runQuery(internal.functions.getFolderInternal, {

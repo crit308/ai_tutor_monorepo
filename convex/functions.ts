@@ -38,8 +38,7 @@ export {
   getUserSessions,
   validateSessionContext,
   addSessionMessage,
-  updateSessionMessage,
-  getSessionInternal
+  updateSessionMessage
 } from './database/sessions';
 
 // Whiteboard functions
@@ -123,5 +122,58 @@ export {
   createVectorStoreAndProcessFiles,
   generateKnowledgeBase
 } from './core/openAIVectorStore';
+
+// ==========================================
+// INTERNAL HELPER FUNCTIONS (used by agents)
+// ==========================================
+import { internalQuery, internalMutation } from "./_generated/server";
+import { v } from "convex/values";
+
+export const getSessionInternal = internalQuery({
+  args: { sessionId: v.id("sessions") },
+  returns: v.union(v.null(), v.any()),
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    return session;
+  },
+});
+
+export const updateSessionContextInternal = internalMutation({
+  args: {
+    sessionId: v.id("sessions"),
+    context: v.any(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.sessionId, {
+      context_data: args.context,
+      updated_at: Date.now(),
+    });
+    return null;
+  },
+});
+
+export const logInteractionInternal = internalMutation({
+  args: {
+    sessionId: v.id("sessions"),
+    userId: v.string(),
+    role: v.string(),
+    content: v.string(),
+    contentType: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await ctx.db.insert("interaction_logs", {
+      session_id: args.sessionId,
+      user_id: args.userId,
+      role: args.role,
+      content: args.content,
+      content_type: args.contentType,
+      timestamp: Date.now(),
+      created_at: Date.now(),
+    });
+    return null;
+  },
+});
 
 

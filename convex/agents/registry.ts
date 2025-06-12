@@ -6,6 +6,7 @@ import { AgentContext, AgentResponse, RegisteredAgent, AgentConfig } from "./typ
 import { AnalyzerAgent } from "./analyzerAgent";
 import { PlannerAgent, createPlannerAgent, PlannerInput } from "./plannerAgent";
 import { SessionAnalyzerAgent, createSessionAnalyzerAgent, SessionAnalyzerInput } from "./sessionAnalyzerAgent";
+import { TeacherAgent, createTeacherAgent } from "./teacherAgent";
 
 // Define the input type for AnalyzerAgent
 export type AnalyzerInput = {
@@ -22,7 +23,8 @@ function createAnalyzerAgent(apiKey?: string): AnalyzerAgent {
 export const AGENT_NAMES = {
   ANALYZER: "analyzer",
   PLANNER: "planner", 
-  SESSION_ANALYZER: "session_analyzer"
+  SESSION_ANALYZER: "session_analyzer",
+  TEACHER: "teacher",
 } as const;
 
 export type AgentName = typeof AGENT_NAMES[keyof typeof AGENT_NAMES];
@@ -70,6 +72,15 @@ export class AgentConfigRegistry {
       max_tokens: 4000,
       tools: ["interaction_logs"]
     });
+
+    // Teacher Agent Config
+    this.configs.set(AGENT_NAMES.TEACHER, {
+      name: "Teacher Agent",
+      model: "gpt-4o-mini",
+      temperature: 0.7,
+      max_tokens: 3000,
+      tools: ["file_search", "whiteboard"],
+    });
   }
 
   getConfig(agentName: AgentName): AgentConfig | undefined {
@@ -112,7 +123,11 @@ export class AgentFactory {
     return createSessionAnalyzerAgent(AgentFactory.apiKey);
   }
 
-  static createAgent(agentName: AgentName): AnalyzerAgent | PlannerAgent | SessionAnalyzerAgent {
+  static createTeacher(): TeacherAgent {
+    return createTeacherAgent(AgentFactory.apiKey);
+  }
+
+  static createAgent(agentName: AgentName): AnalyzerAgent | PlannerAgent | SessionAnalyzerAgent | TeacherAgent {
     switch (agentName) {
       case AGENT_NAMES.ANALYZER:
         return AgentFactory.createAnalyzer();
@@ -120,6 +135,8 @@ export class AgentFactory {
         return AgentFactory.createPlanner();
       case AGENT_NAMES.SESSION_ANALYZER:
         return AgentFactory.createSessionAnalyzer();
+      case AGENT_NAMES.TEACHER:
+        return AgentFactory.createTeacher();
       default:
         throw new Error(`Unknown agent name: ${agentName}`);
     }
