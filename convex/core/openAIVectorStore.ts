@@ -5,6 +5,33 @@ import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { ConvexError } from "convex/values";
 import OpenAI from "openai";
+import { Agent as OAAgent, run as runAgent, setOpenAIAPI } from "@openai/agents";
+import { fileSearchTool } from "@openai/agents-openai";
+import { getGlobalTraceProvider } from "@openai/agents-core";
+
+setOpenAIAPI("responses");
+
+// Minimal runtime polyfill; type safety via declaration below
+// @ts-ignore
+globalThis.CustomEvent = function(type: string, params?: any) {
+  const e = new Event(type, params);
+  // @ts-ignore
+  e.detail = params && params.detail;
+  return e;
+};
+
+declare global {
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  // Provide a very loose type to avoid conflicts with lib.dom definitions in Node
+  // tslint:disable-next-line:class-name
+  interface CustomEventConstructor {
+    new (type: string, params?: any): any;
+  }
+  // Override only if not already defined
+  // @ts-ignore
+  var CustomEvent: CustomEventConstructor;
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+}
 
 // --- Types ---
 interface VectorStoreResult {
@@ -289,8 +316,7 @@ export const generateKnowledgeBase = action({
     try {
       console.log(`[OpenAI] Generating knowledge base for vector store: ${vectorStoreId}`);
       
-      // Create assistant with vector store
-      const assistant = await openai.beta.assistants.create({
+      const analyzer = new OAAgent({
         name: "Document Analyzer",
         instructions: `You are an educational document analyzer. Analyze the uploaded documents and provide:
 1. A comprehensive summary of all content
@@ -318,57 +344,17 @@ LEARNING OBJECTIVES:
 - [Objective 2]
 [... etc]`,
         model: "gpt-4o",
-        tools: [{ type: "file_search" }],
-        tool_resources: {
-          file_search: {
-            vector_store_ids: [vectorStoreId]
-          }
-        }
+        tools: [fileSearchTool(vectorStoreId)],
       });
-      
-      // Create thread
-      const thread = await openai.beta.threads.create();
-      
-      // Send analysis request
-      await openai.beta.threads.messages.create(thread.id, {
-        role: "user",
-        content: `Please analyze all the uploaded documents (${fileNames.join(', ')}) and provide a comprehensive educational analysis following the format specified in your instructions.`
-      });
-      
-      // Run assistant
-      const run = await openai.beta.threads.runs.create(thread.id, {
-        assistant_id: assistant.id
-      });
-      
-      // Poll for completion
-      let runStatus = run.status;
-      let attempts = 0;
-      const maxAttempts = 60; // 60 seconds timeout
-      
-      while (runStatus === "in_progress" || runStatus === "queued") {
-        if (attempts >= maxAttempts) {
-          throw new Error("Knowledge base generation timed out");
-        }
-        
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        const runCheck = await openai.beta.threads.runs.retrieve(thread.id, run.id);
-        runStatus = runCheck.status;
-        attempts++;
+
+      const { finalOutput: analysisText } = await runAgent(
+        analyzer,
+        `Please analyze all the uploaded documents (${fileNames.join(", ")}) and provide a comprehensive educational analysis following the instructed format.`
+      );
+
+      if (!analysisText) {
+        throw new Error("No analysis text returned by agent");
       }
-      
-      if (runStatus !== "completed") {
-        throw new Error(`Knowledge base generation failed with status: ${runStatus}`);
-      }
-      
-      // Get response
-      const messages = await openai.beta.threads.messages.list(thread.id);
-      const assistantMessage = messages.data.find((msg: any) => msg.role === "assistant");
-      
-      if (!assistantMessage?.content[0] || assistantMessage.content[0].type !== "text") {
-        throw new Error("No valid response from assistant");
-      }
-      
-      const analysisText = assistantMessage.content[0].text.value;
       
       // Parse the structured response
       const keyConcepts = extractKeyConceptsFromAnalysis(analysisText);
@@ -385,11 +371,10 @@ LEARNING OBJECTIVES:
         });
       }
       
-      // Cleanup assistant and thread
-      await openai.beta.assistants.del(assistant.id);
-      await openai.beta.threads.del(thread.id);
-      
       console.log(`[OpenAI] Knowledge base generated successfully`);
+      
+      // Force-flush traces so they reach the dashboard before Convex action exits
+      await getGlobalTraceProvider().forceFlush();
       
       return {
         analysis: analysisText,

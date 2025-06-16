@@ -2,6 +2,7 @@
 // Core infrastructure for AI agents in the Convex backend
 
 import { AgentConfig, AgentContext, AgentResponse, RegisteredAgent, AgentRegistry } from "./types";
+import { setOpenAIAPI, setDefaultOpenAIKey, setTracingExportApiKey } from "@openai/agents-openai";
 
 // OpenAI Integration
 class OpenAIClient {
@@ -384,4 +385,14 @@ export class AgentUtils {
 }
 
 // Export the singleton instance
-export const agentManager = AgentManager.getInstance(); 
+export const agentManager = AgentManager.getInstance();
+
+// Ensure the SDK knows our key for both model calls **and** trace export
+const __oaKey = process.env.OPENAI_API_KEY;
+if (__oaKey) {
+  setDefaultOpenAIKey(__oaKey);
+  setTracingExportApiKey(__oaKey);
+}
+
+// Make sure every OpenAIProvider instance across the backend uses the Responses API
+setOpenAIAPI("responses"); 
