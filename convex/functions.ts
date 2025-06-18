@@ -52,6 +52,7 @@ export {
   updateWhiteboardObject,
   deleteWhiteboardObject,
   clearWhiteboardObjects,
+  addObjectsBulk,
   getBoardSummary
 } from './database/whiteboard';
 

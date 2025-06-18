@@ -62,6 +62,7 @@ export const addWhiteboardObject = mutation({
     if (!objectSpec.metadata) {
       objectSpec.metadata = {};
     }
+    objectSpec.metadata.groupId = objectSpec.metadata.groupId ?? objectSpec.groupId ?? objectSpec.id;
     objectSpec.metadata.source = "user";
     
     // Insert the object
@@ -112,6 +113,7 @@ export const updateWhiteboardObject = mutation({
     if (!objectSpec.metadata) {
       objectSpec.metadata = {};
     }
+    objectSpec.metadata.groupId = objectSpec.metadata.groupId ?? objectSpec.groupId ?? objectId;
     objectSpec.metadata.source = "user";
     
     // Update the object
@@ -511,5 +513,46 @@ export const getWhiteboardActions = query({
       .take(limit);
 
     return rows.map((r) => ({ action: r.action, timestamp: r.timestamp, batch_id: r.batch_id }));
+  },
+});
+
+export const addObjectsBulk = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    objects: v.array(v.any()), // array of CanvasObjectSpec (WBObject)
+  },
+  returns: v.object({ inserted: v.number() }),
+  handler: async (ctx, { sessionId, objects }) => {
+    const userId = await requireAuth(ctx);
+    const session = await ctx.db.get(sessionId);
+    if (!session || session.user_id !== userId) {
+      throw new Error("Session not found or access denied");
+    }
+
+    let count = 0;
+    for (let objectSpec of objects) {
+      if (!objectSpec.id || !objectSpec.kind) {
+        throw new Error("Invalid object spec: missing id or kind");
+      }
+
+      // --- groupId hygiene ---
+      if (!objectSpec.metadata) objectSpec.metadata = {};
+      if (!objectSpec.metadata.groupId) {
+        objectSpec.metadata.groupId = objectSpec.groupId ?? objectSpec.id;
+      }
+      objectSpec.metadata.source = objectSpec.metadata.source ?? "assistant";
+
+      await ctx.db.insert("whiteboard_objects", {
+        session_id: sessionId,
+        object_id: objectSpec.id,
+        object_spec: JSON.stringify(objectSpec),
+        object_kind: objectSpec.kind,
+        created_at: Date.now(),
+        updated_at: Date.now(),
+      });
+      count += 1;
+    }
+
+    return { inserted: count };
   },
 }); 

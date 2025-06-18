@@ -10,7 +10,8 @@
     "paths": {
       "convex/*": ["../frontend/node_modules/convex/*"],
       "@convex-dev/auth/*": ["../frontend/node_modules/@convex-dev/auth/dist/*"],
-      "redis": ["./redis"]
+      "redis": ["./redis"],
+      "@aitutor/whiteboard-schema": ["../packages/whiteboard-schema/index.ts"]
     },
     "target": "ESNext",
     "lib": ["ES2021", "dom"],

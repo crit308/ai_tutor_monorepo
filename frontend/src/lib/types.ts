@@ -77,7 +77,20 @@ export interface UserSummaryPromptInfo {
 
 // +++ Whiteboard Types (Moved Here) +++
 // Based on Fabric.js properties needed for factory
-export { CanvasObjectSpec, WhiteboardAction } from "@aitutor/whiteboard-schema";
+export type { CanvasObjectSpec } from "@aitutor/whiteboard-schema";
+
+// WhiteboardAction discriminated union – frontend-specific (extends schema if needed)
+export type WhiteboardAction =
+  | { type: WhiteboardActionType.ADD_OBJECTS; objects: CanvasObjectSpec[] }
+  | { type: WhiteboardActionType.UPDATE_OBJECTS; objects: { objectId: string; updates: Partial<CanvasObjectSpec> }[] }
+  | { type: WhiteboardActionType.DELETE_OBJECTS; objectIds: string[] }
+  | { type: WhiteboardActionType.CLEAR_BOARD }
+  | { type: WhiteboardActionType.ADD_EPHEMERAL; spec: CanvasObjectSpec }
+  | { type: WhiteboardActionType.DELETE_EPHEMERAL; id: string }
+  | { type: WhiteboardActionType.GROUP_OBJECTS; groupId: string; objectIds: string[] }
+  | { type: WhiteboardActionType.MOVE_GROUP; groupId: string; dx: number; dy: number }
+  | { type: WhiteboardActionType.DELETE_GROUP; groupId: string }
+  | { type: WhiteboardActionType.HIGHLIGHT_OBJECT; targetObjectId: string; color?: string; pulse?: boolean };
 
 // The original extended CanvasObjectSpec definition has been moved to the shared
 // `@aitutor/whiteboard-schema` package for a single source of truth.
