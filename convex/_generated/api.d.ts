@@ -46,6 +46,7 @@ import type * as database_optimization from "../database/optimization.js";
 import type * as database_sessions from "../database/sessions.js";
 import type * as database_whiteboard from "../database/whiteboard.js";
 import type * as functions from "../functions.js";
+import type * as helpers_flowchart from "../helpers/flowchart.js";
 import type * as http from "../http.js";
 import type * as jobs_background from "../jobs/background.js";
 import type * as jobs_crons from "../jobs/crons.js";
@@ -122,6 +123,7 @@ declare const fullApi: ApiFromModules<{
   "database/sessions": typeof database_sessions;
   "database/whiteboard": typeof database_whiteboard;
   functions: typeof functions;
+  "helpers/flowchart": typeof helpers_flowchart;
   http: typeof http;
   "jobs/background": typeof jobs_background;
   "jobs/crons": typeof jobs_crons;

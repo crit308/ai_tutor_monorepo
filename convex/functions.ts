@@ -125,6 +125,11 @@ export {
   generateKnowledgeBase
 } from './core/openAIVectorStore';
 
+// Helper actions
+export {
+  createFlowchart
+} from './helpers/flowchart';
+
 // ==========================================
 // INTERNAL HELPER FUNCTIONS (used by agents)
 // ==========================================
