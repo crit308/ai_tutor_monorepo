@@ -167,22 +167,44 @@ async function createTableContent(ctx: any, data: any, batch_id: string, session
 }
 
 async function createDiagramContent(ctx: any, data: any, batch_id: string, session_id: string): Promise<{payload: any, actions: any[]}> {
-  const specs: any = await ctx.runAction(api.legacy.migration_bridge.drawDiagramSpecs, {
-    diagram_type: data.diagram_type,
-    elements: data.elements,
-    title: data.title,
-    diagram_id: batch_id,
-  });
+  let objects: any[] = [];
+  let payload;
 
+  if (data.diagram_type === "flowchart") {
+    // Use new helper action
+    const result = await ctx.runAction(api.helpers.flowchart.createFlowchart, {
+      sessionId: session_id as any,
+      steps: data.elements.map((el: any) => el.label || el.content || "Step"),
+    });
+
+    objects = result.objects;
+    payload = result.payload;
+
+    // Persist objects via bulk mutation
+    await ctx.runMutation(api.database.whiteboard.addObjectsBulk, {
+      sessionId: session_id as any,
+      objects,
+    });
+  } else {
+    // Fallback to legacy drawDiagramSpecs for other diagram types (timeline, etc.)
+    objects = await ctx.runAction(api.legacy.migration_bridge.drawDiagramSpecs, {
+      diagram_type: data.diagram_type,
+      elements: data.elements,
+      title: data.title,
+      diagram_id: batch_id,
+    });
+
+    payload = {
+      message_text: `Created ${data.diagram_type} diagram: ${data.title || "Untitled"}`,
+      message_type: "status_update",
+    };
+  }
+
+  // Build whiteboard action for session history (even though objects are in DB)
   const action: any = {
     type: "ADD_OBJECTS",
-    objects: specs,
+    objects,
     batch_id,
-  };
-
-  const payload = {
-    message_text: `Created ${data.diagram_type} diagram: ${data.title || "Untitled"}`,
-    message_type: "status_update"
   };
 
   await ctx.runMutation(api.sessions.addWhiteboardAction, {
