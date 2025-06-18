@@ -114,13 +114,15 @@ export async function planSession(
 export async function analyzeSession(
   context: AgentContext,
   sessionId: string,
-  sessionData?: any
+  sessionData?: any,
+  convexCtx?: import("../_generated/server").ActionCtx
 ): Promise<{ textSummary: string; analysis: SessionAnalysis | null } | null> {
   try {
     const response = await agentOrchestrator.executeSessionAnalysis(
       context,
       sessionId,
-      sessionData
+      sessionData,
+      convexCtx
     );
     return response.success ? response.data : null;
   } catch (error) {

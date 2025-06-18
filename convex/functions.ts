@@ -67,7 +67,8 @@ export {
 // API endpoint functions
 export {
   uploadSessionDocuments,
-  getSessionAnalysisResults
+  getSessionAnalysisResults,
+  getInteractionLogs
 } from './api/endpoints';
 
 // Agent functions

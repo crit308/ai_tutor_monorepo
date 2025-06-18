@@ -7,6 +7,7 @@ import { AnalyzerAgent } from "./analyzerAgent";
 import { PlannerAgent, createPlannerAgent, PlannerInput } from "./plannerAgent";
 import { SessionAnalyzerAgent, createSessionAnalyzerAgent, SessionAnalyzerInput } from "./sessionAnalyzerAgent";
 import { TeacherAgent, createTeacherAgent } from "./teacherAgent";
+import type { ActionCtx } from "../_generated/server";
 
 // Define the input type for AnalyzerAgent
 export type AnalyzerInput = {
@@ -119,8 +120,8 @@ export class AgentFactory {
     return createPlannerAgent(AgentFactory.apiKey);
   }
 
-  static createSessionAnalyzer(): SessionAnalyzerAgent {
-    return createSessionAnalyzerAgent(AgentFactory.apiKey);
+  static createSessionAnalyzer(convexCtx?: ActionCtx): SessionAnalyzerAgent {
+    return createSessionAnalyzerAgent(AgentFactory.apiKey, convexCtx);
   }
 
   static createTeacher(): TeacherAgent {
@@ -219,12 +220,13 @@ export class AgentOrchestrator {
   async executeSessionAnalysis(
     context: AgentContext,
     sessionId: string,
-    sessionData?: any
+    sessionData?: any,
+    convexCtx?: ActionCtx
   ): Promise<AgentResponse> {
     console.log(`[AgentOrchestrator] Starting session analysis workflow for session: ${sessionId}`);
     
     try {
-      const agent = AgentFactory.createSessionAnalyzer();
+      const agent = AgentFactory.createSessionAnalyzer(convexCtx);
       const input: SessionAnalyzerInput = {
         session_id: sessionId,
         ...sessionData

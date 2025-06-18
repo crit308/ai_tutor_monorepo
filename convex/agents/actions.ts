@@ -245,7 +245,7 @@ export const planSessionFocus = action({
 export const analyzeSessionPerformance = action({
   args: {
     sessionId: v.string(),
-    userId: v.string(),
+    userId: v.optional(v.string()),
     folderId: v.optional(v.string()),
     sessionData: v.optional(v.any())
   },
@@ -253,29 +253,45 @@ export const analyzeSessionPerformance = action({
     try {
       const context: AgentContext = {
         session_id: sessionId,
-        user_id: userId,
+        user_id: userId || "unknown",
         folder_id: folderId
       };
 
-      const result = await analyzeSession(context, sessionId, sessionData);
+      const result = await analyzeSession(context, sessionId, sessionData, ctx);
       
       if (!result) {
         throw new Error("Session analysis failed to return a result");
       }
 
-      // Save analysis summary to knowledge base
-      if (folderId && result.textSummary) {
+      // Save analysis summary to knowledge base. If folderId not provided, attempt to derive it from the session.
+      let effectiveFolderId: string | undefined = folderId;
+
+      if (!effectiveFolderId) {
+        try {
+          // Explicitly annotate type to avoid circular inference issues
+          const session: { folder_id?: string } | null = await ctx.runQuery("functions:getSession" as any, {
+            sessionId: sessionId as any,
+          });
+          if (session?.folder_id) {
+            effectiveFolderId = session.folder_id;
+          }
+        } catch (lookupErr) {
+          console.error("[analyzeSessionPerformance] Failed to lookup session for folder ID fallback", lookupErr);
+        }
+      }
+
+      if (effectiveFolderId && result.textSummary) {
         // Explicitly type the result to avoid circular inference
         const folderData: { knowledge_base?: string } | null = await ctx.runQuery("functions:getFolder" as any, {
-          folderId: folderId as Id<'folders'>,
+          folderId: effectiveFolderId as Id<'folders'>,
         });
-        
+
         const updatedKnowledgeBase = folderData?.knowledge_base 
           ? `${folderData.knowledge_base}\n\n${result.textSummary}`
           : result.textSummary;
 
         await ctx.runMutation("functions:updateKnowledgeBase" as any, {
-          folderId: folderId as Id<'folders'>,
+          folderId: effectiveFolderId as Id<'folders'>,
           knowledgeBase: updatedKnowledgeBase
         });
       }

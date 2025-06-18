@@ -15,6 +15,26 @@ import {
   QuizFeedback
 } from "./types";
 import { api } from "../_generated/api";
+import { Agent as OAAgent, run as runAgent, setOpenAIAPI } from "@openai/agents";
+import { getGlobalTraceProvider } from "@openai/agents-core";
+// Convex Action context type for server-side queries
+import type { ActionCtx } from "../_generated/server";
+import { components } from "../_generated/api";
+
+// Ensure we opt into the Responses API (required for hosted tools & tracing)
+setOpenAIAPI("responses");
+
+// Minimal runtime polyfill for CustomEvent on Node 18 environments
+// @ts-ignore
+if (typeof globalThis.CustomEvent !== "function") {
+  // @ts-ignore – loose typing, we only need basic event shell
+  globalThis.CustomEvent = function (type: string, params?: any) {
+    const e = new Event(type, params);
+    // @ts-ignore
+    e.detail = params && params.detail;
+    return e;
+  } as any;
+}
 
 export interface SessionAnalyzerInput {
   session_id: string;
@@ -40,7 +60,9 @@ export interface InteractionLogSummary {
 }
 
 export class SessionAnalyzerAgent extends BaseAgent {
-  constructor(apiKey?: string) {
+  private convexCtx?: ActionCtx;
+
+  constructor(apiKey?: string, convexCtx?: ActionCtx) {
     const config = createAgentConfig(
       "Session Analyzer",
       "gpt-4-turbo-preview", // Use latest model for analysis
@@ -50,6 +72,7 @@ export class SessionAnalyzerAgent extends BaseAgent {
       }
     );
     super(config, apiKey);
+    this.convexCtx = convexCtx;
   }
 
   async execute(context: AgentContext, input: SessionAnalyzerInput): Promise<AgentResponse<{ textSummary: string; analysis: SessionAnalysis | null }>> {
@@ -76,66 +99,197 @@ export class SessionAnalyzerAgent extends BaseAgent {
     context: AgentContext,
     input: SessionAnalyzerInput
   ): Promise<{ textSummary: string; analysis: SessionAnalysis | null }> {
-    // 1. Read interaction logs
-    const interactionSummary = await this.readInteractionLogs(sessionId);
-    
-    // 2. Analyze the session based on the interaction summary
-    const analysisResult = await this.performSessionAnalysis(sessionId, interactionSummary, input);
-    
-    // 3. Extract text summary and structured analysis
+    // Perform analysis using OpenAI Agents SDK with hosted tool
+    const analysisResult = await this.performOpenAISessionAnalysis(sessionId, input);
+
+    // Parse agent output into text summary + structured analysis
     const { textSummary, structuredAnalysis } = this.parseAnalysisResult(analysisResult);
-    
-    // 4. Save analysis summary to knowledge base if needed
+
+    // Save analysis summary to knowledge base if needed
     if (context.folder_id && textSummary) {
       await this.appendToKnowledgeBase(context.folder_id, textSummary);
     }
-    
+
     return {
       textSummary,
-      analysis: structuredAnalysis
+      analysis: structuredAnalysis,
     };
   }
 
-  private async readInteractionLogs(sessionId: string): Promise<InteractionLogSummary> {
+  private async performOpenAISessionAnalysis(
+    sessionId: string,
+    input: SessionAnalyzerInput
+  ): Promise<string> {
+    // Define the hosted tool that the agent can invoke to obtain the interaction summary
+    const readInteractionLogsTool: any = {
+      type: "function",
+      name: "read_interaction_logs",
+      description: "Return a concise plain-text summary of the interaction log for a given tutoring session.",
+      parameters: {
+        type: "object",
+        properties: {
+          session_id: {
+            type: "string",
+            description: "The unique identifier of the tutoring session to summarise."
+          }
+        },
+        required: ["session_id"]
+      },
+      // Called by Agents SDK when the tool is invoked
+      invoke: async ({ session_id }: { session_id?: string }) => {
+        const sid = session_id || sessionId;
+        const structured = await this.readInteractionLogs(sid);
+        return this.formatInteractionSummary(structured);
+      },
+      // Agents SDK checks this to decide whether to auto-run the tool or request human approval
+      needsApproval: () => false
+    };
+
+    // Compose additional context (lesson plan, quiz results, etc.) for the agent prompt
+    const additionalContext = this.formatAdditionalContext(input);
+
+    const agent = new OAAgent({
+      name: "Session Analyzer",
+      instructions: `You are an expert educational analyst specialized in evaluating tutoring sessions.\n\nYour task is to analyze the tutoring session based on the interaction log summary obtained via the read_interaction_logs tool.\n\nFocus on:\n- Student comprehension and performance patterns (e.g., areas of struggle, quick grasps)\n- Effectiveness of teaching methods used by the agent (based on log events and responses)\n- Alignment between the session interactions and potential learning objectives (infer if necessary)\n- Actionable recommendations for future sessions or improvements\n- Any potential issues or successes in the interaction flow\n\nREQUIRED OUTPUT FORMAT:\n1. A concise plain-text summary (max 300 words) suitable for appending to a knowledge base. Start this summary *exactly* with the phrase \"Session Summary:\". Do not include any preamble before this phrase.\n2. Optionally, after the text summary, include a JSON object conforming to the SessionAnalysis schema, enclosed in \`\`\`json ... \`\`\` marks, for detailed structured data. Make sure the JSON is valid.\n\nIf you cannot generate the structured JSON part for any reason, just provide the plain-text summary starting with \"Session Summary:\".`,
+      model: this.config.model || "gpt-4o", // Ensure Responses-capable model
+      // Type cast applied to avoid strict generic mismatches with OA SDK types
+      tools: [readInteractionLogsTool as any],
+    });
+
+    // Prompt that instructs the agent to analyse the session; the agent will call the tool itself
+    const prompt = `Analyze the tutoring session with ID ${sessionId}. Use the read_interaction_logs tool to get the interaction summary.${additionalContext ? "\n\n" + additionalContext : ""}\n\nBased only on that summary, provide your analysis including a concise text summary starting with 'Session Summary:' and, if possible, the SessionAnalysis JSON object in markdown format.`;
+
+    const { finalOutput } = await runAgent(agent, prompt);
+
+    // Ensure traces reach the dashboard before the Convex action returns
+    await getGlobalTraceProvider().forceFlush();
+
+    if (!finalOutput) {
+      throw new Error("Session Analyzer agent did not return any output");
+    }
+
+    return finalOutput.toString();
+  }
+
+  private async readInteractionLogs(sessionId?: string): Promise<InteractionLogSummary> {
     try {
+      if (!sessionId) {
+        this.log("warn", "readInteractionLogs called without a sessionId, returning empty summary");
+        return {
+          total_interactions: 0,
+          user_messages: 0,
+          agent_responses: 0,
+          topics_discussed: [],
+          key_events: [],
+          learning_moments: [],
+          confusion_points: [],
+          success_indicators: []
+        };
+      }
+
       this.log("info", `Reading interaction logs for session: ${sessionId}`);
-      
-      // Note: In production, this would call a Convex query to get interaction logs
-      // const logs = await ctx.runQuery(api.sessions.getInteractionLogs, { sessionId });
-      
-      // For now, simulate interaction log analysis
-      const mockSummary: InteractionLogSummary = {
-        total_interactions: 15,
-        user_messages: 8,
-        agent_responses: 7,
-        topics_discussed: ["variables", "functions", "loops"],
-        key_events: [
-          "User asked about variable scope",
-          "Agent provided explanation with examples",
-          "User attempted practice exercise",
-          "Agent gave feedback on solution"
-        ],
-        learning_moments: [
-          "User understood local vs global scope",
-          "Successfully implemented a simple function"
-        ],
-        confusion_points: [
-          "Initial confusion about parameter passing",
-          "Struggled with loop syntax"
-        ],
-        success_indicators: [
-          "Asked follow-up questions",
-          "Applied concepts correctly",
-          "Showed progression in understanding"
-        ]
+
+      // ---------------------------------------------
+      // Fetch logs from Convex if a context is provided
+      // ---------------------------------------------
+      // Ensure Convex context is available
+      if (!this.convexCtx) {
+        this.log("warn", "Convex context not provided to SessionAnalyzerAgent; returning empty interaction summary");
+        return {
+          total_interactions: 0,
+          user_messages: 0,
+          agent_responses: 0,
+          topics_discussed: [],
+          key_events: [],
+          learning_moments: [],
+          confusion_points: [],
+          success_indicators: []
+        };
+      }
+
+      let logs: any[] = await this.convexCtx!.runQuery(
+        "functions:getInteractionLogs" as any,
+        { sessionId: sessionId as any }
+      );
+
+      // Attempt to derive logs from agent thread messages (new streaming architecture)
+      try {
+        const sessionInfo: any = await this.convexCtx!.runQuery(
+          "functions:getSessionInternal" as any,
+          { sessionId: sessionId as any }
+        );
+
+        const threadId: string | undefined = sessionInfo?.context_data?.agent_thread_id;
+        if (threadId) {
+          const threadRes: any = await this.convexCtx!.runQuery(
+            components.agent.messages.listMessagesByThreadId,
+            {
+              threadId,
+              order: "desc",
+              paginationOpts: { numItems: 100, cursor: null },
+            }
+          );
+          const page: any[] = threadRes?.page || [];
+          logs = page.map((m: any) => ({
+            role: m.userId ? "user" : "assistant",
+            content: m.text || m.content || "",
+            timestamp: m.timestamp || m._creationTime,
+          }));
+        }
+      } catch (fallbackErr) {
+        this.log("warn", "Fallback to thread messages failed", fallbackErr);
+      }
+
+      if (logs.length === 0) {
+        this.log("warn", "No interaction logs or messages found for session");
+      }
+
+      // Calculate basic metrics
+      const total = logs.length;
+      const userMsgs = logs.filter((l) => l.role === "user").length;
+      const assistantMsgs = logs.filter((l) => l.role === "assistant" || l.role === "agent").length;
+
+      // Extract simple topic keywords (very naive TF counts)
+      const stopWords = new Set([
+        "the","and","that","with","this","from","have","for","would","will","about","there","their","what","which","were","when","your","them","they","then","into","while","these","those","could","should","because","water","cycle"
+      ]);
+
+      const freq: Record<string, number> = {};
+      for (const log of logs) {
+        const content: string = (log.content || "").toLowerCase();
+        const words = content.split(/[^a-zA-Z]+/);
+        for (const w of words) {
+          if (w.length < 4 || stopWords.has(w)) continue;
+          freq[w] = (freq[w] || 0) + 1;
+        }
+      }
+
+      const topics = Object.entries(freq)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([word]) => word);
+
+      // Key events – first few significant logs (trimmed)
+      const keyEvents = logs.slice(0, 4).map((l) => {
+        const text = (l.content || "").trim();
+        return text.length > 120 ? text.slice(0, 120) + "…" : text;
+      });
+
+      const summary: InteractionLogSummary = {
+        total_interactions: total,
+        user_messages: userMsgs,
+        agent_responses: assistantMsgs,
+        topics_discussed: topics,
+        key_events: keyEvents,
+        learning_moments: [],
+        confusion_points: [],
+        success_indicators: [],
       };
 
-      this.log("info", `Found ${mockSummary.total_interactions} interactions`);
-      return mockSummary;
-      
+      this.log("info", `Found ${summary.total_interactions} interactions (real)`);
+      return summary;
     } catch (error) {
       this.log("error", "Failed to read interaction logs", error);
-      // Return empty summary if logs can't be read
       return {
         total_interactions: 0,
         user_messages: 0,
@@ -147,57 +301,6 @@ export class SessionAnalyzerAgent extends BaseAgent {
         success_indicators: []
       };
     }
-  }
-
-  private async performSessionAnalysis(
-    sessionId: string,
-    interactionSummary: InteractionLogSummary,
-    input: SessionAnalyzerInput
-  ): Promise<string> {
-    const systemMessage = `You are an expert educational analyst specialized in evaluating tutoring sessions.
-
-Your task is to analyze the tutoring session based on the provided interaction log summary.
-
-Focus on:
-- Student comprehension and performance patterns (e.g., areas of struggle, quick grasps)
-- Effectiveness of teaching methods used by the agent (based on log events and responses)
-- Alignment between the session interactions and potential learning objectives (infer if necessary)
-- Actionable recommendations for future sessions or improvements
-- Any potential issues or successes in the interaction flow
-
-REQUIRED OUTPUT FORMAT:
-1. A concise plain-text summary (max 300 words) suitable for appending to a knowledge base. Start this summary *exactly* with the phrase "Session Summary:". Do not include any preamble before this phrase.
-2. Optionally, after the text summary, include a JSON object conforming to the SessionAnalysis schema, enclosed in \`\`\`json ... \`\`\` marks, for detailed structured data. Make sure the JSON is valid.
-
-Example Text Summary:
-Session Summary: The student grasped evaporation quickly but struggled with condensation, requiring multiple explanations and a targeted question. Overall progress was good. Recommend starting the next session with a brief review of condensation using a different analogy.
-
-If you cannot generate the structured JSON part for any reason, just provide the plain-text summary starting with "Session Summary:".`;
-
-    const interactionDetails = this.formatInteractionSummary(interactionSummary);
-    const additionalContext = this.formatAdditionalContext(input);
-
-    const userMessage = `Session ID: ${sessionId}
-
-Interaction Log Summary:
-${interactionDetails}
-
-${additionalContext}
-
-Based *only* on this summary, provide your analysis including a concise text summary starting with 'Session Summary:' and, if possible, the SessionAnalysis JSON object in markdown format.`;
-
-    const response = await this.callOpenAI([
-      {
-        role: "system",
-        content: systemMessage
-      },
-      {
-        role: "user",
-        content: userMessage
-      }
-    ]);
-
-    return response.content;
   }
 
   private formatInteractionSummary(summary: InteractionLogSummary): string {
@@ -360,8 +463,8 @@ ${summary.success_indicators.map(indicator => `- ${indicator}`).join('\n')}`;
 }
 
 // Factory function for creating session analyzer agent instances
-export function createSessionAnalyzerAgent(apiKey?: string): SessionAnalyzerAgent {
-  return new SessionAnalyzerAgent(apiKey);
+export function createSessionAnalyzerAgent(apiKey?: string, convexCtx?: ActionCtx): SessionAnalyzerAgent {
+  return new SessionAnalyzerAgent(apiKey, convexCtx);
 }
 
 // Session analysis validation utilities

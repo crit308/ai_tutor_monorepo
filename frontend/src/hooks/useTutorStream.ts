@@ -1,11 +1,12 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
-import { useQuery, useMutation } from 'convex/react';
+import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import { useAuthToken } from '@convex-dev/auth/react';
 import { useThreadMessages, toUIMessages, optimisticallySendMessage, type UIMessage } from '@convex-dev/agent/react';
 import { TutorInteractionResponse, WhiteboardAction } from '@/lib/types';
 import { Id } from '../../../convex/_generated/dataModel';
 import { useSessionStore } from '@/store/sessionStore';
+import { useRouter } from "next/navigation";
 
 // Define ChatMessage interface locally since it's not in the main types file
 interface ChatMessage {
@@ -127,6 +128,11 @@ export function useTutorStream(
 
   // Set up message sending with agent streaming
   const sendMessageMutation = useMutation(api.functions.sendStreamingMessage);
+  // Mutation to run the session analysis (backend workflow)
+  const analyzeSessionAction = useAction((api as any)["agents/actions"].analyzeSessionPerformance as any);
+
+  // Next.js router for redirecting after analysis completes
+  const router = useRouter();
 
   // Send user message using Convex agent streaming
   const sendMessage = useCallback(async (text: string) => {
@@ -175,6 +181,28 @@ export function useTutorStream(
     if (type === 'user_message' && data?.text) {
       // Handle user message directly
       await sendMessage(data.text);
+    } else if (type === 'end_session') {
+      try {
+        // Show loading UI while analysis runs
+        setSessionState(prev => ({
+          ...prev,
+          loadingState: 'loading',
+          loadingMessage: 'Analyzing session performance...'
+        }));
+
+        // Fire backend action (ignore non-essential params for now)
+        await analyzeSessionAction({
+          sessionId,
+          folderId: undefined,
+          sessionData: undefined
+        } as any);
+
+        // Once analysis finishes, navigate away (e.g., to dashboard)
+        router.push('/');
+      } catch (error) {
+        console.error('[useTutorStream] Session analysis action failed:', error);
+        setSessionState(prev => ({ ...prev, loadingState: 'error', loadingMessage: 'Session analysis failed' }));
+      }
     } else {
       // Generate the appropriate prompt for this interaction type
       const interactionPrompt = generateInteractionPrompt(type, data);
