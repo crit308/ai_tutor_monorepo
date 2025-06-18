@@ -1,4 +1,5 @@
 import { WhiteboardActionType, Metadata } from './canvas';
+import { CanvasObjectSpec } from '@aitutor/whiteboard-schema';
 
 // Base Canvas Object Specification
 export interface CanvasObjectSpec {
@@ -125,3 +126,7 @@ export { WhiteboardActionType } from './canvas';
 export type { Metadata } from './canvas';
 // CanvasObjectSpec and individual action interfaces are already exported with 'export interface' or 'export type' where defined.
 // The WhiteboardAction union type is also already exported with 'export type'. 
+
+export { CanvasObjectSpec, WhiteboardAction } from "@aitutor/whiteboard-schema";
+
+// Former local definitions have been moved to the shared `@aitutor/whiteboard-schema` package. 

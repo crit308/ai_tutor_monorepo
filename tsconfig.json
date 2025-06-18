@@ -21,7 +21,8 @@
       "@/*": ["./convex/*"],
       "@/types": ["./convex/types"],
       "@/agents/*": ["./convex/agents/*"],
-      "@/lib/*": ["./convex/lib/*"]
+      "@/lib/*": ["./convex/lib/*"],
+      "@aitutor/whiteboard-schema": ["./packages/whiteboard-schema/index.ts"]
     }
   },
   "include": [
