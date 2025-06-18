@@ -29,6 +29,7 @@ export function useConvexWhiteboard(
 
   // Mutations for whiteboard operations
   const addObject = useMutation(api.functions.addWhiteboardObject);
+  const addObjectsBulk = useMutation(api.functions.addObjectsBulk as any);
   const updateObject = useMutation(api.functions.updateWhiteboardObject);
   const deleteObject = useMutation(api.functions.deleteWhiteboardObject);
   const clearObjects = useMutation(api.functions.clearWhiteboardObjects);
@@ -89,6 +90,27 @@ export function useConvexWhiteboard(
       } as any);
     }
   }, [sessionId, addObject, dispatchWhiteboardAction]);
+
+  // Public API for bulk adding objects
+  const addWhiteboardObjectsBulk = useCallback(async (objects: CanvasObjectSpec[]) => {
+    if (!sessionId) {
+      console.warn('[useConvexWhiteboard] No session ID available');
+      return;
+    }
+
+    try {
+      dispatchWhiteboardAction({ type: 'ADD_OBJECTS', objects } as any);
+
+      await addObjectsBulk({
+        sessionId: sessionId as Id<'sessions'>,
+        objects,
+      });
+
+      console.log(`[useConvexWhiteboard] Bulk added ${objects.length} objects`);
+    } catch (error) {
+      console.error('[useConvexWhiteboard] Failed bulk add:', error);
+    }
+  }, [sessionId, addObjectsBulk, dispatchWhiteboardAction]);
 
   // Public API for updating objects
   const updateWhiteboardObject = useCallback(async (objectId: string, objectSpec: CanvasObjectSpec) => {
@@ -166,6 +188,7 @@ export function useConvexWhiteboard(
     
     // Actions
     addObject: addWhiteboardObject,
+    addObjectsBulk: addWhiteboardObjectsBulk,
     updateObject: updateWhiteboardObject,
     deleteObject: deleteWhiteboardObject,
     clearObjects: clearWhiteboardObjects,
