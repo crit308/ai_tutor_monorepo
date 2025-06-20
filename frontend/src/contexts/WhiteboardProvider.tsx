@@ -9,7 +9,7 @@ import { renderLatexToSvg } from '@/lib/whiteboardUtils'; // Added for LaTeX ren
 import { calculateAbsoluteCoords } from '@/lib/whiteboardUtils'; // Ensure this is imported if used for coords
 import { getGraphLayout } from '@/lib/whiteboardUtils'; // Added for graph layout
 import type { NodeSpec, EdgeSpec } from '@/lib/types'; // Added for graph layout
-import { useConvexWhiteboard } from '@/hooks/useConvexWhiteboard';
+import { useWhiteboardState } from '@/hooks/useWhiteboardState';
 import { useEphemeralWebSocket } from '@/hooks/useEphemeralWebSocket';
 
 interface WhiteboardContextType {
@@ -873,33 +873,20 @@ export const WhiteboardProvider: React.FC<{ children: ReactNode }> = ({ children
       historyLength: historyBatches.length,
   } as const;
 
-  // ---------- Convex Integration (replaces Yjs) ---------- //
-  const convexEnabled = process.env.NEXT_PUBLIC_USE_CONVEX_WHITEBOARD === 'true';
-
-  // Cast dispatchWhiteboardAction to any to satisfy differing generic params between type modules
+  // ---------- Primitives-first Convex integration ---------- //
   const dispatchForConvex = (a: any) => dispatchWhiteboardAction(a as any);
-  const convexWhiteboard = useConvexWhiteboard(
-    convexEnabled,
-    dispatchForConvex
-  );
-
-  // ---------- Ephemeral Objects via Minimal WebSocket ---------- //
-  const ephemeralWsEnabled = process.env.NEXT_PUBLIC_USE_EPHEMERAL_WS === 'true';
-  const { writeEphemeral } = useEphemeralWebSocket(
-    ephemeralWsEnabled,
-    dispatchForConvex
-  );
+  const whiteboardState = useWhiteboardState(dispatchForConvex);
 
   const ConvexExtras = {
-    writeEphemeral,
-    // Expose Convex whiteboard operations
-    addPersistentObject: convexWhiteboard.addObject,
-    updatePersistentObject: convexWhiteboard.updateObject,
-    deletePersistentObject: convexWhiteboard.deleteObject,
-    clearPersistentObjects: convexWhiteboard.clearObjects,
-    persistentObjects: convexWhiteboard.objects,
-    isPersistentLoading: convexWhiteboard.isLoading,
-  } as const;
+     writeEphemeral,
+     // Expose Convex whiteboard operations
+     addPersistentObject: whiteboardState.addObject,
+     updatePersistentObject: whiteboardState.updateObject,
+     deletePersistentObject: whiteboardState.deleteObject,
+     clearPersistentObjects: whiteboardState.clearObjects,
+     persistentObjects: whiteboardState.objects,
+     isPersistentLoading: whiteboardState.isLoading,
+   } as const;
 
   // Augment context value to include ephemeral write helper
   const contextValue = { ...value, ...ConvexExtras } as any;
