@@ -254,6 +254,39 @@ export const executeWhiteboardSkill = action({
           });
           break;
 
+        // ===== PATCH-BASED WHITEBOARD V2 (Primitives-First) =====
+        case "apply_whiteboard_patch":
+        case "applyWhiteboardPatch": {
+          const { patch, lastKnownVersion } = args.skill_args ?? {};
+          const resultPatch = await ctx.runMutation(api.database.whiteboard.applyWhiteboardPatch, {
+            sessionId: args.session_id,
+            patch,
+            lastKnownVersion,
+          });
+          result = {
+            payload: {
+              message_text: resultPatch.summary || "Patch applied",
+              message_type: "status_update",
+            },
+            actions: [],
+          };
+          break;
+        }
+
+        case "get_whiteboard_summary": {
+          const summary: string = await ctx.runQuery(api.skills.whiteboard_query.getWhiteboardSummary, {
+            sessionId: args.session_id,
+          });
+          result = {
+            payload: {
+              message_text: summary,
+              message_type: "whiteboard_summary",
+            },
+            actions: [],
+          };
+          break;
+        }
+
         // ===== UNKNOWN SKILLS =====
         default:
           console.warn(`Unknown whiteboard skill: ${args.skill_name}`);
@@ -354,133 +387,66 @@ export const legacyWhiteboardSkillDispatch = action({
 
 // Agent prompt for Day 10 complete whiteboard skills with WebSocket integration
 export const WHITEBOARD_SKILLS_PROMPT = `
-## Whiteboard Skills (Convex - Day 10 Agent Integration Complete)
+## Whiteboard Skills – Primitives-First Patch API (2024-V2)
 
-**Primary Skills (Convex):**
-1. \`create_educational_content\` - Create MCQs, tables, diagrams
-   - content_type: "mcq" | "table" | "diagram" 
-   - data: Content-specific structure
+Your interaction with the whiteboard happens in **three** steps:
 
-2. \`batch_whiteboard_operations\` - Efficient multiple operations (Day 6-7)
-   - operations: Array of {operation_type, data} operations
-   - Supports: "add_text", "add_shape", "update_object", "clear"
-   - Automatically batches and reduces WebSocket calls
+1. **See** – call \`get_whiteboard_summary\` to obtain a concise, text-only description of the current board. If you need details about specific objects, call \`findObjectOnBoard\` with metadata filters.
 
-3. \`modify_whiteboard_objects\` - Update existing objects (Day 4-5)
-   - updates: Array of {object_id, updates} pairs
-   - Supports position, size, style changes
-
-4. \`clear_whiteboard\` - Clear content (Day 4-5)
-   - scope: "all" | "selection" | "mcq" | "diagrams" | "tables" | "assistant_content"
-
-5. \`highlight_object\` - Highlight specific objects (Day 4-5)
-   - object_id: ID of object to highlight
-   - color: Highlight color (optional)
-   - pulse: Whether to animate (optional)
-
-6. \`delete_whiteboard_objects\` - Delete specific objects (Day 4-5)
-   - object_ids: Array of object IDs to delete
-
-**Legacy Skills (Auto-redirected via Migration Bridge):**
-- \`draw_mcq\`, \`draw_mcq_actions\` → create_educational_content (mcq)
-- \`draw_table\`, \`draw_table_actions\` → create_educational_content (table)
-- \`draw_diagram\`, \`draw_diagram_actions\` → create_educational_content (diagram)
-- \`draw_flowchart\`, \`draw_flowchart_actions\` → create_educational_content (diagram)
-- \`draw_mcq_feedback\` → modify_whiteboard_objects (feedback colors)
-- \`draw_text\` → batch_whiteboard_operations (add_text)
-- \`draw_shape\` → batch_whiteboard_operations (add_shape)
-- \`draw_axis\`, \`draw_axis_actions\` → create_educational_content (axis diagram)
-- \`draw_graph\` → create_educational_content (graph diagram)
-- \`draw_latex\` → create_educational_content (latex diagram)
-- \`clear_board\`, \`clear_canvas\` → clear_whiteboard
-- \`update_object_on_board\` → modify_whiteboard_objects
-- \`highlight_object_on_board\` → highlight_object
-- \`delete_object_on_board\` → delete_whiteboard_objects
-- \`group_objects\`, \`move_group\`, \`delete_group\` → modify_whiteboard_objects
-- \`add_objects_to_board\` → batch_whiteboard_operations
-- \`show_pointer_at\` → highlight_object
-
-**Examples:**
+2. **Think** – decide what changes are necessary. Compose a **single JSON patch** describing ONLY the semantic primitives you want to create, update, or delete. The shape of the patch:
 
 \`\`\`json
-// MCQ Creation (works with both new and legacy calls)
 {
-  "skill_name": "draw_mcq_actions", // Auto-redirected
-  "skill_args": {
-    "question": "What is 2+2?",
-    "options": ["3", "4", "5", "6"],
-    "correct_index": 1
-  }
-}
-
-// Batch operations (Day 6-7)
-{
-  "skill_name": "batch_whiteboard_operations",
-  "skill_args": {
-    "operations": [
-      {
-        "operation_type": "add_text",
-        "data": {
-          "text": "Hello World",
-          "x": 100,
-          "y": 50,
-          "fontSize": 18
-        }
-      },
-      {
-        "operation_type": "add_shape",
-        "data": {
-          "shape_type": "circle",
-          "x": 200,
-          "y": 100,
-          "width": 60,
-          "height": 60
-        }
-      }
-    ]
-  }
-}
-
-// Legacy text drawing (auto-redirected)
-{
-  "skill_name": "draw_text", // Auto-redirected to batch_operations
-  "skill_args": {
-    "text": "Sample Text",
-    "x": 150,
-    "y": 75
-  }
-}
-
-// Table creation (works with both new and legacy)
-{
-  "skill_name": "draw_table_actions", // Auto-redirected
-  "skill_args": {
-    "headers": ["Name", "Score"],
-    "rows": [["Alice", "95"], ["Bob", "87"]],
-    "title": "Student Scores"
-  }
+  "creates": [ WBObject, … ],
+  "updates": [ { "id": "obj-123", "diff": <partial WBObject> } ],
+  "deletes": [ "obj-999" ]
 }
 \`\`\`
 
-**Migration Status (Day 10 Complete):**
-- ✅ All Python backend skills supported via migration bridge
-- ✅ Automatic routing to appropriate Convex actions  
-- ✅ Error handling and metrics logging
-- ✅ Timeout handling (5-second limit)
-- ✅ Session-based tracking
-- ✅ Performance monitoring
-- ✅ **NEW: Real-time WebSocket integration** - All results sent to frontend automatically
-- ✅ **NEW: Enhanced agent integration** - Full Convex action routing with metrics
-- ✅ **NEW: Comprehensive error handling** - WebSocket error delivery to frontend
+3. **Act** – call \`apply_whiteboard_patch\` with the patch. The Convex backend will validate and return:
 
-**Real-time Features:**
-- All skill results are automatically sent to the frontend via WebSocket
-- Error messages are delivered in real-time to the user interface
-- Session-based message delivery ensures proper routing
-- Automatic cleanup of old WebSocket events
+\`\`\`json
+{
+  "success": true,
+  "newBoardVersion": 42,
+  "issues": [ { "level": "warning", "message": "…" } ],
+  "summary": "Created 2, updated 1."
+}
+\`\`\`
 
-Use any skill name (legacy or new) - the system will automatically route to the correct Convex implementation and deliver results via WebSocket.
-`;
+• After each patch, INSPECT the \`issues\` array. If any \`error\` level issues appear, immediately send a follow-up corrective patch instead of redrawing the whole board.
+
+• Prefer minimal diffs — move or edit objects instead of deleting & recreating unless necessary.
+
+• IDs are UUIDs (client-generated). Always include a meaningful \`groupId\` in metadata for related objects.
+
+Available skill signatures:
+
+1. \`get_whiteboard_summary\`  
+   Request:
+   \`\`\`json
+   { "sessionId": "sess_…" }
+   \`\`\`
+   Response: *string* summary.
+
+2. \`findObjectOnBoard\`  
+   Request:
+   \`\`\`json
+   { "metaQuery": { "role": "title" } }
+   \`\`\`
+   Returns array of objects matching metadata / spatial criteria.
+
+3. \`apply_whiteboard_patch\`  
+   Request:
+   \`\`\`json
+   {
+     "patch": <WhiteboardPatch>,
+     "lastKnownVersion": 41
+   }
+   \`\`\`
+   Response: see above.
+
+You no longer need the old skills (batch_whiteboard_operations, modify_whiteboard_objects, etc.). Always use the patch flow instead.`;
 
 // Validation helper for skill arguments
 function validateSkillArgs(skill_name: string, skill_args: any): void {
