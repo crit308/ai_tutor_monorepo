@@ -172,9 +172,15 @@ async function createDiagramContent(ctx: any, data: any, batch_id: string, sessi
 
   if (data.diagram_type === "flowchart") {
     // Use new helper action
+    const rawStepsSource = (Array.isArray(data.elements) && data.elements.length)
+      ? data.elements
+      : (Array.isArray((data as any).nodes) ? (data as any).nodes : []);
+
+    const stepsArr = rawStepsSource.map((el: any) => el.label || el.content || el.text || "Step");
+
     const result = await ctx.runAction(api.helpers.flowchart.createFlowchart, {
       sessionId: session_id as any,
-      steps: data.elements.map((el: any) => el.label || el.content || "Step"),
+      steps: stepsArr,
     });
 
     objects = result.objects;

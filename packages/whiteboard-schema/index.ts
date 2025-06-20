@@ -133,4 +133,4 @@ export interface CanvasObjectSpec {
 }
 
 // Re-export for convenience
-export { CanvasObjectSpec as WBObjectCompat }; 
+export type { CanvasObjectSpec as WBObjectCompat };
