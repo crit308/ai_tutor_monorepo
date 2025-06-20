@@ -2,6 +2,8 @@ import { query, mutation } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { requireAuth } from "../auth/middleware";
+import { validateWhiteboardPatch } from "../helpers/whiteboardValidation";
+import type { WhiteboardPatch } from "@aitutor/whiteboard-schema";
 
 // ==========================================
 // REAL-TIME WHITEBOARD OBJECTS
@@ -654,5 +656,99 @@ export const addObjectsBulk = mutation({
     }
 
     return { inserted: count };
+  },
+});
+
+/**
+ * Apply a semantic whiteboard patch (creates, updates, deletes) in a single transaction.
+ * Increments the session.board_version counter and runs lightweight validation.
+ */
+export const applyWhiteboardPatch = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    patch: v.any(), // WhiteboardPatch JSON
+    lastKnownVersion: v.optional(v.number()),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    newBoardVersion: v.number(),
+    issues: v.array(v.any()),
+    summary: v.optional(v.string()),
+  }),
+  handler: async (ctx, { sessionId, patch, lastKnownVersion }) => {
+    const userId = await requireAuth(ctx).catch(() => null);
+
+    // ----- session & auth -----
+    const session = await ctx.db.get(sessionId);
+    if (!session) throw new Error("Session not found");
+    if (userId && session.user_id !== userId) throw new Error("Access denied");
+
+    const currentVersion = (session as any).board_version ?? 0;
+    if (lastKnownVersion !== undefined && lastKnownVersion !== currentVersion) {
+      throw new Error("Stale boardVersion – refresh whiteboard state before patching.");
+    }
+
+    const { creates = [], updates = [], deletes = [] } = (patch || {}) as WhiteboardPatch;
+
+    // ----- fetch existing objects once -----
+    const existingRows = await ctx.db
+      .query("whiteboard_objects")
+      .withIndex("by_session", (q) => q.eq("session_id", sessionId))
+      .collect();
+    const existingObjects = existingRows.map((r) => JSON.parse(r.object_spec));
+
+    // ----- process deletes -----
+    for (const objId of deletes) {
+      const row = await ctx.db
+        .query("whiteboard_objects")
+        .withIndex("by_session_object", (q) =>
+          q.eq("session_id", sessionId).eq("object_id", objId)
+        )
+        .first();
+      if (row) await ctx.db.delete(row._id);
+    }
+
+    // ----- process updates -----
+    for (const upd of updates) {
+      const row = await ctx.db
+        .query("whiteboard_objects")
+        .withIndex("by_session_object", (q) =>
+          q.eq("session_id", sessionId).eq("object_id", upd.id)
+        )
+        .first();
+      if (!row) continue;
+      const spec = { ...JSON.parse(row.object_spec), ...upd.diff };
+      await ctx.db.patch(row._id, {
+        object_spec: JSON.stringify(spec),
+        object_kind: spec.kind,
+        updated_at: Date.now(),
+      });
+    }
+
+    // ----- process creates -----
+    for (const obj of creates) {
+      await ctx.db.insert("whiteboard_objects", {
+        session_id: sessionId,
+        object_id: obj.id,
+        object_spec: JSON.stringify(obj),
+        object_kind: (obj as any).kind,
+        created_at: Date.now(),
+        updated_at: Date.now(),
+      });
+    }
+
+    // ----- validate (after applying patch) -----
+    const issues = validateWhiteboardPatch(
+      { creates, updates, deletes },
+      existingObjects
+    );
+
+    // ----- bump version -----
+    const newVersion = currentVersion + 1;
+    await ctx.db.patch(session._id, { board_version: newVersion });
+
+    const summary = `Created ${creates.length || 0}, updated ${updates.length || 0}, deleted ${deletes.length || 0}.`;
+
+    return { success: true, newBoardVersion: newVersion, issues, summary };
   },
 }); 

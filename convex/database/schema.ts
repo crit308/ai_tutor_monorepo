@@ -23,6 +23,8 @@ export default defineSchema({
     updated_at: v.number(),
     ended_at: v.optional(v.number()),
     analysis_status: v.optional(v.string()),
+    // Whiteboard V2 board version counter
+    board_version: v.optional(v.number()),
     // Phase 4 additions
     analytics: v.optional(v.any()),
     context: v.optional(v.any()), // Alias for context_data compatibility

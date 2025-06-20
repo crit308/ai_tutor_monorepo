@@ -134,3 +134,22 @@ export interface CanvasObjectSpec {
 
 // Re-export for convenience
 export type { CanvasObjectSpec as WBObjectCompat };
+
+// ---------------------------------------------------------------------------
+// Patch contract & validation
+// ---------------------------------------------------------------------------
+/**
+ * A minimal semantic change-set to the whiteboard. The Convex mutation processes
+ * these three arrays in the order: deletes → updates → creates.
+ */
+export interface WhiteboardPatch {
+  creates?: WBObject[];
+  updates?: { id: string; diff: Partial<WBObject> }[];
+  deletes?: string[];
+}
+
+export interface ValidationIssue {
+  level: "warning" | "error";
+  message: string;
+  objectId?: string;
+}
