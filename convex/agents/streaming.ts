@@ -9,14 +9,19 @@ import { Agent, vStreamArgs } from "@convex-dev/agent";
 import { openai } from "@ai-sdk/openai";
 import { WHITEBOARD_SKILLS_PROMPT } from "./whiteboard_agent";
 
+// ------------------------------------------------------------------
+// Model selection
+// Use env var OPENAI_MODEL if provided, otherwise default to new o4 mini
+// ------------------------------------------------------------------
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "o4-mini-2025-04-16";
+
 // Extra guidance so the LLM emits a pure JSON skill call when drawing is needed
 const JSON_SKILL_INSTRUCTION = `\n\nIf you want to create or modify something on the whiteboard, output ONE and only ONE JSON object with this exact shape:\n{ "skill_name": "<string>", "skill_args": { ... } }\nDo NOT wrap it in markdown fences, do NOT add any explanation before or after. If no drawing is required, just answer normally.`;
 
 // Create the AI Tutor Agent using the Convex Agent component
 const tutorAgent = new Agent(components.agent, {
   name: "AI Tutor",
-  // Switch to OpenAI Responses API (structured, streaming-first)
-  chat: openai.responses("gpt-4o"),
+  chat: openai.responses(OPENAI_MODEL),
   textEmbedding: openai.embedding("text-embedding-3-small"),
   instructions: "You are a helpful AI tutor. Provide clear, educational responses that help students learn effectively.",
 });
@@ -321,7 +326,7 @@ Begin the tutoring session now with a warm welcome and introduction to the topic
       // Create a new agent instance with custom instructions for this specific response
       const customAgent = new Agent(components.agent, {
         name: "AI Tutor",
-        chat: openai.responses("gpt-4o"),
+        chat: openai.responses(OPENAI_MODEL),
         textEmbedding: openai.embedding("text-embedding-3-small"),
         instructions: customInstructions,
       });
