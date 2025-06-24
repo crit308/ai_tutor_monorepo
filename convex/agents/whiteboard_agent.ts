@@ -1,6 +1,7 @@
 import { action } from "../_generated/server";
 import { api } from "../_generated/api";
 import { v } from "convex/values";
+import { Id } from "../_generated/dataModel";
 
 /**
  * Whiteboard Agent for Convex Skills Migration (Day 8-9 Complete)
@@ -259,14 +260,20 @@ export const executeWhiteboardSkill = action({
         case "applyWhiteboardPatch": {
           const { patch, lastKnownVersion } = args.skill_args ?? {};
           const resultPatch = await ctx.runMutation(api.database.whiteboard.applyWhiteboardPatch, {
-            sessionId: args.session_id,
+            sessionId: args.session_id as Id<"sessions">,
             patch,
             lastKnownVersion,
           });
+          const issueText = (resultPatch.issues ?? [])
+            .filter((iss: any) => iss.level === "error")
+            .map((iss: any) => `Error: ${iss.message}`)
+            .join("; ");
           result = {
             payload: {
-              message_text: resultPatch.summary || "Patch applied",
-              message_type: "status_update",
+              message_text:
+                (issueText ? `Whiteboard issues: ${issueText}. ` : "") +
+                (resultPatch.summary || "Patch applied"),
+              message_type: issueText ? "error" : "status_update",
             },
             actions: [],
           };
@@ -275,7 +282,7 @@ export const executeWhiteboardSkill = action({
 
         case "get_whiteboard_summary": {
           const summary: string = await ctx.runQuery(api.skills.whiteboard_query.getWhiteboardSummary, {
-            sessionId: args.session_id,
+            sessionId: args.session_id as Id<"sessions">,
           });
           result = {
             payload: {
@@ -446,7 +453,36 @@ Available skill signatures:
    \`\`\`
    Response: see above.
 
-You no longer need the old skills (batch_whiteboard_operations, modify_whiteboard_objects, etc.). Always use the patch flow instead.`;
+You no longer need the old skills (batch_whiteboard_operations, modify_whiteboard_objects, etc.). Always use the patch flow instead.
+
+Example WhiteboardPatch:
+
+\`\`\`json
+{
+  "creates": [
+    {
+      "id": "cloud-1",
+      "kind": "ellipse",
+      "x": 200,
+      "y": 100,
+      "rx": 80,
+      "ry": 40,
+      "fill": "#B3E5FC",
+      "metadata": { "groupId": "water-cycle", "role": "cloud" }
+    },
+    {
+      "id": "arrow-evap",
+      "kind": "line",
+      "points": [200, 140, 200, 260],
+      "stroke": "#000000",
+      "strokeWidth": 2,
+      "markerEnd": "arrow",
+      "metadata": { "groupId": "water-cycle", "role": "arrow" }
+    }
+  ]
+}
+\`\`\`
+`;
 
 // Validation helper for skill arguments
 function validateSkillArgs(skill_name: string, skill_args: any): void {

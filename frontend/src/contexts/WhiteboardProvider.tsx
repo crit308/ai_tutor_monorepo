@@ -877,6 +877,10 @@ export const WhiteboardProvider: React.FC<{ children: ReactNode }> = ({ children
   const dispatchForConvex = (a: any) => dispatchWhiteboardAction(a as any);
   const whiteboardState = useWhiteboardState(dispatchForConvex);
 
+  // ---------- Ephemeral WS integration (optional) ---------- //
+  const wsEnabled = process.env.NEXT_PUBLIC_USE_EPHEMERAL_WS === 'true';
+  const { writeEphemeral } = useEphemeralWebSocket(wsEnabled, dispatchForConvex);
+
   const ConvexExtras = {
      writeEphemeral,
      // Expose Convex whiteboard operations
@@ -890,6 +894,22 @@ export const WhiteboardProvider: React.FC<{ children: ReactNode }> = ({ children
 
   // Augment context value to include ephemeral write helper
   const contextValue = { ...value, ...ConvexExtras } as any;
+
+  // Sync persistent objects from Convex to Fabric canvas
+  useEffect(() => {
+    if (!isCanvasReady || !whiteboardState.objects) return;
+
+    // Clear visual-only (persistent) layer
+    dispatchWhiteboardAction({ type: 'CLEAR_CANVAS', scope: 'visual_only' } as any);
+
+    if (whiteboardState.objects.length > 0) {
+      const specs = whiteboardState.objects.map((o: any) => ({
+        ...o,
+        metadata: { ...(o.metadata || {}), source: 'convex', synced: true },
+      }));
+      dispatchWhiteboardAction({ type: 'ADD_OBJECTS', objects: specs } as any);
+    }
+  }, [whiteboardState.objects, isCanvasReady]);
 
   return (
     <WhiteboardContext.Provider value={contextValue}>

@@ -256,6 +256,13 @@ function InnerLearnPage() {
     sendInteraction('next');
   };
 
+  // NEW: Persist route param into global store so Convex hooks can use it
+  useEffect(() => {
+    if (sessionId) {
+      useSessionStore.getState().setSessionId(sessionId);
+    }
+  }, [sessionId]);
+
   if (isLoading) {
     let loadingMessage = "Initializing Session...";
     if (connectionStatus === 'connecting') {
