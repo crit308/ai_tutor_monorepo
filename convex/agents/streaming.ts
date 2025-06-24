@@ -15,7 +15,8 @@ const JSON_SKILL_INSTRUCTION = `\n\nIf you want to create or modify something on
 // Create the AI Tutor Agent using the Convex Agent component
 const tutorAgent = new Agent(components.agent, {
   name: "AI Tutor",
-  chat: openai("gpt-4"),
+  // Switch to OpenAI Responses API (structured, streaming-first)
+  chat: openai.responses("gpt-4o"),
   textEmbedding: openai.embedding("text-embedding-3-small"),
   instructions: "You are a helpful AI tutor. Provide clear, educational responses that help students learn effectively.",
 });
@@ -320,7 +321,7 @@ Begin the tutoring session now with a warm welcome and introduction to the topic
       // Create a new agent instance with custom instructions for this specific response
       const customAgent = new Agent(components.agent, {
         name: "AI Tutor",
-        chat: openai("gpt-4"),
+        chat: openai.responses("gpt-4o"),
         textEmbedding: openai.embedding("text-embedding-3-small"),
         instructions: customInstructions,
       });

@@ -364,25 +364,50 @@ function createFabricObjectInternal(spec: CanvasObjectSpec, canvas?: Canvas): Fa
             }
             case 'polygon': {
                  if (!Array.isArray(spec.points) || spec.points.length < 3) {
-                     console.error(`[InternalFactory] Polygon requires 'points' array of at least 3 points, got:`, spec.points);
+                     console.error(`[InternalFactory] Polygon requires 'points' array with at least 3 coordinate pairs, got:`, spec.points);
                      return null;
                  }
-                 // Prepare points. If values are all between 0 and 1, treat as normalized and scale by width/height.
-                 const useNormalized = spec.points.every((p:any)=> Array.isArray(p) && p.length===2 && p.every((n:any)=> typeof n==='number' && n>=0 && n<=1));
+
+                 // Normalize into array of {x,y}
+                 let pointObjs: Array<{ x: number; y: number }> = [];
+                 if (typeof spec.points[0] === 'number') {
+                     // Flat numeric array: [x1, y1, x2, y2, ...]
+                     if (spec.points.length % 2 !== 0) {
+                         console.warn('[InternalFactory] Polygon flat points array has odd length, last value will be ignored:', spec.points);
+                     }
+                     for (let i = 0; i < spec.points.length - 1; i += 2) {
+                         const x = spec.points[i] as number;
+                         const y = spec.points[i + 1] as number;
+                         pointObjs.push({ x, y });
+                     }
+                 } else if (Array.isArray(spec.points[0])) {
+                     // Array of [x,y]
+                     pointObjs = (spec.points as Array<[number, number]>).map(([x, y]) => ({ x, y }));
+                 } else if (typeof (spec.points[0] as any)?.x === 'number') {
+                     // Array of {x,y}
+                     pointObjs = (spec.points as Array<{ x: number; y: number }>);
+                 } else {
+                     console.error('[InternalFactory] Polygon points format not recognized:', spec.points);
+                     return null;
+                 }
+
+                 // Detect if coordinates are normalized (0-1)
+                 const useNormalized = pointObjs.every(p => p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1);
                  const w = coords.width ?? (spec.width ?? 100);
                  const h = coords.height ?? (spec.height ?? 100);
-                 const processedPts = (spec.points as Array<[number,number]>).map(([px,py])=> {
-                     return useNormalized ? { x: px * w, y: py * h } : { x: px, y: py };
-                 });
-                 fabricObject = new Polygon(processedPts, {
-                     ...baseOptions,
-                     width: w,
-                     height: h,
-                     fill: spec.fill ?? 'transparent',
-                     stroke: spec.stroke ?? 'black',
-                     strokeWidth: spec.strokeWidth ?? 1,
-                 });
-                 break;
+                 const processedPts = pointObjs.map(({ x, y }) => ({
+                     x: useNormalized ? x * w : x,
+                     y: useNormalized ? y * h : y,
+                 }));
+                  fabricObject = new Polygon(processedPts, {
+                      ...baseOptions,
+                      width: w,
+                      height: h,
+                      fill: spec.fill ?? 'transparent',
+                      stroke: spec.stroke ?? 'black',
+                      strokeWidth: spec.strokeWidth ?? 1,
+                  });
+                  break;
             }
             case 'triangle': {
                  const w = coords.width ?? (spec.width ?? 100);
