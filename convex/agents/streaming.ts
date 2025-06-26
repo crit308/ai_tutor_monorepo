@@ -8,6 +8,7 @@ import { Id } from "../_generated/dataModel";
 import { Agent, vStreamArgs } from "@convex-dev/agent";
 import { openai } from "@ai-sdk/openai";
 import { WHITEBOARD_SKILLS_PROMPT } from "./whiteboard_agent";
+import { whiteboardTools } from "./whiteboard_tools";
 
 // ------------------------------------------------------------------
 // Model selection
@@ -16,7 +17,7 @@ import { WHITEBOARD_SKILLS_PROMPT } from "./whiteboard_agent";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "o4-mini-2025-04-16";
 
 // Extra guidance so the LLM emits a pure JSON skill call when drawing is needed
-const JSON_SKILL_INSTRUCTION = `\n\nIf you want to create or modify something on the whiteboard, output ONE and only ONE JSON object with this exact shape:\n{ "skill_name": "<string>", "skill_args": { ... } }\nDo NOT wrap it in markdown fences, do NOT add any explanation before or after. If no drawing is required, just answer normally.`;
+const JSON_SKILL_INSTRUCTION = `When calling tools, respond with either a SINGLE JSON object or an ARRAY of such objects, each following: { \"skill_name\": \"<string>\", \"skill_args\": { ... } }. Do NOT wrap in markdown fences or add prose around it.\n\nMANDATORY: After an \"apply_whiteboard_patch\" call, include \"get_whiteboard_summary\" in the same array (or as your next single-object response) so you can inspect the updated board before speaking to the student. Only reply normally once the board is finalized.`;
 
 // Create the AI Tutor Agent using the Convex Agent component
 const tutorAgent = new Agent(components.agent, {
@@ -24,6 +25,7 @@ const tutorAgent = new Agent(components.agent, {
   chat: openai.responses(OPENAI_MODEL),
   textEmbedding: openai.embedding("text-embedding-3-small"),
   instructions: "You are a helpful AI tutor. Provide clear, educational responses that help students learn effectively.",
+  tools: whiteboardTools,
 });
 
 
@@ -302,45 +304,26 @@ Begin the tutoring session now with a warm welcome and introduction to the topic
               }
             }
           }
+          
+          // Provide current boardVersion number (for lastKnownVersion in patches)
+          if (args.sessionId) {
+            try {
+              const boardVersionDoc = await ctx.runQuery(internal.functions.getSessionInternal, {
+                sessionId: args.sessionId,
+              });
+              const boardVersion = (boardVersionDoc as any)?.board_version ?? 0;
+              customInstructions += `\nCurrent boardVersion: ${boardVersion}. Include this as lastKnownVersion when applying patches.`;
+            } catch (e) {
+              console.error("[Agent Streaming] Could not fetch boardVersion", e);
+            }
+          }
         } catch (error) {
           console.log("[Agent Streaming] Could not load knowledge base context:", error);
         }
       }
 
-      // --- Whiteboard ledger: list current object IDs so model can reference instead of clearing ---
-      try {
-        if (args.sessionId) {
-          const objs = await ctx.runQuery(api.database.whiteboard.getWhiteboardObjects, {
-            sessionId: args.sessionId,
-          });
-          const ids = objs.map((o: any) => o.id).slice(0, 50); // cap to 50 to avoid exceeding context
-          if (ids.length > 0) {
-            customInstructions += `\n\nCurrent objects on the whiteboard (ids): ${ids.join(", ")}.`;
-          }
-
-          // Attach semantic summary for richer context
-          try {
-            const summaryObj: any = await ctx.runQuery(api.database.whiteboard.getBoardSummary, {
-              sessionId: args.sessionId,
-            });
-            const summaryStr = JSON.stringify(summaryObj);
-            customInstructions += `\n\nWHITEBOARD_STATE (JSON): ${summaryStr}`;
-          } catch (err) {
-            console.error("[Agent Streaming] Could not append board summary", err);
-          }
-
-          const boardVersionDoc = args.sessionId ? await ctx.runQuery(internal.functions.getSessionInternal, {
-            sessionId: args.sessionId,
-          }) : null;
-          const boardVersion = (boardVersionDoc as any)?.board_version ?? 0;
-
-          customInstructions += `\nCurrent boardVersion: ${boardVersion}. You may emit additional apply_whiteboard_patch calls to refine the drawing; when satisfied, reply normally.`;
-
-          customInstructions += "\nAvoid using clear_whiteboard unless absolutely necessary.";
-        }
-      } catch (e) {
-        console.error("[Agent Streaming] Could not append whiteboard ledger", e);
-      }
+      // No automatic whiteboard summary injection. The tutor should call
+      // `get_whiteboard_summary` when it needs to inspect the current board.
 
       // Create a new agent instance with custom instructions for this specific response
       const customAgent = new Agent(components.agent, {
@@ -348,6 +331,7 @@ Begin the tutoring session now with a warm welcome and introduction to the topic
         chat: openai.responses(OPENAI_MODEL),
         textEmbedding: openai.embedding("text-embedding-3-small"),
         instructions: customInstructions,
+        tools: whiteboardTools,
       });
 
       // Continue the thread and stream the response using the custom agent
@@ -385,18 +369,28 @@ Begin the tutoring session now with a warm welcome and introduction to the topic
         }
       }
 
-      if (skillCall && typeof skillCall === "object" && skillCall.skill_name) {
-        console.log(`[Agent Streaming] Detected skill call: ${skillCall.skill_name}`);
-        try {
-          await ctx.runAction(api.agents.whiteboard_agent.executeWhiteboardSkill, {
-            skill_name: skillCall.skill_name,
-            skill_args: skillCall.skill_args || {},
-            session_id: args.sessionId ? args.sessionId.toString() : "unknown",
-            user_id: "ai-tutor",
-          });
-        } catch (e) {
-          console.error("[Agent Streaming] Error executing whiteboard skill:", e);
+      const executeSkill = async (call: any) => {
+        if (call && typeof call === "object" && call.skill_name) {
+          console.log(`[Agent Streaming] Detected skill call: ${call.skill_name}`);
+          try {
+            await ctx.runAction(api.agents.whiteboard_agent.executeWhiteboardSkill, {
+              skill_name: call.skill_name,
+              skill_args: call.skill_args || {},
+              session_id: args.sessionId ? args.sessionId.toString() : "unknown",
+              user_id: "ai-tutor",
+            });
+          } catch (e) {
+            console.error("[Agent Streaming] Error executing whiteboard skill:", e);
+          }
         }
+      };
+
+      if (Array.isArray(skillCall)) {
+        for (const call of skillCall) {
+          await executeSkill(call);
+        }
+      } else {
+        await executeSkill(skillCall);
       }
       
       // No need for complex handoff logic - the agent will start tutoring immediately

@@ -66,13 +66,21 @@ export default function AgentTutorChat({ sessionId, className = '' }: AgentTutor
 
   // Convert agent messages to local format and merge with local messages
   useEffect(() => {
-    const convertedMessages: Message[] = agentMessages.map((msg, index) => ({
-      id: msg.key || `agent-${index}`,
-      role: msg.role as 'user' | 'assistant',
-      content: msg.content,
-      timestamp: Date.now(), // Agent messages don't have timestamps, so use current time
-      isStreaming: false, // Agent messages are already processed
-    }));
+    const convertedMessages: Message[] = agentMessages
+      .filter((msg) => {
+        if (msg.role !== 'user' && msg.role !== 'assistant') return false;
+        if (msg.role === 'assistant' && typeof msg.content === 'string' && (msg.content.startsWith('PATCH_RESULT:') || msg.content.startsWith('WHITEBOARD_STATE:'))) {
+          return false; // hide internal patch status messages
+        }
+        return true;
+      })
+      .map((msg, index) => ({
+        id: msg.key || `agent-${index}`,
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content,
+        timestamp: Date.now(), // Agent messages don't have timestamps, so use current time
+        isStreaming: false, // Agent messages are already processed
+      }));
 
     setLocalMessages(convertedMessages);
   }, [agentMessages]);
