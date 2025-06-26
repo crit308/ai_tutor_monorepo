@@ -484,6 +484,7 @@ Available skill signatures:
    Request:
    \`\`\`json
    {
+     "sessionId": "sess_…",
      "patch": <WhiteboardPatch>,
      "lastKnownVersion": 41
    }

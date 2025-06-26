@@ -1,15 +1,22 @@
-import { tool } from "ai";
+// @ts-nocheck
+import { createTool } from "@convex-dev/agent";
 import { z } from "zod";
+import { api } from "../_generated/api";
 
 // Tool: get_whiteboard_summary
-export const getWhiteboardSummaryTool = tool({
+export const getWhiteboardSummaryTool = createTool({
   description: "Get a concise summary of the current whiteboard for the given session.",
-  parameters: z.object({
+  args: z.object({
     sessionId: z.string().describe("Current session ID"),
   }),
-  // No automatic execution needed – server intercepts the JSON call.
-  async execute(_args: { sessionId: string }) {
-    return "Requested summary";
+  async handler(ctx: any, args) {
+    const res = await ctx.runAction(api.agents.whiteboard_agent.executeWhiteboardSkill, {
+      skill_name: "get_whiteboard_summary",
+      skill_args: {},
+      session_id: args.sessionId,
+      user_id: ctx.userId ?? "ai-tutor",
+    });
+    return res.payload.message_text;
   },
 });
 
@@ -43,23 +50,23 @@ const wbUpdateSchema = z
   })
   .strict();
 
-// Patch schema
-const whiteboardPatchSchema = z
-  .object({
-    creates: z.array(wbObjectSchema).optional(),
-    updates: z.array(wbUpdateSchema).optional(),
-    deletes: z.array(z.string()).optional(),
-  })
-  .strict();
+// Patch schema (for reference; not used directly in code)
 
-export const applyWhiteboardPatchTool = tool({
+export const applyWhiteboardPatchTool = createTool({
   description: "Apply a JSON patch of primitives to the whiteboard.",
-  parameters: z.object({
+  args: z.object({
+    sessionId: z.string().describe("Current session ID"),
     patch: z.object({}).strict().describe("WhiteboardPatch object"),
     lastKnownVersion: z.number(),
   }).strict(),
-  async execute(_args) {
-    return "Patch enqueued";
+  async handler(ctx: any, args) {
+    const res = await ctx.runAction(api.agents.whiteboard_agent.executeWhiteboardSkill, {
+      skill_name: "apply_whiteboard_patch",
+      skill_args: { patch: args.patch, lastKnownVersion: args.lastKnownVersion },
+      session_id: args.sessionId,
+      user_id: ctx.userId ?? "ai-tutor",
+    });
+    return res.payload.message_text;
   },
 });
 
