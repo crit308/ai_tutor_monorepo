@@ -25,20 +25,25 @@ const wbObjectSchema = z
   .object({
     id: z.string(),
     kind: z.string(),
-    x: z.number().optional(),
-    y: z.number().optional(),
-    rx: z.number().optional(),
-    ry: z.number().optional(),
-    width: z.number().optional(),
-    height: z.number().optional(),
-    points: z.array(z.number()).optional(),
-    fill: z.string().optional(),
-    stroke: z.string().optional(),
-    strokeWidth: z.number().optional(),
-    markerEnd: z.string().optional(),
-    text: z.string().optional(),
-    fontSize: z.number().optional(),
-    metadata: z.record(z.any()).optional(),
+    x: z.number(),
+    y: z.number(),
+    rx: z.number(),
+    ry: z.number(),
+    width: z.number(),
+    height: z.number(),
+    points: z.array(z.number()),
+    fill: z.string(),
+    stroke: z.string(),
+    strokeWidth: z.number(),
+    markerEnd: z.string(),
+    text: z.string(),
+    fontSize: z.number(),
+    metadata: z
+      .object({
+        groupId: z.string(),
+        role: z.string(),
+      })
+      .strict(),
   })
   .strict();
 
@@ -46,7 +51,7 @@ const wbObjectSchema = z
 const wbUpdateSchema = z
   .object({
     id: z.string(),
-    diff: wbObjectSchema.partial().strict(),
+    diff: wbObjectSchema.strict(),
   })
   .strict();
 
@@ -56,7 +61,14 @@ export const applyWhiteboardPatchTool = createTool({
   description: "Apply a JSON patch of primitives to the whiteboard.",
   args: z.object({
     sessionId: z.string().describe("Current session ID"),
-    patch: z.object({}).strict().describe("WhiteboardPatch object"),
+    patch: z
+      .object({
+        creates: z.array(wbObjectSchema),
+        updates: z.array(wbUpdateSchema),
+        deletes: z.array(z.string()),
+      })
+      .strict()
+      .describe("WhiteboardPatch object"),
     lastKnownVersion: z.number(),
   }).strict(),
   async handler(ctx: any, args) {

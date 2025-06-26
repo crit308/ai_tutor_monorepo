@@ -296,38 +296,14 @@ export const executeWhiteboardSkill = action({
             },
             actions: [],
           };
-
-          // Push the summary as a tool message in the thread and schedule streaming follow-up
-          try {
-            const sessionDoc: any = await ctx.runQuery(internal.functions.getSessionInternal, {
-              sessionId: args.session_id as Id<"sessions">,
-            });
-            const threadId: string | undefined = sessionDoc?.context_data?.agent_thread_id;
-            if (threadId) {
-              const addRes = await ctx.runMutation(components.agent.messages.addMessages, {
-                threadId,
-                messages: [
-                  {
-                    message: {
-                      role: "assistant",
-                      content: `WHITEBOARD_STATE:\n${summary}`,
-                    },
-                  },
-                ],
-              });
-              const toolMsgId = (addRes as any).messages?.[0]?._id as string | undefined;
-
-              if (toolMsgId) {
-                await ctx.scheduler.runAfter(0, internal.agents.streaming.generateStreamingResponse, {
-                  threadId,
-                  sessionId: args.session_id as Id<"sessions">,
-                  promptMessageId: toolMsgId,
-                });
-              }
-            }
-          } catch (err) {
-            console.error("[whiteboard_agent] Unable to push board summary or schedule follow-up", err);
-          }
+          
+          // Previously, we injected an "assistant" message with the board state and
+          // scheduled a follow-up streaming response. This caused duplicate visible
+          // messages (WHITEBOARD_STATE) and recursive streaming loops. We now
+          // avoid emitting any additional thread messages here; the tool result is
+          // returned directly to the calling agent step, and the tutor decides the
+          // next action within the same run.
+          
           break;
         }
 
