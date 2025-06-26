@@ -1,5 +1,6 @@
 import { action } from "../_generated/server";
 import { api } from "../_generated/api";
+import { internal, components } from "../_generated/api";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 
@@ -264,6 +265,44 @@ export const executeWhiteboardSkill = action({
             patch,
             lastKnownVersion,
           });
+
+          // Schedule a follow-up streaming response so the model can inspect the updated board
+          try {
+            const sessionDoc: any = await ctx.runQuery(internal.functions.getSessionInternal, {
+              sessionId: args.session_id as Id<"sessions">,
+            });
+            const threadId: string | undefined = sessionDoc?.context_data?.agent_thread_id;
+            if (threadId) {
+              // push summary tool message
+              const summaryObj = await ctx.runQuery(api.database.whiteboard.getBoardSummary, {
+                sessionId: args.session_id as Id<"sessions">,
+              });
+              const addRes = await ctx.runMutation(components.agent.messages.addMessages, {
+                threadId,
+                messages: [
+                  {
+                    message: {
+                      role: "assistant",
+                      content: `WHITEBOARD_STATE:\n${JSON.stringify(summaryObj)}`,
+                    },
+                  },
+                ],
+              });
+              const toolMsgId = (addRes as any).messages?.[0]?._id as string | undefined;
+
+              if (toolMsgId) {
+                // schedule streaming follow-up so the model can refine
+                await ctx.scheduler.runAfter(0, internal.agents.streaming.generateStreamingResponse, {
+                  threadId,
+                  sessionId: args.session_id as Id<"sessions">,
+                  promptMessageId: toolMsgId,
+                });
+              }
+            }
+          } catch (err) {
+            console.error("[whiteboard_agent] Unable to push summary or schedule follow-up", err);
+          }
+
           const issueText = (resultPatch.issues ?? [])
             .filter((iss: any) => iss.level === "error")
             .map((iss: any) => `Error: ${iss.message}`)
@@ -454,6 +493,8 @@ Available skill signatures:
    Response: see above.
 
 You no longer need the old skills (batch_whiteboard_operations, modify_whiteboard_objects, etc.). Always use the patch flow instead.
+
+After you send a patch the backend will respond with a \`WHITEBOARD_STATE\` tool message that contains a JSON summary of the current board. Use that feedback to decide whether further patches are required. When no more modifications are needed, reply normally.
 
 Example WhiteboardPatch:
 

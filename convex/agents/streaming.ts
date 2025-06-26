@@ -315,8 +315,27 @@ Begin the tutoring session now with a warm welcome and introduction to the topic
           });
           const ids = objs.map((o: any) => o.id).slice(0, 50); // cap to 50 to avoid exceeding context
           if (ids.length > 0) {
-            customInstructions += `\n\nCurrent objects on the whiteboard (ids): ${ids.join(", ")}. When modifying existing graphics, use modify_whiteboard_objects with these ids instead of clear_whiteboard.`;
+            customInstructions += `\n\nCurrent objects on the whiteboard (ids): ${ids.join(", ")}.`;
           }
+
+          // Attach semantic summary for richer context
+          try {
+            const summaryObj: any = await ctx.runQuery(api.database.whiteboard.getBoardSummary, {
+              sessionId: args.sessionId,
+            });
+            const summaryStr = JSON.stringify(summaryObj);
+            customInstructions += `\n\nWHITEBOARD_STATE (JSON): ${summaryStr}`;
+          } catch (err) {
+            console.error("[Agent Streaming] Could not append board summary", err);
+          }
+
+          const boardVersionDoc = args.sessionId ? await ctx.runQuery(internal.functions.getSessionInternal, {
+            sessionId: args.sessionId,
+          }) : null;
+          const boardVersion = (boardVersionDoc as any)?.board_version ?? 0;
+
+          customInstructions += `\nCurrent boardVersion: ${boardVersion}. You may emit additional apply_whiteboard_patch calls to refine the drawing; when satisfied, reply normally.`;
+
           customInstructions += "\nAvoid using clear_whiteboard unless absolutely necessary.";
         }
       } catch (e) {
