@@ -335,6 +335,68 @@ export const executeWhiteboardSkill = action({
           break;
         }
 
+        case "get_whiteboard_image": {
+          const imageData: string = await ctx.runQuery(api.skills.whiteboard_query.getWhiteboardAsImage, {
+            sessionId: args.session_id as Id<"sessions">,
+          });
+          result = {
+            payload: {
+              message_text: imageData,
+              message_type: "whiteboard_image",
+            },
+            actions: [],
+          };
+          break;
+        }
+
+        case "get_whiteboard_screenshot": {
+          // Generate unique request ID
+          const requestId = `screenshot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          
+          // Request screenshot from frontend via WebSocket
+          await ctx.runMutation(api.websockets.requestScreenshot, {
+            session_id: args.session_id,
+            request_id: requestId,
+            target_area: "whiteboard",
+          });
+          
+          // Wait for response with polling
+          let attempts = 0;
+          const maxAttempts = 20;
+          let screenshotData = "";
+          
+          while (attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            const response = await ctx.runQuery(api.websockets.getScreenshotResponse, {
+              session_id: args.session_id,
+              request_id: requestId,
+              timeout_ms: 1000,
+            });
+            
+            if (response.success) {
+              screenshotData = response.image_data;
+              break;
+            }
+            
+            attempts++;
+          }
+          
+          // Fallback if no screenshot received
+          if (!screenshotData) {
+            screenshotData = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+          }
+          
+          result = {
+            payload: {
+              message_text: screenshotData,
+              message_type: "whiteboard_screenshot",
+            },
+            actions: [],
+          };
+          break;
+        }
+
         // ===== UNKNOWN SKILLS =====
         default:
           console.warn(`Unknown whiteboard skill: ${args.skill_name}`);
@@ -439,7 +501,11 @@ export const WHITEBOARD_SKILLS_PROMPT = `
 
 Your interaction with the whiteboard happens in **three** steps:
 
-1. **See** – call \`get_whiteboard_summary\` for a basic overview, \`get_enhanced_whiteboard_summary\` for detailed spatial analysis, or \`get_whiteboard_svg\` for the complete visual structure as SVG text with exact coordinates and styling.
+1. **See** – call \`get_whiteboard_summary\` for a basic overview, \`get_enhanced_whiteboard_summary\` for detailed spatial analysis, \`get_whiteboard_svg\` for complete structure as text, or \`get_whiteboard_image\` to actually SEE the whiteboard visually as an image.
+
+1. **See** – call \`get_whiteboard_summary\` for a basic overview, \`get_enhanced_whiteboard_summary\` for detailed spatial analysis, \`get_whiteboard_svg\` for complete structure as text, \`get_whiteboard_image\` for generated SVG images, or \`get_whiteboard_screenshot\` to see REAL browser screenshots exactly like a human user sees.
+
+1. **See** – call \`get_whiteboard_summary\` for a basic overview, \`get_enhanced_whiteboard_summary\` for detailed spatial analysis, \`get_whiteboard_svg\` for complete structure as text, \`get_whiteboard_image\` for generated SVG images, or \`get_whiteboard_screenshot\` to see REAL browser screenshots exactly like a human user sees.
 
 2. **Think** – decide what changes are necessary. Plan your whiteboard modifications using the available tools:
    - Use \`create_whiteboard_objects\` to add new elements
@@ -457,24 +523,25 @@ Available tools:
 1. \`get_whiteboard_summary\` - Basic object counts and text content
 2. \`get_enhanced_whiteboard_summary\` - Detailed spatial analysis with relationships and layout assessment  
 3. \`get_whiteboard_svg\` - Complete SVG representation with exact coordinates, styling, and metadata
-4. \`create_whiteboard_objects\` - Add new objects to the whiteboard
-5. \`update_whiteboard_objects\` - Modify existing objects
-6. \`delete_whiteboard_objects\` - Remove objects from the whiteboard
+4. \`get_whiteboard_image\` - Generated SVG visual image for assessment
+5. \`get_whiteboard_screenshot\` - **REAL browser screenshot** exactly as human users see it
+6. \`create_whiteboard_objects\` - Add new objects to the whiteboard
+7. \`update_whiteboard_objects\` - Modify existing objects
+8. \`delete_whiteboard_objects\` - Remove objects from the whiteboard
 
-The SVG export provides the most comprehensive view of the whiteboard, including:
-- Exact coordinates and dimensions
-- Visual styling (colors, stroke widths, etc.)
-- Object groupings and metadata 
-- Spatial relationships between elements
-- Complete structure for layout analysis
+For the best understanding, use \`get_whiteboard_image\` to visually see the layout like a student would, combined with \`get_whiteboard_svg\` for precise coordinates and structural details when needed.
 
-After you call any whiteboard modification tool, **immediately** call \`get_whiteboard_svg\` to verify the changes and understand the complete visual structure. This will help you:
-- Confirm your changes were applied correctly
-- See the exact layout and positioning  
-- Assess the overall visual effectiveness
-- Plan any additional improvements needed
+After you call any whiteboard modification tool, **immediately** call \`get_whiteboard_image\` to visually see the result, then optionally call \`get_whiteboard_svg\` for precise details if needed. This will help you:
 
-Use the SVG output to provide detailed feedback about the visual explanation's clarity and effectiveness.
+For the BEST visual understanding, use \`get_whiteboard_screenshot\` to see exactly what students see in their browser. Fall back to \`get_whiteboard_image\` if screenshots aren't available.
+
+After you call any whiteboard modification tool, **immediately** call \`get_whiteboard_screenshot\` to see the real visual result, just like a student would. This will help you:
+- Visually confirm your changes look good
+- Assess the overall aesthetics and clarity
+- Understand the visual flow like a student would
+- Provide intuitive feedback about the explanation's effectiveness
+
+Use the visual image to give natural, human-like feedback about what you see.
 `;
 
 // Validation helper for skill arguments

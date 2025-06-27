@@ -35,6 +35,9 @@ interface WhiteboardContextType {
 
   // Ephemeral write helper
   writeEphemeral: (spec: CanvasObjectSpec) => void;
+  
+  // Screenshot functionality
+  captureWhiteboardScreenshot: () => Promise<string | null>;
 }
 
 const WhiteboardContext = createContext<WhiteboardContextType | undefined>(undefined);
@@ -879,10 +882,11 @@ export const WhiteboardProvider: React.FC<{ children: ReactNode }> = ({ children
 
   // ---------- Ephemeral WS integration (optional) ---------- //
   const wsEnabled = process.env.NEXT_PUBLIC_USE_EPHEMERAL_WS === 'true';
-  const { writeEphemeral } = useEphemeralWebSocket(wsEnabled, dispatchForConvex);
+  const { writeEphemeral, captureWhiteboardScreenshot } = useEphemeralWebSocket(wsEnabled, dispatchForConvex);
 
   const ConvexExtras = {
      writeEphemeral,
+     captureWhiteboardScreenshot,
      // Expose Convex whiteboard operations
      addPersistentObject: whiteboardState.addObject,
      updatePersistentObject: whiteboardState.updateObject,

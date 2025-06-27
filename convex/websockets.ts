@@ -187,6 +187,93 @@ export const cleanupOldEvents = mutation({
   },
 });
 
+// Request screenshot from frontend
+export const requestScreenshot = mutation({
+  args: {
+    session_id: v.string(),
+    request_id: v.string(),
+    target_area: v.optional(v.string()), // "whiteboard", "full", etc.
+  },
+  handler: async (ctx, args) => {
+    // Send screenshot request to frontend
+    await ctx.db.insert("realtime_events", {
+      event_type: "screenshot_request",
+      session_id: args.session_id,
+      event_data: {
+        request_id: args.request_id,
+        target_area: args.target_area || "whiteboard",
+        timestamp: Date.now(),
+      },
+      timestamp: Date.now(),
+    });
+
+    return { success: true, request_id: args.request_id };
+  },
+});
+
+// Receive screenshot from frontend
+export const receiveScreenshot = mutation({
+  args: {
+    session_id: v.string(),
+    request_id: v.string(),
+    image_data: v.string(), // base64 encoded image
+    metadata: v.optional(v.object({
+      width: v.number(),
+      height: v.number(),
+      format: v.string(),
+      timestamp: v.number(),
+    })),
+  },
+  handler: async (ctx, args) => {
+    // Store the screenshot data
+    await ctx.db.insert("realtime_events", {
+      event_type: "screenshot_response",
+      session_id: args.session_id,
+      event_data: {
+        request_id: args.request_id,
+        image_data: args.image_data,
+        metadata: args.metadata,
+        received_at: Date.now(),
+      },
+      timestamp: Date.now(),
+    });
+
+    return { success: true };
+  },
+});
+
+// Get screenshot response
+export const getScreenshotResponse = query({
+  args: {
+    session_id: v.string(),
+    request_id: v.string(),
+    timeout_ms: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const timeout = args.timeout_ms || 10000; // 10 second default timeout
+    const cutoffTime = Date.now() - timeout;
+
+    const response = await ctx.db
+      .query("realtime_events")
+      .filter(q => q.eq(q.field("session_id"), args.session_id))
+      .filter(q => q.eq(q.field("event_type"), "screenshot_response"))
+      .filter(q => q.gte(q.field("timestamp"), cutoffTime))
+      .order("desc")
+      .first();
+
+    if (response && response.event_data.request_id === args.request_id) {
+      return {
+        success: true,
+        image_data: response.event_data.image_data,
+        metadata: response.event_data.metadata,
+        timestamp: response.timestamp,
+      };
+    }
+
+    return { success: false, error: "Screenshot not received within timeout" };
+  },
+});
+
 // Helper to send error messages via WebSocket
 export const sendErrorToSession = mutation({
   args: {

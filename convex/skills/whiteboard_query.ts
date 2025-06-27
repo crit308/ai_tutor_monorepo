@@ -1,6 +1,7 @@
-import { query } from "../_generated/server";
+import { query, action } from "../_generated/server";
 import { v } from "convex/values";
 import type { WBObject } from "@aitutor/whiteboard-schema";
+import { api } from "../_generated/api";
 
 export const getWhiteboardSummary = query({
   args: { sessionId: v.id("sessions") },
@@ -148,6 +149,113 @@ export const getWhiteboardAsSVG = query({
     
     return svg;
   }
+});
+
+export const getWhiteboardAsImage = query({
+  args: { sessionId: v.id("sessions") },
+  returns: v.string(),
+  handler: async (ctx, { sessionId }): Promise<string> => {
+    // Get whiteboard objects directly to avoid circular dependency
+    const rows = await ctx.db
+      .query("whiteboard_objects")
+      .withIndex("by_session", q => q.eq("session_id", sessionId))
+      .collect();
+
+    if (rows.length === 0) {
+      const emptySvg = `
+        <svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+          <rect width="100%" height="100%" fill="#f8f9fa"/>
+          <text x="400" y="300" text-anchor="middle" font-size="24" fill="#6c757d">
+            Empty Whiteboard
+          </text>
+        </svg>
+      `;
+      return "data:image/svg+xml;base64," + btoa(emptySvg.trim());
+    }
+
+    const objs: WBObject[] = rows.map(r => JSON.parse(r.object_spec));
+    
+    // Generate SVG directly here to avoid circular dependency
+    const bbox = calculateBoundingBoxSVG(objs);
+    const padding = 50;
+    const viewBox = `${bbox.x - padding} ${bbox.y - padding} ${bbox.width + 2 * padding} ${bbox.height + 2 * padding}`;
+    
+    // Build SVG
+    let svg = `<svg viewBox="${viewBox}" xmlns="http://www.w3.org/2000/svg">\n`;
+    
+    // Add definitions for arrow markers
+    svg += `  <defs>\n`;
+    svg += `    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">\n`;
+    svg += `      <path d="M0,0 L0,6 L9,3 z" fill="#000"/>\n`;
+    svg += `    </marker>\n`;
+    svg += `  </defs>\n\n`;
+    
+    // Group objects by concept/groupId for better organization
+    const grouped = groupObjectsByMetadata(objs);
+    
+    // Render grouped objects
+    for (const [groupName, groupObjs] of Object.entries(grouped.groups)) {
+      svg += `  <!-- Group: ${groupName} -->\n`;
+      svg += `  <g data-group="${groupName}">\n`;
+      for (const obj of groupObjs) {
+        svg += `    ${renderObjectToSVG(obj)}\n`;
+      }
+      svg += `  </g>\n\n`;
+    }
+    
+    // Render ungrouped objects
+    if (grouped.ungrouped.length > 0) {
+      svg += `  <!-- Ungrouped objects -->\n`;
+      for (const obj of grouped.ungrouped) {
+        svg += `  ${renderObjectToSVG(obj)}\n`;
+      }
+    }
+    
+    svg += `</svg>`;
+    
+    // Return SVG as data URL - AI models can render SVG images directly
+    const base64SVG: string = btoa(svg);
+    return `data:image/svg+xml;base64,${base64SVG}`;
+  }
+});
+
+export const getWhiteboardScreenshot = action({
+  args: { sessionId: v.id("sessions") },
+  returns: v.string(),
+  handler: async (ctx, { sessionId }): Promise<string> => {
+    // Generate unique request ID
+    const requestId = `screenshot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Request screenshot from frontend via WebSocket
+    await ctx.runMutation(api.websockets.requestScreenshot, {
+      session_id: sessionId,
+      request_id: requestId,
+      target_area: "whiteboard",
+    });
+    
+    // Wait for response with polling
+    let attempts = 0;
+    const maxAttempts = 20; // 10 seconds total (500ms * 20)
+    
+    while (attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms
+      
+      const response = await ctx.runQuery(api.websockets.getScreenshotResponse, {
+        session_id: sessionId,
+        request_id: requestId,
+        timeout_ms: 1000,
+      });
+      
+      if (response.success) {
+        return response.image_data;
+      }
+      
+      attempts++;
+    }
+    
+    // Timeout fallback - return empty image placeholder
+    return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+  },
 });
 
 // Helper function to calculate bounding box for SVG

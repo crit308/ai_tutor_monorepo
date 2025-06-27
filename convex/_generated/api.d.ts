@@ -60,6 +60,7 @@ import type * as skills_batch_operations from "../skills/batch_operations.js";
 import type * as skills_educational_content from "../skills/educational_content.js";
 import type * as skills_whiteboard_modifications from "../skills/whiteboard_modifications.js";
 import type * as skills_whiteboard_query from "../skills/whiteboard_query.js";
+import type * as skills_whiteboard_screenshot from "../skills/whiteboard_screenshot.js";
 import type * as test_day15_final from "../test_day15_final.js";
 import type * as test_day3_metrics from "../test_day3_metrics.js";
 import type * as test_utils from "../test_utils.js";
@@ -139,6 +140,7 @@ declare const fullApi: ApiFromModules<{
   "skills/educational_content": typeof skills_educational_content;
   "skills/whiteboard_modifications": typeof skills_whiteboard_modifications;
   "skills/whiteboard_query": typeof skills_whiteboard_query;
+  "skills/whiteboard_screenshot": typeof skills_whiteboard_screenshot;
   test_day15_final: typeof test_day15_final;
   test_day3_metrics: typeof test_day3_metrics;
   test_utils: typeof test_utils;

@@ -54,6 +54,40 @@ export const getWhiteboardSVGTool = createTool({
   },
 });
 
+// Tool: get_whiteboard_image
+export const getWhiteboardImageTool = createTool({
+  description: "Get the current whiteboard as a visual image (SVG data URL). This allows you to actually SEE the whiteboard layout visually, just like a human would. Perfect for intuitive visual assessment of the educational explanation's clarity, aesthetics, and effectiveness.",
+  args: z.object({
+    sessionId: z.string().describe("Current session ID"),
+  }),
+  async handler(ctx: any, args) {
+    const res = await ctx.runAction(api.agents.whiteboard_agent.executeWhiteboardSkill, {
+      skill_name: "get_whiteboard_image",
+      skill_args: {},
+      session_id: args.sessionId,
+      user_id: ctx.userId ?? "ai-tutor",
+    });
+    return res.payload.message_text;
+  },
+});
+
+// Tool: get_whiteboard_screenshot
+export const getWhiteboardScreenshotTool = createTool({
+  description: "Take a REAL screenshot of the whiteboard as it appears in the user's browser. This captures the exact visual appearance including colors, fonts, styling, and layout exactly as a human user sees it. The most accurate way to understand the whiteboard visually.",
+  args: z.object({
+    sessionId: z.string().describe("Current session ID"),
+  }),
+  async handler(ctx: any, args) {
+    const res = await ctx.runAction(api.agents.whiteboard_agent.executeWhiteboardSkill, {
+      skill_name: "get_whiteboard_screenshot",
+      skill_args: {},
+      session_id: args.sessionId,
+      user_id: ctx.userId ?? "ai-tutor",
+    });
+    return res.payload.message_text;
+  },
+});
+
 // Strict WB object schema
 const wbObjectSchema = z
   .object({
@@ -168,6 +202,8 @@ export const whiteboardTools = {
   get_whiteboard_summary: getWhiteboardSummaryTool,
   get_enhanced_whiteboard_summary: getEnhancedWhiteboardSummaryTool,
   get_whiteboard_svg: getWhiteboardSVGTool,
+  get_whiteboard_image: getWhiteboardImageTool,
+  get_whiteboard_screenshot: getWhiteboardScreenshotTool,
   create_whiteboard_objects: createWhiteboardObjectsTool,
   update_whiteboard_objects: updateWhiteboardObjectsTool,
   delete_whiteboard_objects: deleteWhiteboardObjectsTool,

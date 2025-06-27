@@ -247,7 +247,11 @@ const Whiteboard: React.FC<WhiteboardProps> = React.memo(({ sessionId }) => {
   }, [setFabricCanvas, handleCanvasClick]); // Add handleCanvasClick to deps
 
   return (
-    <div ref={parentRef} className="relative flex-grow w-full h-full border border-border rounded-lg overflow-hidden bg-white dark:bg-gray-950">
+    <div 
+      ref={parentRef} 
+      className="relative flex-grow w-full h-full border border-border rounded-lg overflow-hidden bg-white dark:bg-gray-950"
+      data-whiteboard-container="true"
+    >
       {/* Add Tools or other UI elements here if needed later */}
       <canvas ref={canvasRef} className="absolute top-0 left-0" />
       <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
