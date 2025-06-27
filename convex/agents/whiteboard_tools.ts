@@ -51,30 +51,78 @@ const wbObjectSchema = z
 const wbUpdateSchema = z
   .object({
     id: z.string(),
+    // Use the same full schema for diff to satisfy OpenAI requirements
     diff: wbObjectSchema.strict(),
   })
   .strict();
 
-// Patch schema (for reference; not used directly in code)
 
-export const applyWhiteboardPatchTool = createTool({
-  description: "Apply a JSON patch of primitives to the whiteboard.",
+
+// Tool: create_whiteboard_objects
+export const createWhiteboardObjectsTool = createTool({
+  description: "Create new objects on the whiteboard.",
   args: z.object({
     sessionId: z.string().describe("Current session ID"),
-    patch: z
-      .object({
-        creates: z.array(wbObjectSchema),
-        updates: z.array(wbUpdateSchema),
-        deletes: z.array(z.string()),
-      })
-      .strict()
-      .describe("WhiteboardPatch object"),
-    lastKnownVersion: z.number(),
+    objects: z.array(wbObjectSchema).describe("Array of objects to create"),
+    lastKnownVersion: z.number().describe("Last known board version"),
   }).strict(),
   async handler(ctx: any, args) {
+    const patch = {
+      creates: args.objects,
+      updates: [],
+      deletes: [],
+    };
     const res = await ctx.runAction(api.agents.whiteboard_agent.executeWhiteboardSkill, {
       skill_name: "apply_whiteboard_patch",
-      skill_args: { patch: args.patch, lastKnownVersion: args.lastKnownVersion },
+      skill_args: { patch, lastKnownVersion: args.lastKnownVersion },
+      session_id: args.sessionId,
+      user_id: ctx.userId ?? "ai-tutor",
+    });
+    return res.payload.message_text;
+  },
+});
+
+// Tool: update_whiteboard_objects
+export const updateWhiteboardObjectsTool = createTool({
+  description: "Update existing objects on the whiteboard.",
+  args: z.object({
+    sessionId: z.string().describe("Current session ID"),
+    updates: z.array(wbUpdateSchema).describe("Array of object updates"),
+    lastKnownVersion: z.number().describe("Last known board version"),
+  }).strict(),
+  async handler(ctx: any, args) {
+    const patch = {
+      creates: [],
+      updates: args.updates,
+      deletes: [],
+    };
+    const res = await ctx.runAction(api.agents.whiteboard_agent.executeWhiteboardSkill, {
+      skill_name: "apply_whiteboard_patch",
+      skill_args: { patch, lastKnownVersion: args.lastKnownVersion },
+      session_id: args.sessionId,
+      user_id: ctx.userId ?? "ai-tutor",
+    });
+    return res.payload.message_text;
+  },
+});
+
+// Tool: delete_whiteboard_objects
+export const deleteWhiteboardObjectsTool = createTool({
+  description: "Delete objects from the whiteboard.",
+  args: z.object({
+    sessionId: z.string().describe("Current session ID"),
+    objectIds: z.array(z.string()).describe("Array of object IDs to delete"),
+    lastKnownVersion: z.number().describe("Last known board version"),
+  }).strict(),
+  async handler(ctx: any, args) {
+    const patch = {
+      creates: [],
+      updates: [],
+      deletes: args.objectIds,
+    };
+    const res = await ctx.runAction(api.agents.whiteboard_agent.executeWhiteboardSkill, {
+      skill_name: "apply_whiteboard_patch",
+      skill_args: { patch, lastKnownVersion: args.lastKnownVersion },
       session_id: args.sessionId,
       user_id: ctx.userId ?? "ai-tutor",
     });
@@ -84,5 +132,7 @@ export const applyWhiteboardPatchTool = createTool({
 
 export const whiteboardTools = {
   get_whiteboard_summary: getWhiteboardSummaryTool,
-  apply_whiteboard_patch: applyWhiteboardPatchTool,
+  create_whiteboard_objects: createWhiteboardObjectsTool,
+  update_whiteboard_objects: updateWhiteboardObjectsTool,
+  delete_whiteboard_objects: deleteWhiteboardObjectsTool,
 }; 
