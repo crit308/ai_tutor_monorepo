@@ -307,6 +307,34 @@ export const executeWhiteboardSkill = action({
           break;
         }
 
+        case "get_enhanced_whiteboard_summary": {
+          const enhancedSummary: string = await ctx.runQuery(api.skills.whiteboard_query.getEnhancedWhiteboardSummary, {
+            sessionId: args.session_id as Id<"sessions">,
+          });
+          result = {
+            payload: {
+              message_text: enhancedSummary,
+              message_type: "enhanced_whiteboard_summary",
+            },
+            actions: [],
+          };
+          break;
+        }
+
+        case "get_whiteboard_svg": {
+          const svgContent: string = await ctx.runQuery(api.skills.whiteboard_query.getWhiteboardAsSVG, {
+            sessionId: args.session_id as Id<"sessions">,
+          });
+          result = {
+            payload: {
+              message_text: svgContent,
+              message_type: "whiteboard_svg",
+            },
+            actions: [],
+          };
+          break;
+        }
+
         // ===== UNKNOWN SKILLS =====
         default:
           console.warn(`Unknown whiteboard skill: ${args.skill_name}`);
@@ -411,93 +439,42 @@ export const WHITEBOARD_SKILLS_PROMPT = `
 
 Your interaction with the whiteboard happens in **three** steps:
 
-1. **See** – call \`get_whiteboard_summary\` to obtain a concise, text-only description of the current board. If you need details about specific objects, call \`findObjectOnBoard\` with metadata filters.
+1. **See** – call \`get_whiteboard_summary\` for a basic overview, \`get_enhanced_whiteboard_summary\` for detailed spatial analysis, or \`get_whiteboard_svg\` for the complete visual structure as SVG text with exact coordinates and styling.
 
-2. **Think** – decide what changes are necessary. Compose a **single JSON patch** describing ONLY the semantic primitives you want to create, update, or delete. The shape of the patch:
+2. **Think** – decide what changes are necessary. Plan your whiteboard modifications using the available tools:
+   - Use \`create_whiteboard_objects\` to add new elements
+   - Use \`update_whiteboard_objects\` to modify existing elements  
+   - Use \`delete_whiteboard_objects\` to remove elements
 
-\`\`\`json
-{
-  "creates": [ WBObject, … ],
-  "updates": [ { "id": "obj-123", "diff": <partial WBObject> } ],
-  "deletes": [ "obj-999" ]
-}
-\`\`\`
+3. **Act** – call the appropriate whiteboard tools. Always:
+   - Include meaningful \`groupId\` in metadata for related objects
+   - Use semantic roles (e.g., "title", "concept", "arrow", "label")
+   - Choose appropriate visual styling (colors, sizes, positioning)
+   - Prefer updating existing objects over deleting and recreating
 
-3. **Act** – call \`apply_whiteboard_patch\` with the patch. The Convex backend will validate and return:
+Available tools:
 
-\`\`\`json
-{
-  "success": true,
-  "newBoardVersion": 42,
-  "issues": [ { "level": "warning", "message": "…" } ],
-  "summary": "Created 2, updated 1."
-}
-\`\`\`
+1. \`get_whiteboard_summary\` - Basic object counts and text content
+2. \`get_enhanced_whiteboard_summary\` - Detailed spatial analysis with relationships and layout assessment  
+3. \`get_whiteboard_svg\` - Complete SVG representation with exact coordinates, styling, and metadata
+4. \`create_whiteboard_objects\` - Add new objects to the whiteboard
+5. \`update_whiteboard_objects\` - Modify existing objects
+6. \`delete_whiteboard_objects\` - Remove objects from the whiteboard
 
-• After each patch, INSPECT the \`issues\` array. If any \`error\` level issues appear, immediately send a follow-up corrective patch instead of redrawing the whole board.
+The SVG export provides the most comprehensive view of the whiteboard, including:
+- Exact coordinates and dimensions
+- Visual styling (colors, stroke widths, etc.)
+- Object groupings and metadata 
+- Spatial relationships between elements
+- Complete structure for layout analysis
 
-• Prefer minimal diffs — move or edit objects instead of deleting & recreating unless necessary.
+After you call any whiteboard modification tool, **immediately** call \`get_whiteboard_svg\` to verify the changes and understand the complete visual structure. This will help you:
+- Confirm your changes were applied correctly
+- See the exact layout and positioning  
+- Assess the overall visual effectiveness
+- Plan any additional improvements needed
 
-• IDs are UUIDs (client-generated). Always include a meaningful \`groupId\` in metadata for related objects.
-
-Available skill signatures:
-
-1. \`get_whiteboard_summary\`  
-   Request:
-   \`\`\`json
-   { "sessionId": "sess_…" }
-   \`\`\`
-   Response: *string* summary.
-
-2. \`findObjectOnBoard\`  
-   Request:
-   \`\`\`json
-   { "metaQuery": { "role": "title" } }
-   \`\`\`
-   Returns array of objects matching metadata / spatial criteria.
-
-3. \`apply_whiteboard_patch\`  
-   Request:
-   \`\`\`json
-   {
-     "sessionId": "sess_…",
-     "patch": <WhiteboardPatch>,
-     "lastKnownVersion": 41
-   }
-   \`\`\`
-   Response: see above.
-
-You no longer need the old skills (batch_whiteboard_operations, modify_whiteboard_objects, etc.). Always use the patch flow instead.
-
-After you call \`apply_whiteboard_patch\`, **do not** send any normal assistant message yet. **Immediately** call \`get_whiteboard_summary\` to verify the board. Then decide whether another patch is needed. Repeat this loop until the board is correct. Only then send a normal assistant reply.
-
-Example WhiteboardPatch:
-
-\`\`\`json
-{
-  "creates": [
-    {
-      "id": "cloud-1",
-      "kind": "ellipse",
-      "x": 200,
-      "y": 100,
-      "rx": 80,
-      "ry": 40,
-      "fill": "#B3E5FC",
-      "metadata": { "groupId": "water-cycle", "role": "cloud" }
-    },
-    {
-      "id": "arrow-evap",
-      "kind": "line",
-      "points": [200, 140, 200, 260],
-      "stroke": "#000000",
-      "strokeWidth": 2,
-      "markerEnd": "arrow",
-      "metadata": { "groupId": "water-cycle", "role": "arrow" }
-    }
-  ]
-}
-\`\`\`
+Use the SVG output to provide detailed feedback about the visual explanation's clarity and effectiveness.
 `;
 
 // Validation helper for skill arguments
