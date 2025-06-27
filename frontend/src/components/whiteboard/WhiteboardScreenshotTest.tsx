@@ -186,6 +186,7 @@ export const WhiteboardScreenshotTest: React.FC = () => {
       <h3 className="text-lg font-semibold mb-2">Screenshot Test</h3>
       <p className="text-sm text-gray-600 mb-4">
         Test whiteboard screenshot functionality. Add some text to the whiteboard first, then test.
+        WebSocket is disabled to avoid connection errors - screenshots work without it.
       </p>
       <div className="flex flex-wrap gap-2">
         <Button 
@@ -216,6 +217,9 @@ export const WhiteboardScreenshotTest: React.FC = () => {
         >
           🧪 Simple Test
         </Button>
+      </div>
+      <div className="mt-2 text-xs text-gray-500">
+        ✅ Text capture fixed! ❌ WebSocket disabled (prevents errors)
       </div>
     </div>
   );

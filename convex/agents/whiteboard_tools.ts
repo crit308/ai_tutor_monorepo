@@ -78,13 +78,28 @@ export const getWhiteboardScreenshotTool = createTool({
     sessionId: z.string().describe("Current session ID"),
   }),
   async handler(ctx: any, args) {
-    const res = await ctx.runAction(api.agents.whiteboard_agent.executeWhiteboardSkill, {
-      skill_name: "get_whiteboard_screenshot",
-      skill_args: {},
+    const res = await ctx.runAction(api.skills.whiteboard_screenshot.requestWhiteboardScreenshot, {
       session_id: args.sessionId,
-      user_id: ctx.userId ?? "ai-tutor",
+      request_context: "AI tutor visual analysis",
     });
-    return res.payload.message_text;
+    
+    if (res.success && res.image_data) {
+      // Return in a format that signals to the agent this is an image to analyze
+      return `I can see the whiteboard screenshot. The image data is: ${res.image_data}
+
+Please analyze this image and describe what you see on the whiteboard, including:
+1. Overall layout and organization
+2. Types of content (text, diagrams, drawings, etc.)
+3. Colors and visual styling  
+4. Educational elements like questions, equations, or concepts
+5. Any interactive elements or tools visible
+6. Spatial relationships and visual hierarchy
+
+Provide a detailed description of the whiteboard content as if you are looking at it visually.`;
+    } else {
+      // Return a helpful error message that the AI can work with
+      throw new Error(`Screenshot capture failed: ${res.error_message || 'Unknown error'}. The frontend may not be connected or screenshot functionality is unavailable.`);
+    }
   },
 });
 

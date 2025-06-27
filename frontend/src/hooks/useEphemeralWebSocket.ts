@@ -3,11 +3,13 @@ import { useSessionStore } from '@/store/sessionStore';
 import { useAuthToken } from '@convex-dev/auth/react';
 import { CanvasObjectSpec, WhiteboardAction } from '@/lib/types';
 import html2canvas from 'html2canvas';
+import { useQuery, useAction } from 'convex/react';
+import { api } from 'convex_generated/api';
 
 /**
  * Hook for managing ephemeral whiteboard objects (pointers, highlights, question tags)
  * via the minimal WebSocket server. These objects have TTL and don't persist to the database.
- * Also handles screenshot requests for visual AI analysis.
+ * Also handles screenshot requests for visual AI analysis via both WebSocket and Convex.
  */
 export function useEphemeralWebSocket(
   enabled: boolean,
@@ -16,18 +18,87 @@ export function useEphemeralWebSocket(
   const sessionId = useSessionStore(s => s.sessionId);
   const token = useAuthToken();
   const wsRef = useRef<WebSocket | null>(null);
+  const lastCheckedTimestamp = useRef<number>(Date.now());
+  
+  // Convex action for screenshot handling (was useMutation, now useAction)
+  const submitScreenshotResponse = useAction(api.skills.whiteboard_screenshot.submitScreenshotResponse);
+  
+  // Listen for Convex-based screenshot requests
+  const sessionMessages = useQuery(api.websockets.getSessionMessages, 
+    sessionId ? {
+      session_id: sessionId,
+      since_timestamp: lastCheckedTimestamp.current
+    } : "skip"
+  );
+
+  // Process Convex screenshot requests
+  useEffect(() => {
+    if (!sessionMessages || !sessionId) return;
+
+    sessionMessages.forEach(async (message) => {
+      if (message.data?.type === 'screenshot_request') {
+        console.log('[useEphemeralWebSocket] Convex screenshot request received:', message.data.request_id);
+        
+        try {
+          const screenshot = await captureWhiteboardScreenshot();
+          
+          // Submit response via Convex
+          await submitScreenshotResponse({
+            session_id: sessionId,
+            request_id: message.data.request_id,
+            image_data: screenshot || '',
+            success: screenshot !== null,
+            error_message: screenshot ? undefined : 'Screenshot capture failed'
+          });
+          
+          console.log('[useEphemeralWebSocket] Convex screenshot response submitted');
+          
+        } catch (error) {
+          console.error('[useEphemeralWebSocket] Convex screenshot error:', error);
+          
+          // Submit error response
+          await submitScreenshotResponse({
+            session_id: sessionId,
+            request_id: message.data.request_id,
+            image_data: '',
+            success: false,
+            error_message: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
+      }
+    });
+    
+    // Update last checked timestamp
+    if (sessionMessages.length > 0) {
+      lastCheckedTimestamp.current = Math.max(...sessionMessages.map(m => m.timestamp));
+    }
+  }, [sessionMessages, sessionId, submitScreenshotResponse]);
 
   // Connect to ephemeral WebSocket endpoint
   useEffect(() => {
-    if (!enabled || !sessionId || !token) return;
+    if (!enabled || !sessionId || !token) {
+      console.log('[useEphemeralWebSocket] WebSocket disabled or missing credentials');
+      return;
+    }
 
     const wsOrigin = process.env.NEXT_PUBLIC_BACKEND_WS_ORIGIN || 'ws://localhost:8080';
     const wsUrl = `${wsOrigin}/ws/ephemeral/${sessionId}?token=${token}`;
 
+    console.log('[useEphemeralWebSocket] Attempting to connect to:', wsUrl);
+
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
+    // Add connection timeout
+    const connectionTimeout = setTimeout(() => {
+      if (ws.readyState === WebSocket.CONNECTING) {
+        console.warn('[useEphemeralWebSocket] WebSocket connection timeout, closing...');
+        ws.close();
+      }
+    }, 5000); // 5 second timeout
+
     ws.onopen = () => {
+      clearTimeout(connectionTimeout);
       console.log('[useEphemeralWebSocket] Connected to ephemeral WebSocket');
     };
 
@@ -118,16 +189,26 @@ export function useEphemeralWebSocket(
       }
     };
 
-    ws.onclose = () => {
-      console.log('[useEphemeralWebSocket] Disconnected from ephemeral WebSocket');
+    ws.onclose = (event) => {
+      clearTimeout(connectionTimeout);
+      if (event.wasClean) {
+        console.log('[useEphemeralWebSocket] WebSocket connection closed cleanly');
+      } else {
+        console.warn('[useEphemeralWebSocket] WebSocket connection lost:', event.code, event.reason);
+      }
     };
 
     ws.onerror = (error) => {
-      console.error('[useEphemeralWebSocket] WebSocket error:', error);
+      clearTimeout(connectionTimeout);
+      console.info('[useEphemeralWebSocket] WebSocket connection failed. Screenshot functionality will work without WebSocket.');
+      // Silently handle error - WebSocket is optional for basic screenshot functionality
     };
 
     return () => {
-      ws.close();
+      clearTimeout(connectionTimeout);
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
       wsRef.current = null;
     };
   }, [enabled, sessionId, token, dispatchWhiteboardAction]);

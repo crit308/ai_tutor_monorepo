@@ -350,50 +350,30 @@ export const executeWhiteboardSkill = action({
         }
 
         case "get_whiteboard_screenshot": {
-          // Generate unique request ID
-          const requestId = `screenshot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-          
-          // Request screenshot from frontend via WebSocket
-          await ctx.runMutation(api.websockets.requestScreenshot, {
+          // Use the enhanced screenshot action with better error handling
+          const screenshotResult = await ctx.runAction(api.skills.whiteboard_screenshot.requestWhiteboardScreenshot, {
             session_id: args.session_id,
-            request_id: requestId,
-            target_area: "whiteboard",
+            request_context: args.skill_args.context || "AI agent visual analysis request",
           });
           
-          // Wait for response with polling
-          let attempts = 0;
-          const maxAttempts = 20;
-          let screenshotData = "";
-          
-          while (attempts < maxAttempts) {
-            await new Promise(resolve => setTimeout(resolve, 500));
-            
-            const response = await ctx.runQuery(api.websockets.getScreenshotResponse, {
-              session_id: args.session_id,
-              request_id: requestId,
-              timeout_ms: 1000,
-            });
-            
-            if (response.success) {
-              screenshotData = response.image_data;
-              break;
-            }
-            
-            attempts++;
+          if (screenshotResult.success && screenshotResult.image_data) {
+            result = {
+              payload: {
+                message_text: screenshotResult.image_data,
+                message_type: "whiteboard_screenshot",
+              },
+              actions: [],
+            };
+          } else {
+            // Screenshot failed - provide helpful error message
+            result = {
+              payload: {
+                message_text: `Screenshot capture failed: ${screenshotResult.error_message || 'Unknown error'}. Unable to visually analyze the whiteboard at this time.`,
+                message_type: "error",
+              },
+              actions: [],
+            };
           }
-          
-          // Fallback if no screenshot received
-          if (!screenshotData) {
-            screenshotData = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
-          }
-          
-          result = {
-            payload: {
-              message_text: screenshotData,
-              message_type: "whiteboard_screenshot",
-            },
-            actions: [],
-          };
           break;
         }
 

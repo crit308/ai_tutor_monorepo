@@ -25,6 +25,7 @@ import {
 import { WhiteboardProvider, useWhiteboard } from '@/contexts/WhiteboardProvider';
 import WhiteboardTools from '@/components/whiteboard/WhiteboardTools';
 import WhiteboardScreenshotTest from '@/components/whiteboard/WhiteboardScreenshotTest';
+import { ConvexScreenshotTest } from '@/components/ConvexScreenshotTest';
 import type { WhiteboardAction, ErrorResponse, InteractionResponseData } from '@/lib/types';
 import { WhiteboardModeToggle } from '@/components/ui/WhiteboardModeToggle';
 import { fetchSessionMessages } from '@/lib/api';
@@ -350,7 +351,8 @@ function InnerLearnPage() {
             
             {/* Screenshot Test Component (for development/testing) */}
             <div className="px-4 py-2">
-              <WhiteboardScreenshotTest />
+                                          <WhiteboardScreenshotTest />
+                            <ConvexScreenshotTest />
             </div>
 
             {/* Whiteboard Canvas */}

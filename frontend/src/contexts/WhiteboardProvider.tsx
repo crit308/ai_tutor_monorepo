@@ -11,6 +11,7 @@ import { getGraphLayout } from '@/lib/whiteboardUtils'; // Added for graph layou
 import type { NodeSpec, EdgeSpec } from '@/lib/types'; // Added for graph layout
 import { useWhiteboardState } from '@/hooks/useWhiteboardState';
 import { useEphemeralWebSocket } from '@/hooks/useEphemeralWebSocket';
+import { useConvexScreenshot } from '@/hooks/useConvexScreenshot';
 
 interface WhiteboardContextType {
   fabricCanvas: fabric.Canvas | null;
@@ -883,6 +884,9 @@ export const WhiteboardProvider: React.FC<{ children: ReactNode }> = ({ children
   // ---------- Ephemeral WS integration (optional) ---------- //
   const wsEnabled = process.env.NEXT_PUBLIC_USE_EPHEMERAL_WS === 'true';
   const { writeEphemeral, captureWhiteboardScreenshot } = useEphemeralWebSocket(wsEnabled, dispatchForConvex);
+  
+  // Initialize Convex-based screenshot handling
+  const convexScreenshot = useConvexScreenshot();
 
   const ConvexExtras = {
      writeEphemeral,
