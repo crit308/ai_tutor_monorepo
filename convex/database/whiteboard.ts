@@ -1,4 +1,4 @@
-import { query, mutation } from "../_generated/server";
+import { query, mutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { requireAuth } from "../auth/middleware";
@@ -692,5 +692,41 @@ export const applyWhiteboardPatch = mutation({
     await ctx.db.patch(session._id, { board_version: newVersion });
 
     return { success: true, newBoardVersion: newVersion, issues: [], summary: `Inserted ${inserted}` };
+  },
+});
+
+/**
+ * Internal version of getWhiteboardObjects that can be called from internalActions
+ * and handles authentication gracefully for system/assistant calls
+ */
+export const getWhiteboardObjectsInternal = internalQuery({
+  args: { 
+    sessionId: v.id("sessions"),
+    userId: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, { sessionId, userId }) => {
+    // Verify session ownership if userId is provided
+    const session = await ctx.db.get(sessionId);
+    if (!session) {
+      throw new Error("Session not found");
+    }
+    
+    // If userId is provided, enforce ownership; if null, assume assistant context is allowed
+    if (userId && session.user_id !== userId) {
+      throw new Error("Access denied");
+    }
+    
+    // Get all persistent whiteboard objects for this session
+    const objects = await ctx.db
+      .query("whiteboard_objects")
+      .withIndex("by_session", (q) => q.eq("session_id", sessionId))
+      .collect();
+    
+    return objects.map(obj => ({
+      id: obj.object_id,
+      ...JSON.parse(obj.object_spec),
+      createdAt: obj.created_at,
+      updatedAt: obj.updated_at,
+    }));
   },
 }); 

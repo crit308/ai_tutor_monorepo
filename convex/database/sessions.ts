@@ -1009,16 +1009,22 @@ export const updateSessionMessage = mutation({
 // ==========================================
 
 /**
- * Internal getSession function (no auth required)
+ * Internal getSession function that handles authentication gracefully for system/assistant calls
  */
 export const getSessionInternal = internalQuery({
   args: { 
     sessionId: v.id("sessions"),
+    userId: v.union(v.string(), v.null()),
     includeContext: v.optional(v.boolean()),
   },
-  handler: async (ctx, { sessionId, includeContext = true }) => {
+  handler: async (ctx, { sessionId, userId, includeContext = true }) => {
     const session = await ctx.db.get(sessionId);
     if (!session) {
+      return null;
+    }
+    
+    // If userId is provided, enforce ownership; if null, assume assistant context is allowed
+    if (userId && session.user_id !== userId) {
       return null;
     }
     
@@ -1030,6 +1036,7 @@ export const getSessionInternal = internalQuery({
       updated_at: session.updated_at,
       ended_at: session.ended_at,
       analysis_status: session.analysis_status,
+      board_version: (session as any).board_version || 0,
       context_data: includeContext ? session.context_data : undefined,
     };
     

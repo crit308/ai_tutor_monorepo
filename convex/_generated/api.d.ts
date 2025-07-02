@@ -56,8 +56,8 @@ import type * as metrics from "../metrics.js";
 import type * as sessions from "../sessions.js";
 import type * as skills_batch_operations from "../skills/batch_operations.js";
 import type * as skills_educational_content from "../skills/educational_content.js";
+import type * as skills_whiteboard_inspection from "../skills/whiteboard_inspection.js";
 import type * as skills_whiteboard_modifications from "../skills/whiteboard_modifications.js";
-import type * as skills_whiteboard_query from "../skills/whiteboard_query.js";
 import type * as skills_whiteboard_screenshot from "../skills/whiteboard_screenshot.js";
 import type * as websockets from "../websockets.js";
 
@@ -124,8 +124,8 @@ declare const fullApi: ApiFromModules<{
   sessions: typeof sessions;
   "skills/batch_operations": typeof skills_batch_operations;
   "skills/educational_content": typeof skills_educational_content;
+  "skills/whiteboard_inspection": typeof skills_whiteboard_inspection;
   "skills/whiteboard_modifications": typeof skills_whiteboard_modifications;
-  "skills/whiteboard_query": typeof skills_whiteboard_query;
   "skills/whiteboard_screenshot": typeof skills_whiteboard_screenshot;
   websockets: typeof websockets;
 }>;

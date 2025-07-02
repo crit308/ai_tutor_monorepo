@@ -300,95 +300,19 @@ export const executeWhiteboardSkill = action({
           break;
         }
 
-        case "get_whiteboard_summary": {
-          const summary: string = await ctx.runQuery(api.skills.whiteboard_query.getWhiteboardSummary, {
+        case "inspect_whiteboard": {
+          // Call the new consolidated whiteboard inspection action through internal API
+          const inspectionResult = await ctx.runAction(internal.skills.whiteboard_inspection.inspectWhiteboard, {
             sessionId: args.session_id as Id<"sessions">,
-          });
-          result = {
-            payload: {
-              message_text: summary,
-              message_type: "whiteboard_summary",
-            },
-            actions: [],
-          };
-          
-          // Previously, we injected an "assistant" message with the board state and
-          // scheduled a follow-up streaming response. This caused duplicate visible
-          // messages (WHITEBOARD_STATE) and recursive streaming loops. We now
-          // avoid emitting any additional thread messages here; the tool result is
-          // returned directly to the calling agent step, and the tutor decides the
-          // next action within the same run.
-          
-          break;
-        }
-
-        case "get_enhanced_whiteboard_summary": {
-          const enhancedSummary: string = await ctx.runQuery(api.skills.whiteboard_query.getEnhancedWhiteboardSummary, {
-            sessionId: args.session_id as Id<"sessions">,
-          });
-          result = {
-            payload: {
-              message_text: enhancedSummary,
-              message_type: "enhanced_whiteboard_summary",
-            },
-            actions: [],
-          };
-          break;
-        }
-
-        case "get_whiteboard_svg": {
-          const svgContent: string = await ctx.runQuery(api.skills.whiteboard_query.getWhiteboardAsSVG, {
-            sessionId: args.session_id as Id<"sessions">,
-          });
-          result = {
-            payload: {
-              message_text: svgContent,
-              message_type: "whiteboard_svg",
-            },
-            actions: [],
-          };
-          break;
-        }
-
-        case "get_whiteboard_image": {
-          const imageData: string = await ctx.runQuery(api.skills.whiteboard_query.getWhiteboardAsImage, {
-            sessionId: args.session_id as Id<"sessions">,
-          });
-          result = {
-            payload: {
-              message_text: imageData,
-              message_type: "whiteboard_image",
-            },
-            actions: [],
-          };
-          break;
-        }
-
-        case "get_whiteboard_screenshot": {
-          // Use the enhanced screenshot action with better error handling
-          const screenshotResult = await ctx.runAction(api.skills.whiteboard_screenshot.requestWhiteboardScreenshot, {
-            session_id: args.session_id,
-            request_context: args.skill_args.context || "AI agent visual analysis request",
           });
           
-          if (screenshotResult.success && screenshotResult.image_data) {
-            result = {
-              payload: {
-                message_text: screenshotResult.image_data,
-                message_type: "whiteboard_screenshot",
-              },
-              actions: [],
-            };
-          } else {
-            // Screenshot failed - provide helpful error message
-            result = {
-              payload: {
-                message_text: `Screenshot capture failed: ${screenshotResult.error_message || 'Unknown error'}. Unable to visually analyze the whiteboard at this time.`,
-                message_type: "error",
-              },
-              actions: [],
-            };
-          }
+          result = {
+            payload: {
+              message_text: JSON.stringify(inspectionResult),
+              message_type: "whiteboard_inspection",
+            },
+            actions: [],
+          };
           break;
         }
 
@@ -490,53 +414,23 @@ export const legacyWhiteboardSkillDispatch = action({
   },
 });
 
-// Agent prompt for Day 10 complete whiteboard skills with WebSocket integration
+// Agent prompt for simplified whiteboard skills with consolidated inspect_whiteboard tool
 export const WHITEBOARD_SKILLS_PROMPT = `
-## Whiteboard Skills – Primitives-First Patch API (2024-V2)
+## Whiteboard Skills
 
-Your interaction with the whiteboard happens in **three** steps:
+Your interaction with the whiteboard is a simple loop: **See, Think, Act**.
 
-1. **See** – call \`get_whiteboard_summary\` for a basic overview, \`get_enhanced_whiteboard_summary\` for detailed spatial analysis, \`get_whiteboard_svg\` for complete structure as text, or \`get_whiteboard_image\` to actually SEE the whiteboard visually as an image.
+**1. See:** ALWAYS start by calling the \`inspect_whiteboard\` tool. This gives you a complete, multi-modal overview of the canvas, including a visual screenshot and a structured list of every object.
 
-1. **See** – call \`get_whiteboard_summary\` for a basic overview, \`get_enhanced_whiteboard_summary\` for detailed spatial analysis, \`get_whiteboard_svg\` for complete structure as text, \`get_whiteboard_image\` for generated SVG images, or \`get_whiteboard_screenshot\` to see REAL browser screenshots exactly like a human user sees.
+**2. Think:** Analyze the output from \`inspect_whiteboard\`. Use the screenshot for visual assessment (layout, aesthetics) and the objectList to get precise IDs, roles, and text content for modifications.
 
-1. **See** – call \`get_whiteboard_summary\` for a basic overview, \`get_enhanced_whiteboard_summary\` for detailed spatial analysis, \`get_whiteboard_svg\` for complete structure as text, \`get_whiteboard_image\` for generated SVG images, or \`get_whiteboard_screenshot\` to see REAL browser screenshots exactly like a human user sees.
+**3. Act:** Call the appropriate modification tools (\`create_whiteboard_objects\`, \`update_whiteboard_objects\`, or \`delete_whiteboard_objects\`) to make your desired changes.
 
-2. **Think** – decide what changes are necessary. Plan your whiteboard modifications using the available tools:
-   - Use \`create_whiteboard_objects\` to add new elements
-   - Use \`update_whiteboard_objects\` to modify existing elements  
-   - Use \`delete_whiteboard_objects\` to remove elements
-
-3. **Act** – call the appropriate whiteboard tools. Always:
-   - Include meaningful \`groupId\` in metadata for related objects
-   - Use semantic roles (e.g., "title", "concept", "arrow", "label")
-   - Choose appropriate visual styling (colors, sizes, positioning)
-   - Prefer updating existing objects over deleting and recreating
-
-Available tools:
-
-1. \`get_whiteboard_summary\` - Basic object counts and text content
-2. \`get_enhanced_whiteboard_summary\` - Detailed spatial analysis with relationships and layout assessment  
-3. \`get_whiteboard_svg\` - Complete SVG representation with exact coordinates, styling, and metadata
-4. \`get_whiteboard_image\` - Generated SVG visual image for assessment
-5. \`get_whiteboard_screenshot\` - **REAL browser screenshot** exactly as human users see it
-6. \`create_whiteboard_objects\` - Add new objects to the whiteboard
-7. \`update_whiteboard_objects\` - Modify existing objects
-8. \`delete_whiteboard_objects\` - Remove objects from the whiteboard
-
-For the best understanding, use \`get_whiteboard_image\` to visually see the layout like a student would, combined with \`get_whiteboard_svg\` for precise coordinates and structural details when needed.
-
-After you call any whiteboard modification tool, **immediately** call \`get_whiteboard_image\` to visually see the result, then optionally call \`get_whiteboard_svg\` for precise details if needed. This will help you:
-
-For the BEST visual understanding, use \`get_whiteboard_screenshot\` to see exactly what students see in their browser. Fall back to \`get_whiteboard_image\` if screenshots aren't available.
-
-After you call any whiteboard modification tool, **immediately** call \`get_whiteboard_screenshot\` to see the real visual result, just like a student would. This will help you:
-- Visually confirm your changes look good
-- Assess the overall aesthetics and clarity
-- Understand the visual flow like a student would
-- Provide intuitive feedback about the explanation's effectiveness
-
-Use the visual image to give natural, human-like feedback about what you see.
+**Available Tools:**
+- \`inspect_whiteboard\`: Your primary tool to see and understand the whiteboard.
+- \`create_whiteboard_objects\`: Add new objects.
+- \`update_whiteboard_objects\`: Modify existing objects.
+- \`delete_whiteboard_objects\`: Remove objects.
 `;
 
 // Validation helper for skill arguments
