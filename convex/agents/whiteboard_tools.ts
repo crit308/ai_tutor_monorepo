@@ -17,8 +17,37 @@ export const inspectWhiteboardTool = createTool({
       userId: ctx.userId || null,
     });
 
-    // Return the result as a stringified JSON for the agent to parse
-    return JSON.stringify(inspectionResult);
+    // Format response with both structured data and image for comprehensive analysis
+    let response = `WHITEBOARD INSPECTION RESULTS:
+
+📊 BOARD SUMMARY:
+- Objects: ${inspectionResult.boardSummary.objectCount}
+- Version: ${inspectionResult.boardSummary.boardVersion}
+- Canvas: ${inspectionResult.boardSummary.canvasDimensions.width}x${inspectionResult.boardSummary.canvasDimensions.height}
+- Warnings: ${inspectionResult.boardSummary.warnings.join(', ') || 'None'}
+
+📋 OBJECT LIST:
+${inspectionResult.objectList.map(obj => 
+  `• ${obj.kind.toUpperCase()} "${obj.id}" at (${obj.bbox.x}, ${obj.bbox.y}) size ${obj.bbox.width}x${obj.bbox.height}${obj.text ? ` - Text: "${obj.text}"` : ''}${obj.role ? ` - Role: ${obj.role}` : ''}`
+).join('\n')}
+
+🔍 VISUAL SCREENSHOT:`;
+
+    // Include the screenshot for visual analysis if available
+    if (inspectionResult.screenshotDataUrl) {
+      response += `\n\n![Whiteboard Screenshot](${inspectionResult.screenshotDataUrl})
+
+📝 VISUAL ANALYSIS INSTRUCTIONS:
+- Examine the screenshot above to understand the visual layout, colors, and spatial relationships
+- Use the screenshot to assess aesthetics, alignment, and overall design quality
+- Combine visual observations with the structured object data for comprehensive understanding
+- The screenshot shows exactly what the student sees on their whiteboard`;
+    } else {
+      response += `\n\n⚠️ Screenshot not available - relying on structured object data only.
+Consider the spatial relationships based on the coordinates provided in the object list.`;
+    }
+
+    return response;
   },
 });
 

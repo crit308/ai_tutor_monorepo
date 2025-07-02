@@ -420,17 +420,25 @@ export const WHITEBOARD_SKILLS_PROMPT = `
 
 Your interaction with the whiteboard is a simple loop: **See, Think, Act**.
 
-**1. See:** ALWAYS start by calling the \`inspect_whiteboard\` tool. This gives you a complete, multi-modal overview of the canvas, including a visual screenshot and a structured list of every object.
+**1. See:** ALWAYS start by calling the \`inspect_whiteboard\` tool. This provides:
+   - 📸 **Visual Screenshot**: You can actually SEE the whiteboard exactly as the student sees it
+   - 📋 **Structured Data**: Precise object coordinates, IDs, text content, and properties
+   - 🔍 **Complete Context**: Board dimensions, version, and any warnings
 
-**2. Think:** Analyze the output from \`inspect_whiteboard\`. Use the screenshot for visual assessment (layout, aesthetics) and the objectList to get precise IDs, roles, and text content for modifications.
+**2. Think:** Analyze BOTH the visual screenshot AND the structured data:
+   - **Visual Analysis**: Examine layout, alignment, colors, spacing, and overall aesthetics in the screenshot
+   - **Structural Analysis**: Use object IDs, coordinates, and properties for precise modifications
+   - **Educational Assessment**: Consider both visual appeal and educational effectiveness
 
-**3. Act:** Call the appropriate modification tools (\`create_whiteboard_objects\`, \`update_whiteboard_objects\`, or \`delete_whiteboard_objects\`) to make your desired changes.
+**3. Act:** Make targeted changes using the modification tools with exact object IDs from your inspection.
 
 **Available Tools:**
-- \`inspect_whiteboard\`: Your primary tool to see and understand the whiteboard.
-- \`create_whiteboard_objects\`: Add new objects.
-- \`update_whiteboard_objects\`: Modify existing objects.
-- \`delete_whiteboard_objects\`: Remove objects.
+- \`inspect_whiteboard\`: Your primary vision tool - see the whiteboard both visually and structurally
+- \`create_whiteboard_objects\`: Add new objects
+- \`update_whiteboard_objects\`: Modify existing objects (use exact IDs from inspection)
+- \`delete_whiteboard_objects\`: Remove objects (use exact IDs from inspection)
+
+**Key Point:** You have VISUAL PERCEPTION of the whiteboard through the inspect_whiteboard tool. Use this to provide visual feedback, assess layout quality, and make aesthetically pleasing improvements.
 `;
 
 // Validation helper for skill arguments
