@@ -37,11 +37,7 @@ export const executeWhiteboardSkill = action({
         session_id: args.session_id,
       });
 
-      await ctx.runAction(api.legacy.migration_bridge.logMigrationCall, {
-        legacy_skill: args.skill_name,
-        new_skill: "unknown", // Will be updated below
-        session_id: args.session_id,
-      });
+      // Migration complete - legacy logging removed
 
       // Route to appropriate consolidated skill based on skill name
       switch (args.skill_name) {
@@ -150,16 +146,35 @@ export const executeWhiteboardSkill = action({
 
         // Legacy Text Drawing
         case "draw_text":
-          result = await ctx.runAction(api.legacy.migration_bridge.legacyDrawText, {
-            ...args.skill_args,
+          result = await ctx.runAction(api.skills.batch_operations.batchWhiteboardOperations, {
+            operations: [{
+              operation_type: "add_text",
+              data: {
+                text: args.skill_args.text || "",
+                x: args.skill_args.x || 100,
+                y: args.skill_args.y || 100,
+                fontSize: args.skill_args.fontSize || 16,
+                color: args.skill_args.color || "#000000"
+              }
+            }],
             session_id: args.session_id,
           });
           break;
 
         // Legacy Shape Drawing
         case "draw_shape":
-          result = await ctx.runAction(api.legacy.migration_bridge.legacyDrawShape, {
-            ...args.skill_args,
+          result = await ctx.runAction(api.skills.batch_operations.batchWhiteboardOperations, {
+            operations: [{
+              operation_type: "add_shape",
+              data: {
+                kind: args.skill_args.kind || "rect",
+                x: args.skill_args.x || 100,
+                y: args.skill_args.y || 100,
+                width: args.skill_args.w || args.skill_args.width || 100,
+                height: args.skill_args.h || args.skill_args.height || 100,
+                fill: args.skill_args.color || "#000000"
+              }
+            }],
             session_id: args.session_id,
           });
           break;

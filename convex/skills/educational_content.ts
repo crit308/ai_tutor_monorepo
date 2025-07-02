@@ -106,8 +106,8 @@ export const createEducationalContent = action({
 });
 
 async function createMCQContent(ctx: any, data: any, batch_id: string, session_id: string): Promise<{payload: any, actions: any[]}> {
-  // Reuse existing MCQ logic from draw_mcq_actions but in Convex
-  const specs: any = await ctx.runAction(api.legacy.migration_bridge.drawMCQSpecs, {
+  // Direct MCQ creation without legacy bridge
+  const specs = createMCQSpecs({
     question: data.question,
     options: data.options,
     correct_index: data.correct_index,
@@ -138,7 +138,8 @@ async function createMCQContent(ctx: any, data: any, batch_id: string, session_i
 }
 
 async function createTableContent(ctx: any, data: any, batch_id: string, session_id: string): Promise<{payload: any, actions: any[]}> {
-  const specs: any = await ctx.runAction(api.legacy.migration_bridge.drawTableSpecs, {
+  // Direct table creation without legacy bridge
+  const specs = createTableSpecs({
     headers: data.headers,
     rows: data.rows,
     title: data.title,
@@ -192,8 +193,8 @@ async function createDiagramContent(ctx: any, data: any, batch_id: string, sessi
       objects,
     });
   } else {
-    // Fallback to legacy drawDiagramSpecs for other diagram types (timeline, etc.)
-    objects = await ctx.runAction(api.legacy.migration_bridge.drawDiagramSpecs, {
+    // Direct diagram creation without legacy bridge
+    objects = createDiagramSpecs({
       diagram_type: data.diagram_type,
       elements: data.elements,
       title: data.title,
@@ -221,6 +222,220 @@ async function createDiagramContent(ctx: any, data: any, batch_id: string, sessi
   });
 
   return { payload, actions: [action] };
+}
+
+// Helper functions to create specs directly (simplified implementations)
+function createMCQSpecs(args: any) {
+  const { question, options, correct_index, question_id } = args;
+  const baseY = 100;
+  const objects = [];
+
+  // Question text
+  objects.push({
+    id: `mcq-${question_id}-question`,
+    kind: "text",
+    text: question,
+    x: 50,
+    y: baseY,
+    fontSize: 18,
+    fontWeight: "bold",
+    fill: "#000000"
+  });
+
+  // Options
+  options.forEach((option: string, index: number) => {
+    const isCorrect = index === correct_index;
+    const optionY = baseY + 50 + (index * 40);
+    
+    // Radio button
+    objects.push({
+      id: `mcq-${question_id}-opt-${index}-radio`,
+      kind: "circle",
+      x: 50,
+      y: optionY,
+      radius: 8,
+      fill: isCorrect ? "#2ECC71" : "#ffffff",
+      stroke: "#000000",
+      strokeWidth: 2
+    });
+
+    // Option text
+    objects.push({
+      id: `mcq-${question_id}-opt-${index}-text`,
+      kind: "text",
+      text: `${String.fromCharCode(65 + index)}. ${option}`,
+      x: 75,
+      y: optionY - 5,
+      fontSize: 14,
+      fill: "#000000"
+    });
+  });
+
+  return objects;
+}
+
+function createTableSpecs(args: any) {
+  const { headers, rows, title, table_id } = args;
+  const objects = [];
+  const cellWidth = 120;
+  const cellHeight = 30;
+  const baseX = 50;
+  let baseY = 100;
+
+  // Title if provided
+  if (title) {
+    objects.push({
+      id: `table-${table_id}-title`,
+      kind: "text",
+      text: title,
+      x: baseX,
+      y: baseY,
+      fontSize: 16,
+      fontWeight: "bold",
+      fill: "#000000"
+    });
+    baseY += 40;
+  }
+
+  // Header row
+  headers.forEach((header: string, colIndex: number) => {
+    const cellX = baseX + (colIndex * cellWidth);
+    
+    // Header cell background
+    objects.push({
+      id: `table-${table_id}-header-${colIndex}-bg`,
+      kind: "rect",
+      x: cellX,
+      y: baseY,
+      width: cellWidth,
+      height: cellHeight,
+      fill: "#f0f0f0",
+      stroke: "#000000",
+      strokeWidth: 1
+    });
+
+    // Header text
+    objects.push({
+      id: `table-${table_id}-header-${colIndex}-text`,
+      kind: "text",
+      text: header,
+      x: cellX + 5,
+      y: baseY + 20,
+      fontSize: 12,
+      fontWeight: "bold",
+      fill: "#000000"
+    });
+  });
+
+  // Data rows
+  rows.forEach((row: string[], rowIndex: number) => {
+    const rowY = baseY + ((rowIndex + 1) * cellHeight);
+    
+    row.forEach((cell: string, colIndex: number) => {
+      const cellX = baseX + (colIndex * cellWidth);
+      
+      // Cell background
+      objects.push({
+        id: `table-${table_id}-row-${rowIndex}-col-${colIndex}-bg`,
+        kind: "rect",
+        x: cellX,
+        y: rowY,
+        width: cellWidth,
+        height: cellHeight,
+        fill: "#ffffff",
+        stroke: "#000000",
+        strokeWidth: 1
+      });
+
+      // Cell text
+      objects.push({
+        id: `table-${table_id}-row-${rowIndex}-col-${colIndex}-text`,
+        kind: "text",
+        text: cell || "",
+        x: cellX + 5,
+        y: rowY + 20,
+        fontSize: 12,
+        fill: "#000000"
+      });
+    });
+  });
+
+  return objects;
+}
+
+function createDiagramSpecs(args: any) {
+  const { diagram_type, elements, title, diagram_id } = args;
+  const objects = [];
+  
+  // Simple diagram implementation
+  if (title) {
+    objects.push({
+      id: `diagram-${diagram_id}-title`,
+      kind: "text",
+      text: title,
+      x: 50,
+      y: 50,
+      fontSize: 16,
+      fontWeight: "bold",
+      fill: "#000000"
+    });
+  }
+
+  // Create simple representations based on diagram type
+  elements.forEach((element: any, index: number) => {
+    const x = 100 + (index * 150);
+    const y = 120;
+
+    if (diagram_type === "timeline") {
+      // Timeline node
+      objects.push({
+        id: `diagram-${diagram_id}-node-${index}`,
+        kind: "circle",
+        x: x,
+        y: y,
+        radius: 20,
+        fill: "#3498db",
+        stroke: "#2980b9",
+        strokeWidth: 2
+      });
+
+      // Timeline label
+      objects.push({
+        id: `diagram-${diagram_id}-label-${index}`,
+        kind: "text",
+        text: element.label || element.text || `Event ${index + 1}`,
+        x: x - 30,
+        y: y + 40,
+        fontSize: 12,
+        fill: "#000000"
+      });
+    } else {
+      // Generic diagram element
+      objects.push({
+        id: `diagram-${diagram_id}-element-${index}`,
+        kind: "rect",
+        x: x,
+        y: y,
+        width: 100,
+        height: 60,
+        fill: "#ecf0f1",
+        stroke: "#34495e",
+        strokeWidth: 2
+      });
+
+      objects.push({
+        id: `diagram-${diagram_id}-text-${index}`,
+        kind: "text",
+        text: element.label || element.text || `Item ${index + 1}`,
+        x: x + 10,
+        y: y + 35,
+        fontSize: 12,
+        fill: "#000000"
+      });
+    }
+  });
+
+  return objects;
 }
 
 function validateMCQData(data: any) {
