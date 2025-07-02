@@ -334,6 +334,66 @@ The Python backend featured robust testing patterns that informed Convex impleme
 
 ---
 
+## 11. Analytics & Observability Pipeline
+
+### Supabase CDC → Kafka → ClickHouse
+
+The production Python backend captured every concept-level event and tool invocation and streamed them into a low-latency analytics warehouse:
+
+```text
+Supabase tables (concept_events, actions)
+        │  CDC
+        ▼
+   Kafka topics
+        │  Kafka-engine tables
+        ▼
+ ClickHouse MergeTree
+```
+
+Key points:
+
+1. Change-data-capture (CDC) on `public.concept_events` and `public.actions` automatically published JSON each row to Kafka topics of the same name.
+2. ClickHouse `ENGINE = Kafka` tables ingested the stream and materialised into `MergeTree` tables for OLAP queries.
+3. A nightly cron job ran `scripts/update_action_weights.py` which:
+   - Joined concept outcome events with their preceding tutor actions.
+   - Computed average rewards per action type.
+   - Applied a softmax transform to produce sampling weights for the reinforcement-learning-style policy.
+   - Upserted the weights into `public.action_weights` for the Planner to consume on the next restart.
+
+**Why it matters**: The pipeline provided near-real-time visibility into learner outcomes and closed the reward loop for adaptive action selection. In Convex the same metrics are now captured via log-actions and automatically pushed to DataDog, but the reward-weight cron logic remains conceptually identical.
+
+---
+
+## 12. Whiteboard Layout & Spatial Index
+
+### Grid-based Layout Allocator (`services/layout_allocator.py`)
+
+The tutor maintained a session-scoped, in-memory grid allocator to keep the canvas tidy:
+
+* Logical grid: 4 × 12 cells, each 220 px × 140 px.
+* `reserve_region(width, height, ...)` found the first contiguous free block or placed **relative to an anchor** (`"right-of"`, `"below"`).
+* Returned `(x, y, w, h, region_id)` so skills could position Fabric.js objects deterministically.
+* `release_region(region_id)` freed cells when objects were deleted.
+
+```python
+# Simplified flow placement
+for r in range(rows - rows_needed + 1):
+    for c in range(cols - cols_needed + 1):
+        if _block_free(c, r, cols_needed, rows_needed):
+            return _allocate_and_return(...)
+```
+
+### R-tree Spatial Index (`services/spatial_index.py`)
+
+Phase-2 work introduced a lightweight 2-D R-tree to enable:
+
+* `find_object_on_board(meta_query={}, spatial_query=bbox)` → fast \( O(\log n) \) rectangle searches.
+* Board summaries compressed to `{id, tags, bbox}` for prompt injection.
+
+Both allocator and index were stateless across deploys but could be persisted to Redis if needed. The Convex implementation re-creates these primitives in TypeScript, leveraging Convex tables for persistence.
+
+---
+
 ## Conclusion
 
 The Python FastAPI + Supabase backend provided a solid foundation that enabled a successful migration to Convex. The key architectural patterns—particularly the skills registry, session management, and error handling strategies—were preserved and enhanced in the Convex implementation.
