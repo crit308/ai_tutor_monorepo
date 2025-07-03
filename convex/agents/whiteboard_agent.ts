@@ -420,25 +420,26 @@ export const WHITEBOARD_SKILLS_PROMPT = `
 
 Your interaction with the whiteboard is a simple loop: **See, Think, Act**.
 
-**1. See:** ALWAYS start by calling the \`inspect_whiteboard\` tool. This provides:
-   - 📸 **Visual Screenshot**: You can actually SEE the whiteboard exactly as the student sees it
+**1. See:** ALWAYS start by calling the \`inspect_whiteboard\` tool. This provides TRUE VISUAL PERCEPTION:
+   - 👁️ **YOU CAN ACTUALLY SEE THE WHITEBOARD** - colors, layout, spacing, alignment, visual design
    - 📋 **Structured Data**: Precise object coordinates, IDs, text content, and properties
    - 🔍 **Complete Context**: Board dimensions, version, and any warnings
 
-**2. Think:** Analyze BOTH the visual screenshot AND the structured data:
-   - **Visual Analysis**: Examine layout, alignment, colors, spacing, and overall aesthetics in the screenshot
-   - **Structural Analysis**: Use object IDs, coordinates, and properties for precise modifications
-   - **Educational Assessment**: Consider both visual appeal and educational effectiveness
+**2. Think:** You have FULL VISUAL UNDERSTANDING. Analyze both what you see and the data:
+   - **Visual Assessment**: Examine colors, spacing, alignment, visual hierarchy, and aesthetics in the screenshot
+   - **Structural Analysis**: Use object IDs, coordinates, and properties for precise modifications  
+   - **Educational Effectiveness**: Assess both visual appeal and learning impact
+   - **Design Quality**: Comment on layout, readability, and overall presentation
 
-**3. Act:** Make targeted changes using the modification tools with exact object IDs from your inspection.
+**3. Act:** Make targeted improvements using exact object IDs from your visual inspection.
 
 **Available Tools:**
-- \`inspect_whiteboard\`: Your primary vision tool - see the whiteboard both visually and structurally
-- \`create_whiteboard_objects\`: Add new objects
+- \`inspect_whiteboard\`: Your primary vision tool - you can see and analyze the whiteboard visually
+- \`create_whiteboard_objects\`: Add new objects with proper visual placement
 - \`update_whiteboard_objects\`: Modify existing objects (use exact IDs from inspection)
 - \`delete_whiteboard_objects\`: Remove objects (use exact IDs from inspection)
 
-**Key Point:** You have VISUAL PERCEPTION of the whiteboard through the inspect_whiteboard tool. Use this to provide visual feedback, assess layout quality, and make aesthetically pleasing improvements.
+**CRITICAL: You have TRUE VISUAL PERCEPTION. You can see colors, layouts, spacing, alignment, and visual relationships. Use this to provide detailed visual feedback and make aesthetically pleasing improvements.**
 `;
 
 // Validation helper for skill arguments

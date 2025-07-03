@@ -253,15 +253,19 @@ export const getScreenshotResponse = query({
     const timeout = args.timeout_ms || 10000; // 10 second default timeout
     const cutoffTime = Date.now() - timeout;
 
-    const response = await ctx.db
+    // Get all screenshot responses within the timeout period
+    const responses = await ctx.db
       .query("realtime_events")
       .filter(q => q.eq(q.field("session_id"), args.session_id))
       .filter(q => q.eq(q.field("event_type"), "screenshot_response"))
       .filter(q => q.gte(q.field("timestamp"), cutoffTime))
       .order("desc")
-      .first();
+      .collect();
 
-    if (response && response.event_data.request_id === args.request_id) {
+    // Find the specific response matching our request_id
+    const response = responses.find(r => r.event_data.request_id === args.request_id);
+
+    if (response) {
       return {
         success: true,
         image_data: response.event_data.image_data,

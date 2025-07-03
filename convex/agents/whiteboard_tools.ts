@@ -17,8 +17,8 @@ export const inspectWhiteboardTool = createTool({
       userId: ctx.userId || null,
     });
 
-    // Format response with both structured data and image for comprehensive analysis
-    let response = `WHITEBOARD INSPECTION RESULTS:
+    // 1. Build the text part of the response
+    const textPart = `WHITEBOARD INSPECTION RESULTS:
 
 📊 BOARD SUMMARY:
 - Objects: ${inspectionResult.boardSummary.objectCount}
@@ -31,23 +31,32 @@ ${inspectionResult.objectList.map(obj =>
   `• ${obj.kind.toUpperCase()} "${obj.id}" at (${obj.bbox.x}, ${obj.bbox.y}) size ${obj.bbox.width}x${obj.bbox.height}${obj.text ? ` - Text: "${obj.text}"` : ''}${obj.role ? ` - Role: ${obj.role}` : ''}`
 ).join('\n')}
 
-🔍 VISUAL SCREENSHOT:`;
+🔍 VISUAL ANALYSIS: Please examine the screenshot to understand the visual layout, colors, spatial relationships, alignment, and overall design quality that cannot be captured in text alone.`;
 
-    // Include the screenshot for visual analysis if available
+    // 2. Construct a multi-part content array
+    const content = [
+      {
+        type: "text",
+        text: textPart,
+      }
+    ];
+
+    // 3. Add the image part if it exists
     if (inspectionResult.screenshotDataUrl) {
-      response += `\n\n![Whiteboard Screenshot](${inspectionResult.screenshotDataUrl})
-
-📝 VISUAL ANALYSIS INSTRUCTIONS:
-- Examine the screenshot above to understand the visual layout, colors, and spatial relationships
-- Use the screenshot to assess aesthetics, alignment, and overall design quality
-- Combine visual observations with the structured object data for comprehensive understanding
-- The screenshot shows exactly what the student sees on their whiteboard`;
+      content.push({
+        type: "image_url",
+        image_url: {
+          url: inspectionResult.screenshotDataUrl,
+        },
+      });
     } else {
-      response += `\n\n⚠️ Screenshot not available - relying on structured object data only.
-Consider the spatial relationships based on the coordinates provided in the object list.`;
+        // If no screenshot, add a warning to the text part
+        content[0].text += "\n\n⚠️ Screenshot not available. Relying on structured object data only.";
     }
 
-    return response;
+    // 4. Return the structured content array.
+    // The agent framework will use this to build a multi-modal message.
+    return content;
   },
 });
 

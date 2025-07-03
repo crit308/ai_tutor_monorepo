@@ -46,15 +46,20 @@ export const requestWhiteboardScreenshot = action({
       let attempts = 0;
       const maxAttempts = 25; // 30+ seconds total with exponential backoff
       let waitTime = 200; // Start with 200ms
+      const startTime = Date.now();
       
       while (attempts < maxAttempts) {
         await new Promise(resolve => setTimeout(resolve, waitTime));
         
         // Check for screenshot response in realtime_events
+        // Look back from when we started the request, not just 1 second
+        const elapsedTime = Date.now() - startTime;
+        const lookbackTime = Math.max(elapsedTime + 5000, 10000); // Look back at least 10 seconds
+        
         const response: { success: boolean; image_data?: string; error?: string } = await ctx.runQuery(api.websockets.getScreenshotResponse, {
           session_id: args.session_id,
           request_id: requestId,
-          timeout_ms: 1000,
+          timeout_ms: lookbackTime,
         });
         
         if (response.success && response.image_data) {
@@ -67,6 +72,11 @@ export const requestWhiteboardScreenshot = action({
         }
         
         attempts++;
+        // Add debug logging every 5 attempts
+        if (attempts % 5 === 0) {
+          console.log(`[Screenshot] Still waiting for response, attempt ${attempts}/${maxAttempts}, request: ${requestId}`);
+        }
+        
         // Exponential backoff with jitter, capped at 2 seconds
         waitTime = Math.min(waitTime * 1.2 + Math.random() * 100, 2000);
       }
