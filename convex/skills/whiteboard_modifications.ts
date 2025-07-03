@@ -253,6 +253,18 @@ export const deleteWhiteboardObjects = action({
     });
 
     try {
+      // Actually delete objects from the database
+      const sessionId = args.session_id as any; // Type assertion needed for session ID
+      const deletePromises = args.object_ids.map(objectId => 
+        ctx.runMutation(api.database.whiteboard.deleteWhiteboardObject, {
+          sessionId,
+          objectId
+        })
+      );
+      
+      // Wait for all deletions to complete
+      await Promise.all(deletePromises);
+      
       const action = {
         type: "DELETE_OBJECTS",
         objectIds: args.object_ids,

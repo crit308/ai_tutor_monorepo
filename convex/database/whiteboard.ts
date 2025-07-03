@@ -37,12 +37,34 @@ export const getWhiteboardObjects = query({
       .withIndex("by_session", (q) => q.eq("session_id", sessionId))
       .collect();
     
-    return objects.map(obj => ({
-      id: obj.object_id,
-      ...JSON.parse(obj.object_spec),
-      createdAt: obj.created_at,
-      updatedAt: obj.updated_at,
-    }));
+    return objects.map(obj => {
+      const spec = JSON.parse(obj.object_spec);
+      
+      // Special handling for LINE objects to extract coordinates from points array
+      if (obj.object_kind === 'line' && spec.points && Array.isArray(spec.points) && spec.points.length >= 4) {
+        const [x1, y1, x2, y2] = spec.points;
+        return {
+          id: obj.object_id,
+          ...spec,
+          points: spec.points, // Keep original points array
+          // Add derived properties for backward compatibility
+          x: x1,
+          y: y1,
+          x2: x2,
+          y2: y2,
+          createdAt: obj.created_at,
+          updatedAt: obj.updated_at,
+        };
+      }
+      
+      // Default handling for all other object types
+      return {
+        id: obj.object_id,
+        ...spec,
+        createdAt: obj.created_at,
+        updatedAt: obj.updated_at,
+      };
+    });
   },
 });
 
@@ -722,11 +744,33 @@ export const getWhiteboardObjectsInternal = internalQuery({
       .withIndex("by_session", (q) => q.eq("session_id", sessionId))
       .collect();
     
-    return objects.map(obj => ({
-      id: obj.object_id,
-      ...JSON.parse(obj.object_spec),
-      createdAt: obj.created_at,
-      updatedAt: obj.updated_at,
-    }));
+    return objects.map(obj => {
+      const spec = JSON.parse(obj.object_spec);
+      
+      // Special handling for LINE objects to extract coordinates from points array
+      if (obj.object_kind === 'line' && spec.points && Array.isArray(spec.points) && spec.points.length >= 4) {
+        const [x1, y1, x2, y2] = spec.points;
+        return {
+          id: obj.object_id,
+          ...spec,
+          points: spec.points, // Keep original points array
+          // Add derived properties for backward compatibility
+          x: x1,
+          y: y1,
+          x2: x2,
+          y2: y2,
+          createdAt: obj.created_at,
+          updatedAt: obj.updated_at,
+        };
+      }
+      
+      // Default handling for all other object types
+      return {
+        id: obj.object_id,
+        ...spec,
+        createdAt: obj.created_at,
+        updatedAt: obj.updated_at,
+      };
+    });
   },
 }); 

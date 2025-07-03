@@ -1,0 +1,52 @@
+The Big Picture: Achieving Data-Vision Synchronization
+Our goal is to make the OBJECT LIST returned by the inspect_whiteboard tool a perfect, machine-readable transcript of the visual screenshot. When the AI sees an arrow pointing from "Higher Temp" to the water, the data must say: "There is a LINE object with ID 'arrow1' with points that connect these two areas."
+The "stuck in the corner" problem happens because the LINE objects in your database are being assigned default coordinates of (0,0) instead of their real start and end points. Let's fix this and all other inconsistencies.
+Phase 1: Fix the Data Source (The getWhiteboardObjects Query)
+This is the most critical phase. We must fix the data being pulled from the database before it even gets to the agent. All of these changes will likely be in convex/database/whiteboard.ts.
+Step 1.1: Fix Line and Arrow Coordinates (The "Stuck in the Corner" Bug)
+Problem: The getWhiteboardObjects query is not correctly extracting the points array for LINE objects from the object_spec JSON. It's falling back to default x and y values of 0.
+Action:
+Open convex/database/whiteboard.ts.
+Locate the getWhiteboardObjects query.
+Inside the .map(obj => ({ ... })) block, add logic to handle LINE objects specifically.
+When obj.object_kind === 'line', parse obj.object_spec and ensure you are extracting the points array and adding it to the returned object. The final object should look like { id, kind: 'line', points: [x1, y1, x2, y2], ...metadata }.
+Step 1.2: Fix Inconsistent Object Representation (waterBody)
+Problem: The AI is told there's a RECT with ID waterBody, but the image shows a filled blue area that might not be a standard rectangle object.
+Action:
+Investigate how the "water" is drawn. Is it a primitive RECT created by the agent, or is it part of the background?
+If it's a RECT, ensure its fill property is correctly set and that the frontend Whiteboard.tsx component is rendering it.
+If it's not a standard object, it should not appear in the OBJECT LIST. The AI should infer its presence from the visual screenshot alone. Modify getWhiteboardObjects to exclude non-primitive background elements.
+Step 1.3: Fix Stale/Ghost Objects (surfaceAreaText)
+Problem: An object exists in the database but has been deleted from the canvas. This means your delete logic is incomplete.
+Action:
+Review the UI logic for deleting objects. When a user or agent deletes an object from the whiteboard, it must trigger the delete_whiteboard_objects tool call.
+This tool should call the deleteWhiteboardObject mutation in convex/database/whiteboard.ts. Ensure this flow is working correctly and that the object is being removed from the whiteboard_objects table.
+Phase 2: Improve the Data Processing (The inspectWhiteboard Action)
+Once the source data is correct, we need to make it more useful for the AI. This work will be in convex/skills/whiteboard_inspection.ts.
+Step 2.1: Calculate Accurate Bounding Boxes (bbox)
+Problem: The OBJECT LIST reports size 0x0 for text objects, which is not helpful for the AI to understand layout or potential overlaps.
+Action:
+The inspectWhiteboard action needs to calculate a realistic bounding box for every object.
+For RECT and ELLIPSE, the bbox is straightforward: { x, y, width, height }.
+For TEXT, you will need to estimate the bounding box on the backend. You can create a simple helper function: estimateTextBbox(text, fontSize). A rough approximation is fine (e.g., width = text.length * fontSize * 0.6). This is far better than 0x0.
+For LINE, the bbox should be the smallest rectangle that contains the entire line.
+Step 2.2: Ensure Consistent IDs
+Problem: The AI needs a stable ID to refer to objects. The id from obj.object_id seems to be working, but double-check that every object returned in the objectList has this ID.
+Action: Confirm that every object processed in the inspectWhiteboard handler is assigned the correct id: obj.id from the database record.
+Phase 3: Verification & Testing
+This is how you confirm everything is working.
+Step 3.1: Create a Clean Test Case
+Action: Clear your whiteboard and have the AI execute a simple prompt like: "Draw a diagram showing that the sun heats water, causing evaporation." This should create a sun, a water body, and an arrow.
+Step 3.2: Manually Run inspect_whiteboard
+Action: After the diagram is drawn, go to your Convex dashboard or use a test script to call the inspect_whiteboard tool with the current sessionId.
+Step 3.3: Compare the Output
+Action: Look at the Output of the tool call.
+Check the Screenshot: Does the image_data decode to the correct image? (You've already confirmed this works).
+Check the OBJECT LIST:
+Does the LINE object now have a points array with non-zero coordinates?
+Does the TEXT object for "Sun" have a bbox with a width and height greater than 0?
+Are all visible objects present in the list, and are there no "ghost" objects?
+Step 3.4: Test an AI Modification
+Action: Give the AI a follow-up prompt: "Make the arrow pointing from the sun to the water red."
+Success Criteria: The AI should be able to identify the correct arrow object by its ID (or by its relationship to the other objects) and issue a correct update_whiteboard_objects tool call to change its stroke color.
+By following this roadmap, you will systematically resolve the inconsistencies and create a robust vision system where the AI's data model and visual input are perfectly synchronized.

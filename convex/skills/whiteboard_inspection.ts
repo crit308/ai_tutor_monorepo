@@ -39,13 +39,26 @@ export const inspectWhiteboard = internalAction({
     console.log(`[inspectWhiteboard] Starting inspection for session: ${sessionId}, userId: ${userId}`);
 
     try {
-      // 1. Get Screenshot and Object Data in Parallel
-      const [screenshotResult, objects] = await Promise.all([
+      // Get object data first to check if we need to wait for frontend sync
+      const objects = await ctx.runQuery(internal.database.whiteboard.getWhiteboardObjectsInternal, { 
+        sessionId, 
+        userId: userId || null 
+      });
+      
+      // If we have objects, add a small delay to ensure frontend has time to render them
+      // This prevents race condition where screenshot is taken before frontend updates
+      if (objects.length > 0) {
+        console.log(`[inspectWhiteboard] Found ${objects.length} objects, waiting 2 seconds for frontend sync...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+
+      // 1. Get Screenshot and session data in parallel (after potential delay)
+      const [screenshotResult, sessionDoc] = await Promise.all([
         ctx.runAction(api.skills.whiteboard_screenshot.requestWhiteboardScreenshot, {
           session_id: sessionId,
           request_context: "AI Agent whiteboard inspection",
         }),
-        ctx.runQuery(internal.database.whiteboard.getWhiteboardObjectsInternal, { 
+        ctx.runQuery(internal.database.sessions.getSessionInternal, { 
           sessionId, 
           userId: userId || null 
         }),
@@ -57,31 +70,109 @@ export const inspectWhiteboard = internalAction({
       }
 
       // 2. Get Board Version from the session document
-      const sessionDoc = await ctx.runQuery(internal.database.sessions.getSessionInternal, { 
-        sessionId, 
-        userId: userId || null 
-      });
       const boardVersion: number = sessionDoc?.board_version ?? 0;
       const canvasDimensions = {
           width: sessionDoc?.context_data?.canvasDimensions?.width ?? 1200,
           height: sessionDoc?.context_data?.canvasDimensions?.height ?? 800
       };
 
-      // 3. Process Objects into a clean list
-      const objectList = objects.map((obj: any) => ({
-        id: obj.id,
-        kind: obj.kind,
-        role: obj.metadata?.role || undefined,
-        text: obj.text || null,
-        bbox: {
-          x: obj.x || 0,
-          y: obj.y || 0,
-          width: obj.width || 0,
-          height: obj.height || 0,
-        },
-      }));
+      // 3. Process Objects into a clean list with accurate bounding boxes
+      const objectList = objects
+        .filter((obj: any) => {
+          // Filter out non-primitive objects that shouldn't be in the OBJECT LIST
+          
+          // Exclude objects without proper IDs or kinds
+          if (!obj.id || !obj.kind) {
+            return false;
+          }
+          
+          // Exclude background or non-interactive elements
+          if (obj.metadata?.isBackground || obj.metadata?.nonInteractive) {
+            return false;
+          }
+          
+          // Only include standard whiteboard object types
+          const validKinds = ['rect', 'ellipse', 'text', 'line', 'path', 'arrow'];
+          if (!validKinds.includes(obj.kind)) {
+            return false;
+          }
+          
+          return true;
+        })
+        .map((obj: any) => {
+        let bbox = { x: 0, y: 0, width: 0, height: 0 };
+        
+        // Calculate accurate bounding box based on object type
+        if (obj.kind === 'text') {
+          // Estimate text bounding box
+          const text = obj.text || '';
+          const fontSize = obj.fontSize || 16;
+          const estimatedWidth = text.length * fontSize * 0.6; // rough approximation
+          const estimatedHeight = fontSize * 1.2; // approximate line height
+          bbox = {
+            x: obj.x || 0,
+            y: obj.y || 0,
+            width: Math.max(estimatedWidth, 10), // minimum width
+            height: Math.max(estimatedHeight, 10), // minimum height
+          };
+        } else if (obj.kind === 'line') {
+          // Calculate bounding box for LINE objects from points
+          if (obj.points && Array.isArray(obj.points) && obj.points.length >= 4) {
+            const [x1, y1, x2, y2] = obj.points;
+            const minX = Math.min(x1, x2);
+            const maxX = Math.max(x1, x2);
+            const minY = Math.min(y1, y2);
+            const maxY = Math.max(y1, y2);
+            bbox = {
+              x: minX,
+              y: minY,
+              width: Math.max(maxX - minX, 1), // minimum width of 1
+              height: Math.max(maxY - minY, 1), // minimum height of 1
+            };
+          } else {
+            // Fallback for lines without proper points
+            bbox = {
+              x: obj.x || 0,
+              y: obj.y || 0,
+              width: obj.width || 50, // default line width
+              height: obj.height || 2, // default line height
+            };
+          }
+        } else if (obj.kind === 'rect' || obj.kind === 'ellipse') {
+          // Standard rectangular objects
+          bbox = {
+            x: obj.x || 0,
+            y: obj.y || 0,
+            width: obj.width || 0,
+            height: obj.height || 0,
+          };
+        } else {
+          // Default fallback for other object types
+          bbox = {
+            x: obj.x || 0,
+            y: obj.y || 0,
+            width: obj.width || 10, // minimum default width
+            height: obj.height || 10, // minimum default height
+          };
+        }
+        
+        return {
+          id: obj.id,
+          kind: obj.kind,
+          role: obj.metadata?.role || undefined,
+          text: obj.text || null,
+          bbox,
+        };
+      });
 
       // 4. Assemble the final payload
+      console.log(`[inspectWhiteboard] Processed ${objects.length} total objects, ${objectList.length} filtered objects`);
+      
+      // Log object details for debugging
+      objectList.forEach(obj => {
+        console.log(`[inspectWhiteboard] Object ${obj.id} (${obj.kind}): bbox ${obj.bbox.width}x${obj.bbox.height} at (${obj.bbox.x}, ${obj.bbox.y})`);
+      });
+      
       return {
         screenshotDataUrl: screenshotResult.image_data || null,
         boardSummary: {
