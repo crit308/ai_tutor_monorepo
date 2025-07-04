@@ -151,8 +151,8 @@ export const executeWhiteboardSkill = action({
               operation_type: "add_text",
               data: {
                 text: args.skill_args.text || "",
-                x: args.skill_args.x || 100,
-                y: args.skill_args.y || 100,
+                xPct: args.skill_args.xPct || (args.skill_args.x ? args.skill_args.x / 800 : 0.125),
+                yPct: args.skill_args.yPct || (args.skill_args.y ? args.skill_args.y / 600 : 0.167),
                 fontSize: args.skill_args.fontSize || 16,
                 color: args.skill_args.color || "#000000"
               }
@@ -168,11 +168,12 @@ export const executeWhiteboardSkill = action({
               operation_type: "add_shape",
               data: {
                 kind: args.skill_args.kind || "rect",
-                x: args.skill_args.x || 100,
-                y: args.skill_args.y || 100,
-                width: args.skill_args.w || args.skill_args.width || 100,
-                height: args.skill_args.h || args.skill_args.height || 100,
-                fill: args.skill_args.color || "#000000"
+                xPct: args.skill_args.xPct || (args.skill_args.x ? args.skill_args.x / 800 : 0.125),
+                yPct: args.skill_args.yPct || (args.skill_args.y ? args.skill_args.y / 600 : 0.167),
+                widthPct: args.skill_args.widthPct || (args.skill_args.width || args.skill_args.w ? (args.skill_args.width || args.skill_args.w) / 800 : 0.125),
+                heightPct: args.skill_args.heightPct || (args.skill_args.height || args.skill_args.h ? (args.skill_args.height || args.skill_args.h) / 600 : 0.083),
+                fill: args.skill_args.color || "#ffffff",
+                stroke: args.skill_args.stroke || "#000000"
               }
             }],
             session_id: args.session_id,
@@ -438,6 +439,16 @@ Your interaction with the whiteboard is a simple loop: **See, Think, Act**.
 - \`create_whiteboard_objects\`: Add new objects with proper visual placement
 - \`update_whiteboard_objects\`: Modify existing objects (use exact IDs from inspection)
 - \`delete_whiteboard_objects\`: Remove objects (use exact IDs from inspection)
+
+**CRITICAL COORDINATE SYSTEM:**
+- **ONLY USE PERCENTAGE-BASED COORDINATES**: All positions and dimensions MUST be specified as percentages (0-1) of the canvas size
+- **xPct, yPct**: Position as percentage of canvas width/height (0.0 = top/left edge, 1.0 = bottom/right edge)
+- **widthPct, heightPct**: Size as percentage of canvas width/height
+- **rxPct, ryPct**: Radii for ellipses as percentage of canvas width/height
+- **Example**: xPct: 0.1 (10% from left), yPct: 0.2 (20% from top), widthPct: 0.3 (30% of canvas width)
+- **Benefits**: Responsive layout that works across all screen sizes and devices
+
+**NEVER use absolute coordinates (x, y, width, height) - they cause layout issues on different screen sizes.**
 
 **CRITICAL: You have TRUE VISUAL PERCEPTION. You can see colors, layouts, spacing, alignment, and visual relationships. Use this to provide detailed visual feedback and make aesthetically pleasing improvements.**
 `;

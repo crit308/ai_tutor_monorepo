@@ -100,9 +100,22 @@ export function calculateAbsoluteCoords(
         heightNum = spec.height;
     }
 
-    const finalX = xNum === undefined ? 0 : xNum;
-    const finalY = yNum === undefined ? 0 : yNum;
-    
+    // Clamp coordinates to ensure object stays within the canvas bounds.
+    // If width/height is not available yet (e.g., lines or circles), we just make
+    // sure the top-left corner is visible. Otherwise, also ensure the entire
+    // bounding box fits on screen.
+    const objectW = widthNum ?? 0;
+    const objectH = heightNum ?? 0;
+
+    const unclampedX = xNum === undefined ? 0 : xNum;
+    const unclampedY = yNum === undefined ? 0 : yNum;
+
+    const maxX = canvasWidth - objectW;
+    const maxY = canvasHeight - objectH;
+
+    const finalX = Math.max(0, Math.min(unclampedX, maxX < 0 ? 0 : maxX));
+    const finalY = Math.max(0, Math.min(unclampedY, maxY < 0 ? 0 : maxY));
+
     const hasPctCoords = Object.keys(pctCoordsStore).length > 0;
 
     return {

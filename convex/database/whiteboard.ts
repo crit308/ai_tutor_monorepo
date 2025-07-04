@@ -680,7 +680,7 @@ export const addObjectsBulk = mutation({
 });
 
 /**
- * applyWhiteboardPatch – minimal implementation to unblock TS errors.
+ * applyWhiteboardPatch – handles percentage-based coordinates only.
  * Accepts creates-only patches for now; updates & deletes are ignored.
  */
 export const applyWhiteboardPatch = mutation({
@@ -697,9 +697,45 @@ export const applyWhiteboardPatch = mutation({
 
     const { creates = [] } = patch ?? {};
     let inserted = 0;
+    const issues = [];
+
     for (let obj of creates) {
       if (obj.kind === "rectangle") obj = { ...obj, kind: "rect" };
-      if (!obj.id || !obj.kind) continue;
+      if (!obj.id || !obj.kind) {
+        issues.push({ level: "warning", message: `Skipping object without id or kind: ${obj.id}` });
+        continue;
+      }
+
+      // Validate percentage-based coordinates
+      if (typeof obj.xPct !== "number" || obj.xPct < 0 || obj.xPct > 1) {
+        issues.push({ level: "error", message: `Invalid xPct for object ${obj.id}: must be between 0 and 1` });
+        continue;
+      }
+      if (typeof obj.yPct !== "number" || obj.yPct < 0 || obj.yPct > 1) {
+        issues.push({ level: "error", message: `Invalid yPct for object ${obj.id}: must be between 0 and 1` });
+        continue;
+      }
+
+      // Validate optional percentage dimensions
+      if (obj.widthPct !== undefined && (typeof obj.widthPct !== "number" || obj.widthPct < 0 || obj.widthPct > 1)) {
+        issues.push({ level: "error", message: `Invalid widthPct for object ${obj.id}: must be between 0 and 1` });
+        continue;
+      }
+      if (obj.heightPct !== undefined && (typeof obj.heightPct !== "number" || obj.heightPct < 0 || obj.heightPct > 1)) {
+        issues.push({ level: "error", message: `Invalid heightPct for object ${obj.id}: must be between 0 and 1` });
+        continue;
+      }
+
+      // Validate optional percentage radii for ellipses
+      if (obj.rxPct !== undefined && (typeof obj.rxPct !== "number" || obj.rxPct < 0 || obj.rxPct > 1)) {
+        issues.push({ level: "error", message: `Invalid rxPct for object ${obj.id}: must be between 0 and 1` });
+        continue;
+      }
+      if (obj.ryPct !== undefined && (typeof obj.ryPct !== "number" || obj.ryPct < 0 || obj.ryPct > 1)) {
+        issues.push({ level: "error", message: `Invalid ryPct for object ${obj.id}: must be between 0 and 1` });
+        continue;
+      }
+
       await ctx.db.insert("whiteboard_objects", {
         session_id: sessionId,
         object_id: obj.id,
@@ -710,10 +746,16 @@ export const applyWhiteboardPatch = mutation({
       });
       inserted++;
     }
+
     const newVersion = ((session as any).board_version ?? 0) + 1;
     await ctx.db.patch(session._id, { board_version: newVersion });
 
-    return { success: true, newBoardVersion: newVersion, issues: [], summary: `Inserted ${inserted}` };
+    return { 
+      success: true, 
+      newBoardVersion: newVersion, 
+      issues, 
+      summary: `Inserted ${inserted} objects with percentage-based coordinates` 
+    };
   },
 });
 

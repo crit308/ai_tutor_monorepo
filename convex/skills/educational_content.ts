@@ -227,7 +227,7 @@ async function createDiagramContent(ctx: any, data: any, batch_id: string, sessi
 // Helper functions to create specs directly (simplified implementations)
 function createMCQSpecs(args: any) {
   const { question, options, correct_index, question_id } = args;
-  const baseY = 100;
+  const baseYPct = 0.167; // 16.7% from top
   const objects = [];
 
   // Question text
@@ -235,28 +235,38 @@ function createMCQSpecs(args: any) {
     id: `mcq-${question_id}-question`,
     kind: "text",
     text: question,
-    x: 50,
-    y: baseY,
+    xPct: 0.0625, // 6.25% from left
+    yPct: baseYPct,
     fontSize: 18,
     fontWeight: "bold",
-    fill: "#000000"
+    fill: "#000000",
+    metadata: { 
+      role: "question",
+      source: "assistant" 
+    }
   });
 
   // Options
   options.forEach((option: string, index: number) => {
     const isCorrect = index === correct_index;
-    const optionY = baseY + 50 + (index * 40);
+    const optionYPct = baseYPct + 0.083 + (index * 0.067); // 8.3% + 6.7% per option
     
     // Radio button
     objects.push({
       id: `mcq-${question_id}-opt-${index}-radio`,
       kind: "circle",
-      x: 50,
-      y: optionY,
+      xPct: 0.0625, // 6.25% from left
+      yPct: optionYPct,
       radius: 8,
       fill: isCorrect ? "#2ECC71" : "#ffffff",
       stroke: "#000000",
-      strokeWidth: 2
+      strokeWidth: 2,
+      metadata: { 
+        role: "option_selector",
+        option_id: index,
+        question_id: question_id,
+        source: "assistant" 
+      }
     });
 
     // Option text
@@ -264,10 +274,16 @@ function createMCQSpecs(args: any) {
       id: `mcq-${question_id}-opt-${index}-text`,
       kind: "text",
       text: `${String.fromCharCode(65 + index)}. ${option}`,
-      x: 75,
-      y: optionY - 5,
+      xPct: 0.094, // 9.4% from left (after radio button)
+      yPct: optionYPct - 0.008, // Slightly above radio button
       fontSize: 14,
-      fill: "#000000"
+      fill: "#000000",
+      metadata: { 
+        role: "option_label",
+        option_id: index,
+        question_id: question_id,
+        source: "assistant" 
+      }
     });
   });
 
@@ -277,10 +293,10 @@ function createMCQSpecs(args: any) {
 function createTableSpecs(args: any) {
   const { headers, rows, title, table_id } = args;
   const objects = [];
-  const cellWidth = 120;
-  const cellHeight = 30;
-  const baseX = 50;
-  let baseY = 100;
+  const cellWidthPct = 0.15; // 15% width per cell
+  const cellHeightPct = 0.05; // 5% height per cell
+  const baseXPct = 0.0625; // 6.25% from left
+  let baseYPct = 0.167; // 16.7% from top
 
   // Title if provided
   if (title) {
@@ -288,30 +304,32 @@ function createTableSpecs(args: any) {
       id: `table-${table_id}-title`,
       kind: "text",
       text: title,
-      x: baseX,
-      y: baseY,
+      xPct: baseXPct,
+      yPct: baseYPct,
       fontSize: 16,
       fontWeight: "bold",
-      fill: "#000000"
+      fill: "#000000",
+      metadata: { source: "assistant" }
     });
-    baseY += 40;
+    baseYPct += 0.067; // Add 6.7% spacing
   }
 
   // Header row
   headers.forEach((header: string, colIndex: number) => {
-    const cellX = baseX + (colIndex * cellWidth);
+    const cellXPct = baseXPct + (colIndex * cellWidthPct);
     
     // Header cell background
     objects.push({
       id: `table-${table_id}-header-${colIndex}-bg`,
       kind: "rect",
-      x: cellX,
-      y: baseY,
-      width: cellWidth,
-      height: cellHeight,
+      xPct: cellXPct,
+      yPct: baseYPct,
+      widthPct: cellWidthPct,
+      heightPct: cellHeightPct,
       fill: "#f0f0f0",
       stroke: "#000000",
-      strokeWidth: 1
+      strokeWidth: 1,
+      metadata: { source: "assistant" }
     });
 
     // Header text
@@ -319,32 +337,34 @@ function createTableSpecs(args: any) {
       id: `table-${table_id}-header-${colIndex}-text`,
       kind: "text",
       text: header,
-      x: cellX + 5,
-      y: baseY + 20,
+      xPct: cellXPct + 0.006, // Small padding
+      yPct: baseYPct + 0.033, // Center vertically
       fontSize: 12,
       fontWeight: "bold",
-      fill: "#000000"
+      fill: "#000000",
+      metadata: { source: "assistant" }
     });
   });
 
   // Data rows
   rows.forEach((row: string[], rowIndex: number) => {
-    const rowY = baseY + ((rowIndex + 1) * cellHeight);
+    const rowYPct = baseYPct + ((rowIndex + 1) * cellHeightPct);
     
     row.forEach((cell: string, colIndex: number) => {
-      const cellX = baseX + (colIndex * cellWidth);
+      const cellXPct = baseXPct + (colIndex * cellWidthPct);
       
       // Cell background
       objects.push({
         id: `table-${table_id}-row-${rowIndex}-col-${colIndex}-bg`,
         kind: "rect",
-        x: cellX,
-        y: rowY,
-        width: cellWidth,
-        height: cellHeight,
+        xPct: cellXPct,
+        yPct: rowYPct,
+        widthPct: cellWidthPct,
+        heightPct: cellHeightPct,
         fill: "#ffffff",
         stroke: "#000000",
-        strokeWidth: 1
+        strokeWidth: 1,
+        metadata: { source: "assistant" }
       });
 
       // Cell text
@@ -352,10 +372,11 @@ function createTableSpecs(args: any) {
         id: `table-${table_id}-row-${rowIndex}-col-${colIndex}-text`,
         kind: "text",
         text: cell || "",
-        x: cellX + 5,
-        y: rowY + 20,
+        xPct: cellXPct + 0.006, // Small padding
+        yPct: rowYPct + 0.033, // Center vertically
         fontSize: 12,
-        fill: "#000000"
+        fill: "#000000",
+        metadata: { source: "assistant" }
       });
     });
   });
@@ -373,30 +394,32 @@ function createDiagramSpecs(args: any) {
       id: `diagram-${diagram_id}-title`,
       kind: "text",
       text: title,
-      x: 50,
-      y: 50,
+      xPct: 0.0625, // 6.25% from left
+      yPct: 0.083, // 8.3% from top
       fontSize: 16,
       fontWeight: "bold",
-      fill: "#000000"
+      fill: "#000000",
+      metadata: { source: "assistant" }
     });
   }
 
   // Create simple representations based on diagram type
   elements.forEach((element: any, index: number) => {
-    const x = 100 + (index * 150);
-    const y = 120;
+    const xPct = 0.125 + (index * 0.1875); // 12.5% + 18.75% spacing
+    const yPct = 0.2; // 20% from top
 
     if (diagram_type === "timeline") {
       // Timeline node
       objects.push({
         id: `diagram-${diagram_id}-node-${index}`,
         kind: "circle",
-        x: x,
-        y: y,
+        xPct: xPct,
+        yPct: yPct,
         radius: 20,
         fill: "#3498db",
         stroke: "#2980b9",
-        strokeWidth: 2
+        strokeWidth: 2,
+        metadata: { source: "assistant" }
       });
 
       // Timeline label
@@ -404,33 +427,36 @@ function createDiagramSpecs(args: any) {
         id: `diagram-${diagram_id}-label-${index}`,
         kind: "text",
         text: element.label || element.text || `Event ${index + 1}`,
-        x: x - 30,
-        y: y + 40,
+        xPct: xPct - 0.0375, // Center under node
+        yPct: yPct + 0.067, // Below node
         fontSize: 12,
-        fill: "#000000"
+        fill: "#000000",
+        metadata: { source: "assistant" }
       });
     } else {
       // Generic diagram element
       objects.push({
         id: `diagram-${diagram_id}-element-${index}`,
         kind: "rect",
-        x: x,
-        y: y,
-        width: 100,
-        height: 60,
+        xPct: xPct,
+        yPct: yPct,
+        widthPct: 0.125, // 12.5% width
+        heightPct: 0.1, // 10% height
         fill: "#ecf0f1",
         stroke: "#34495e",
-        strokeWidth: 2
+        strokeWidth: 2,
+        metadata: { source: "assistant" }
       });
 
       objects.push({
         id: `diagram-${diagram_id}-text-${index}`,
         kind: "text",
-        text: element.label || element.text || `Item ${index + 1}`,
-        x: x + 10,
-        y: y + 35,
+        text: element.label || element.text || `Element ${index + 1}`,
+        xPct: xPct + 0.0125, // Small padding inside rect
+        yPct: yPct + 0.05, // Center vertically
         fontSize: 12,
-        fill: "#000000"
+        fill: "#000000",
+        metadata: { source: "assistant" }
       });
     }
   });

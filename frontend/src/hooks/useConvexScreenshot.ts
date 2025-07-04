@@ -30,7 +30,10 @@ export function useConvexScreenshot() {
       const whiteboardElement = document.querySelector('[data-whiteboard-container]') as HTMLElement;
       
       if (!whiteboardElement) {
-        console.error('[useConvexScreenshot] Whiteboard container not found');
+        // Container might not be mounted yet – exit quietly and retry on next request
+        if (process.env.NODE_ENV === 'development') {
+          console.debug('[useConvexScreenshot] Whiteboard container not found – skipping capture');
+        }
         return null;
       }
 

@@ -38,6 +38,25 @@ function createFabricObjectInternal(spec: CanvasObjectSpec, canvas?: Canvas): Fa
         pctCoordsMetadata = abs.metadataPctCoords as NonNullable<FabricObject['metadata']>['pctCoords'];
     }
     
+    // After all positioning maths (including anchoring later) we will clamp coords to ensure
+    // the object's bounding box stays within the visible canvas area. For objects whose
+    // size is still unknown (e.g., lines/circles without explicit width/height) we just
+    // clamp the top-left corner.
+    const clampCoords = (canvas?: Canvas) => {
+        if (!canvas) return;
+        const cW = canvas.getWidth();
+        const cH = canvas.getHeight();
+
+        const objW = coords.width ?? 0;
+        const objH = coords.height ?? 0;
+
+        const maxX = cW - objW;
+        const maxY = cH - objH;
+
+        coords.x = Math.max(0, Math.min(coords.x ?? 0, maxX < 0 ? 0 : maxX));
+        coords.y = Math.max(0, Math.min(coords.y ?? 0, maxY < 0 ? 0 : maxY));
+    };
+
     // --- START: ANCHOR LOGIC MOVED HERE ---
     let rp: any | undefined;
     if (spec.metadata && (spec.metadata as any).relativePlacement) {
@@ -202,6 +221,10 @@ function createFabricObjectInternal(spec: CanvasObjectSpec, canvas?: Canvas): Fa
                 rx = rx ?? 30;
                 ry = ry ?? rx; // default circle if ry missing
 
+                // After rx/ry calculation add width/height fallback for clamping & persistence
+                if (coords.width === undefined) coords.width = rx * 2;
+                if (coords.height === undefined) coords.height = ry * 2;
+
                 fabricObject = new fabric.Ellipse({
                     ...baseOptions,
                     rx,
@@ -223,6 +246,9 @@ function createFabricObjectInternal(spec: CanvasObjectSpec, canvas?: Canvas): Fa
                     }
                 }
                 radiusVal = radiusVal ?? 25;
+                // Provide fallback width/height for circle
+                if (coords.width === undefined) coords.width = radiusVal * 2;
+                if (coords.height === undefined) coords.height = radiusVal * 2;
                 fabricObject = new Circle({
                     ...baseOptions,
                     radius: radiusVal,
@@ -430,12 +456,58 @@ function createFabricObjectInternal(spec: CanvasObjectSpec, canvas?: Canvas): Fa
         if (fabricObject) {
             fabricObject.id = spec.id;
             fabricObject.metadata = metadataForFabricObject;
+
+            // Final bounding-box clamp to ensure new object is fully visible.
+            if (canvas) {
+                clampObjectToCanvas(canvas, fabricObject);
+            }
         }
     } catch (error) {
         console.error(`[InternalFactory] Error creating object (kind: ${spec.kind}, id: ${spec.id}):`, error);
         return null;
     }
+
+    // At this point coords.x/coords.y should be resolved to absolute numbers (possibly after anchoring).
+    // We now clamp them so the object (as far as we know its size) stays within the canvas bounds.
+    if (canvas) {
+        const cW = canvas.getWidth();
+        const cH = canvas.getHeight();
+
+        const objW = coords.width ?? 0;
+        const objH = coords.height ?? 0;
+
+        const maxX = cW - objW;
+        const maxY = cH - objH;
+
+        coords.x = Math.max(0, Math.min(coords.x ?? 0, maxX < 0 ? 0 : maxX));
+        coords.y = Math.max(0, Math.min(coords.y ?? 0, maxY < 0 ? 0 : maxY));
+    }
+
     return fabricObject;
+}
+
+// Utility: Ensure the object's bounding box stays within the visible canvas.
+function clampObjectToCanvas(canvas: Canvas, obj: fabric.Object) {
+    // @ts-ignore – getBoundingRect accepts boolean includeStroke arg
+    const rect = obj.getBoundingRect(true);
+    const cW = canvas.getWidth();
+    const cH = canvas.getHeight();
+
+    let newLeft = rect.left;
+    let newTop = rect.top;
+
+    // Shift right/down if negative
+    if (rect.left < 0) newLeft = 0;
+    if (rect.top < 0) newTop = 0;
+
+    // Shift left/up if beyond bounds
+    if (rect.left + rect.width > cW) newLeft = Math.max(0, cW - rect.width);
+    if (rect.top + rect.height > cH) newTop = Math.max(0, cH - rect.height);
+
+    if (newLeft !== rect.left || newTop !== rect.top) {
+        obj.set({ left: newLeft, top: newTop });
+        obj.setCoords();
+    }
 }
 
 /**
@@ -451,7 +523,16 @@ export function createFabricObject(canvas: Canvas, spec: CanvasObjectSpec): void
   // Calculate absolute coordinates if percentage coordinates are provided
   const canvasWidth = canvas.getWidth();
   const canvasHeight = canvas.getHeight();
-  const { x, y, width, height, metadataPctCoords } = calculateAbsoluteCoords(spec, canvasWidth, canvasHeight);
+  const coordResult = calculateAbsoluteCoords(spec, canvasWidth, canvasHeight);
+  let { x, y, width, height, metadataPctCoords } = coordResult;
+
+  // Clamp coordinates to canvas bounds (ensure object stays visible)
+  const objW = width ?? 0;
+  const objH = height ?? 0;
+  const maxX = canvasWidth - objW;
+  const maxY = canvasHeight - objH;
+  x = Math.max(0, Math.min(x, maxX < 0 ? 0 : maxX));
+  y = Math.max(0, Math.min(y, maxY < 0 ? 0 : maxY));
 
   const metadataForFabricObject: FabricObject['metadata'] = { 
       id: spec.id,
@@ -644,6 +725,8 @@ export function createFabricObject(canvas: Canvas, spec: CanvasObjectSpec): void
     if (fabricObject) {
       (fabricObject as any).metadata = metadataForFabricObject; // Assign metadata
       canvas.add(fabricObject);
+      // Clamp once added (important for kinds handled directly here)
+      clampObjectToCanvas(canvas, fabricObject);
     }
 
   } catch (error) {

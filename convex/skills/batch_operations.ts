@@ -139,10 +139,10 @@ export const batchWhiteboardOperations = action({
 function createTextSpec(data: any) {
   return {
     id: data.id || generateBatchId(),
-    kind: "text",
+    kind: "textbox",
     text: data.text,
-    x: data.x || 100,
-    y: data.y || 100,
+    xPct: data.xPct || (data.x ? data.x / 800 : 0.125),
+    yPct: data.yPct || (data.y ? data.y / 600 : 0.167),
     fontSize: data.fontSize || 16,
     fill: data.color || "#000000",
     metadata: { source: "assistant" }
@@ -153,10 +153,10 @@ function createShapeSpec(data: any) {
   return {
     id: data.id || generateBatchId(),
     kind: data.shape_type,
-    x: data.x || 100,
-    y: data.y || 100,
-    width: data.width || 50,
-    height: data.height || 50,
+    xPct: data.xPct || (data.x ? data.x / 800 : 0.125),
+    yPct: data.yPct || (data.y ? data.y / 600 : 0.167),
+    widthPct: data.widthPct || (data.width ? data.width / 800 : 0.0625),
+    heightPct: data.heightPct || (data.height ? data.height / 600 : 0.083),
     fill: data.fill || "#ffffff",
     stroke: data.stroke || "#000000",
     metadata: { source: "assistant" }

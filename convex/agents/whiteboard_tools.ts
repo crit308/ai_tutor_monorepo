@@ -60,56 +60,37 @@ ${inspectionResult.objectList.map(obj =>
   },
 });
 
-// Strict WB object schema
+// --- Minimal WB object schema to satisfy OpenAI strict mode ---
+const pct = () => z.number().min(0).max(1);
 const wbObjectSchema = z
   .object({
-    id: z.string(),
-    kind: z.string(),
-    x: z.number(),
-    y: z.number(),
-    rx: z.number(),
-    ry: z.number(),
-    width: z.number(),
-    height: z.number(),
-    points: z.array(z.number()),
-    fill: z.string(),
-    stroke: z.string(),
-    strokeWidth: z.number(),
-    markerEnd: z.string(),
-    text: z.string(),
-    fontSize: z.number(),
-    metadata: z
-      .object({
-        groupId: z.string(),
-        role: z.string(),
-      })
-      .strict(),
+    id: z.string().describe("Unique object identifier"),
+    kind: z.string().describe("Object type (e.g. rect, ellipse, text, path, etc.)"),
+    // --- Core percentage-based positioning/dimensions (required) ---
+    xPct: pct().describe("X position as % of canvas width"),
+    yPct: pct().describe("Y position as % of canvas height"),
   })
+  // OpenAI strict mode requires additionalProperties: false
   .strict();
 
-// Update schema (id + diff)
-const wbUpdateSchema = z
-  .object({
-    id: z.string(),
-    // Use the same full schema for diff to satisfy OpenAI requirements
-    diff: wbObjectSchema.strict(),
-  })
-  .strict();
+// --- Update schema (id + diff) ---
+const wbUpdateSchema = z.object({
+  id: z.string(),
+  diff: wbObjectSchema,
+});
 
+// ---------------- TOOL DEFINITIONS ----------------
 // Tool: create_whiteboard_objects
 export const createWhiteboardObjectsTool = createTool({
-  description: "Create new objects on the whiteboard.",
+  name: "create_whiteboard_objects",
+  description: "Create new objects on the whiteboard using percentage-based coordinates. All positions and dimensions must be specified as percentages (0-1) of the canvas size for responsive layout across different screen sizes.",
   args: z.object({
-    sessionId: z.string().describe("Current session ID"),
-    objects: z.array(wbObjectSchema).describe("Array of objects to create"),
-    lastKnownVersion: z.number().describe("Last known board version"),
-  }).strict(),
+    sessionId: z.string(),
+    objects: z.array(wbObjectSchema),
+    lastKnownVersion: z.number(),
+  }),
   async handler(ctx: any, args) {
-    const patch = {
-      creates: args.objects,
-      updates: [],
-      deletes: [],
-    };
+    const patch = { creates: args.objects, updates: [], deletes: [] };
     const res = await ctx.runAction(api.agents.whiteboard_agent.executeWhiteboardSkill, {
       skill_name: "apply_whiteboard_patch",
       skill_args: { patch, lastKnownVersion: args.lastKnownVersion },
@@ -122,18 +103,15 @@ export const createWhiteboardObjectsTool = createTool({
 
 // Tool: update_whiteboard_objects
 export const updateWhiteboardObjectsTool = createTool({
-  description: "Update existing objects on the whiteboard.",
+  name: "update_whiteboard_objects",
+  description: "Update existing objects on the whiteboard using percentage-based coordinates.",
   args: z.object({
-    sessionId: z.string().describe("Current session ID"),
-    updates: z.array(wbUpdateSchema).describe("Array of object updates"),
-    lastKnownVersion: z.number().describe("Last known board version"),
-  }).strict(),
+    sessionId: z.string(),
+    updates: z.array(wbUpdateSchema),
+    lastKnownVersion: z.number(),
+  }),
   async handler(ctx: any, args) {
-    const patch = {
-      creates: [],
-      updates: args.updates,
-      deletes: [],
-    };
+    const patch = { creates: [], updates: args.updates, deletes: [] };
     const res = await ctx.runAction(api.agents.whiteboard_agent.executeWhiteboardSkill, {
       skill_name: "apply_whiteboard_patch",
       skill_args: { patch, lastKnownVersion: args.lastKnownVersion },
@@ -146,18 +124,15 @@ export const updateWhiteboardObjectsTool = createTool({
 
 // Tool: delete_whiteboard_objects
 export const deleteWhiteboardObjectsTool = createTool({
+  name: "delete_whiteboard_objects",
   description: "Delete objects from the whiteboard.",
   args: z.object({
-    sessionId: z.string().describe("Current session ID"),
-    objectIds: z.array(z.string()).describe("Array of object IDs to delete"),
-    lastKnownVersion: z.number().describe("Last known board version"),
-  }).strict(),
+    sessionId: z.string(),
+    objectIds: z.array(z.string()),
+    lastKnownVersion: z.number(),
+  }),
   async handler(ctx: any, args) {
-    const patch = {
-      creates: [],
-      updates: [],
-      deletes: args.objectIds,
-    };
+    const patch = { creates: [], updates: [], deletes: args.objectIds };
     const res = await ctx.runAction(api.agents.whiteboard_agent.executeWhiteboardSkill, {
       skill_name: "apply_whiteboard_patch",
       skill_args: { patch, lastKnownVersion: args.lastKnownVersion },

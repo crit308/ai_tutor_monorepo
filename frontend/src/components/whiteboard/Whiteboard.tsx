@@ -222,6 +222,22 @@ const Whiteboard: React.FC<WhiteboardProps> = React.memo(({ sessionId }) => {
                 obj.set(updateProps);
                 obj.setCoords(); 
             }
+
+            // Universal clamp: ensure everything stays on screen after resize
+            const rect = (obj as any).getBoundingRect(true);
+            const maxLeft = newCanvasWidth - rect.width;
+            const maxTop = newCanvasHeight - rect.height;
+            let needsUpdate = false;
+            let newLeft = rect.left;
+            let newTop = rect.top;
+            if (rect.left < 0) { newLeft = 0; needsUpdate = true; }
+            if (rect.top < 0) { newTop = 0; needsUpdate = true; }
+            if (rect.left > maxLeft) { newLeft = Math.max(0, maxLeft); needsUpdate = true; }
+            if (rect.top > maxTop) { newTop = Math.max(0, maxTop); needsUpdate = true; }
+            if (needsUpdate) {
+              obj.set({ left: newLeft, top: newTop });
+              obj.setCoords();
+            }
         });
 
         fabricCanvas.requestRenderAll();

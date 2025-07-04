@@ -109,6 +109,8 @@ export interface CanvasObjectSpec {
   widthPct?: number;
   heightPct?: number;
   radius?: number;
+  rxPct?: number; // X radius as percentage of canvas width for ellipses
+  ryPct?: number; // Y radius as percentage of canvas height for ellipses
   text?: string;
   fontSize?: number;
   fontFamily?: string;

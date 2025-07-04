@@ -24,9 +24,6 @@ import {
 } from "@/components/ui/resizable"
 import { WhiteboardProvider, useWhiteboard } from '@/contexts/WhiteboardProvider';
 import WhiteboardTools from '@/components/whiteboard/WhiteboardTools';
-import WhiteboardScreenshotTest from '@/components/whiteboard/WhiteboardScreenshotTest';
-import { ConvexScreenshotTest } from '@/components/ConvexScreenshotTest';
-import type { WhiteboardAction, ErrorResponse, InteractionResponseData } from '@/lib/types';
 import { WhiteboardModeToggle } from '@/components/ui/WhiteboardModeToggle';
 import { fetchSessionMessages } from '@/lib/api';
 import { useQuery } from 'convex/react';
@@ -349,12 +346,6 @@ function InnerLearnPage() {
             {/* Whiteboard Tools Bar */}
             <WhiteboardTools />
             
-            {/* Screenshot Test Component (for development/testing) */}
-            <div className="px-4 py-2">
-                                          <WhiteboardScreenshotTest />
-                            <ConvexScreenshotTest />
-            </div>
-
             {/* Whiteboard Canvas */}
             <div className="flex-1 p-4 overflow-y-auto relative">
               <Whiteboard />

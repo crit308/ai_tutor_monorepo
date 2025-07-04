@@ -220,7 +220,9 @@ export function useEphemeralWebSocket(
       const whiteboardElement = document.querySelector('[data-whiteboard-container]') as HTMLElement;
       
       if (!whiteboardElement) {
-        console.error('[useEphemeralWebSocket] Whiteboard container not found');
+        if (process.env.NODE_ENV === 'development') {
+          console.debug('[useEphemeralWebSocket] Whiteboard container not found – skipping capture');
+        }
         return null;
       }
 
