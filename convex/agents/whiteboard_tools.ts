@@ -62,18 +62,27 @@ ${inspectionResult.objectList.map(obj =>
 
 // --- Minimal WB object schema to satisfy OpenAI strict mode ---
 const pct = () => z.number().min(0).max(1);
+
+// --- Whiteboard object schema (all properties required but nullable for optional values) ---
 const wbObjectSchema = z
   .object({
-    id: z.string().describe("Unique object identifier"),
-    kind: z.string().describe("Object type (e.g. rect, ellipse, text, path, etc.)"),
-    // --- Core percentage-based positioning/dimensions (required) ---
-    xPct: pct().describe("X position as % of canvas width"),
-    yPct: pct().describe("Y position as % of canvas height"),
+    id: z.string(),
+    kind: z.string(),
+    xPct: pct(),
+    yPct: pct(),
+    widthPct: pct().nullable(),
+    heightPct: pct().nullable(),
+    rxPct: pct().nullable(),
+    ryPct: pct().nullable(),
+    fill: z.string().nullable(),
+    stroke: z.string().nullable(),
+    strokeWidth: z.number().nullable(),
+    text: z.string().nullable(),
+    fontSize: z.number().nullable(),
   })
-  // OpenAI strict mode requires additionalProperties: false
   .strict();
 
-// --- Update schema (id + diff) ---
+// Update schema (id + diff)
 const wbUpdateSchema = z.object({
   id: z.string(),
   diff: wbObjectSchema,
@@ -83,7 +92,7 @@ const wbUpdateSchema = z.object({
 // Tool: create_whiteboard_objects
 export const createWhiteboardObjectsTool = createTool({
   name: "create_whiteboard_objects",
-  description: "Create new objects on the whiteboard using percentage-based coordinates. All positions and dimensions must be specified as percentages (0-1) of the canvas size for responsive layout across different screen sizes.",
+  description: "Create new objects on the whiteboard. All styling fields must be supplied (null if unused) to satisfy strict validation.",
   args: z.object({
     sessionId: z.string(),
     objects: z.array(wbObjectSchema),
