@@ -102,9 +102,57 @@ export const inspectWhiteboard = internalAction({
         .map((obj: any) => {
         let bbox = { x: 0, y: 0, width: 0, height: 0 };
         
-        // Calculate accurate bounding box based on object type
-        if (obj.kind === 'text') {
-          // Estimate text bounding box
+        // Prefer absolute pixel coordinates if present; fall back to percentage-based ones
+        const pctToPx = (pct: number | null | undefined, axis: 'x' | 'y') => {
+          if (pct === null || pct === undefined) return 0;
+          return (axis === 'x' ? canvasDimensions.width : canvasDimensions.height) * pct;
+        };
+        
+        const hasPctPos = obj.xPct !== undefined || obj.yPct !== undefined;
+        const hasPctSize =
+          obj.widthPct !== undefined ||
+          obj.heightPct !== undefined ||
+          obj.rxPct !== undefined ||
+          obj.ryPct !== undefined;
+
+        // Calculate bbox differently depending on the data available
+        if (hasPctPos || hasPctSize) {
+          // Percentage-based position
+          const x = pctToPx(obj.xPct, 'x');
+          const y = pctToPx(obj.yPct, 'y');
+
+          let width = 0;
+          let height = 0;
+
+          // Size: first prefer widthPct/heightPct, else derive from rxPct/ryPct (diameter)
+          if (obj.widthPct !== undefined && obj.widthPct !== null) {
+            width = pctToPx(obj.widthPct, 'x');
+          } else if (obj.rxPct !== undefined && obj.rxPct !== null) {
+            width = pctToPx(obj.rxPct * 2, 'x');
+          }
+
+          if (obj.heightPct !== undefined && obj.heightPct !== null) {
+            height = pctToPx(obj.heightPct, 'y');
+          } else if (obj.ryPct !== undefined && obj.ryPct !== null) {
+            height = pctToPx(obj.ryPct * 2, 'y');
+          }
+
+          // For text objects without explicit width/height, estimate
+          if (obj.kind === 'text' && (width === 0 || height === 0)) {
+            const text = obj.text || '';
+            const fontSize = obj.fontSize || 16;
+            width = text.length * fontSize * 0.6;
+            height = fontSize * 1.2;
+          }
+
+          bbox = {
+            x,
+            y,
+            width: Math.max(width, 1),
+            height: Math.max(height, 1),
+          };
+        } else if (obj.kind === 'text') {
+          // Existing text estimation fallback
           const text = obj.text || '';
           const fontSize = obj.fontSize || 16;
           const estimatedWidth = text.length * fontSize * 0.6; // rough approximation
@@ -116,7 +164,7 @@ export const inspectWhiteboard = internalAction({
             height: Math.max(estimatedHeight, 10), // minimum height
           };
         } else if (obj.kind === 'line') {
-          // Calculate bounding box for LINE objects from points
+          // Existing line handling remains unchanged
           if (obj.points && Array.isArray(obj.points) && obj.points.length >= 4) {
             const [x1, y1, x2, y2] = obj.points;
             const minX = Math.min(x1, x2);
@@ -126,33 +174,24 @@ export const inspectWhiteboard = internalAction({
             bbox = {
               x: minX,
               y: minY,
-              width: Math.max(maxX - minX, 1), // minimum width of 1
-              height: Math.max(maxY - minY, 1), // minimum height of 1
+              width: Math.max(maxX - minX, 1),
+              height: Math.max(maxY - minY, 1),
             };
           } else {
-            // Fallback for lines without proper points
             bbox = {
               x: obj.x || 0,
               y: obj.y || 0,
-              width: obj.width || 50, // default line width
-              height: obj.height || 2, // default line height
+              width: obj.width || 50,
+              height: obj.height || 2,
             };
           }
-        } else if (obj.kind === 'rect' || obj.kind === 'ellipse') {
-          // Standard rectangular objects
+        } else {
+          // Default handling for rect/ellipse if absolute coordinates present
           bbox = {
             x: obj.x || 0,
             y: obj.y || 0,
             width: obj.width || 0,
             height: obj.height || 0,
-          };
-        } else {
-          // Default fallback for other object types
-          bbox = {
-            x: obj.x || 0,
-            y: obj.y || 0,
-            width: obj.width || 10, // minimum default width
-            height: obj.height || 10, // minimum default height
           };
         }
         
