@@ -213,7 +213,7 @@ export const inspectWhiteboard = internalAction({
       });
       
       return {
-        screenshotDataUrl: screenshotResult.image_data || null,
+        screenshotDataUrl: (screenshotResult.image_url as string | undefined) || null,
         boardSummary: {
           objectCount: objects.length,
           boardVersion: boardVersion,

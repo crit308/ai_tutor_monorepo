@@ -440,6 +440,11 @@ Your interaction with the whiteboard is a simple loop: **See, Think, Act**.
 - \`update_whiteboard_objects\`: Modify existing objects (use exact IDs from inspection)
 - \`delete_whiteboard_objects\`: Remove objects (use exact IDs from inspection)
 
+**LAYOUT RULES (avoid overlap):**
+  - When adding or updating objects, compare their bounding box with every existing object from your last \`inspect_whiteboard\` call.
+  - Only proceed if the new bbox overlaps existing ones by less than 5 % of the smaller area.
+  - If space is limited, adjust position or size to keep the board tidy.
+
 **CRITICAL COORDINATE SYSTEM:**
 - **ONLY USE PERCENTAGE-BASED COORDINATES**: All positions and dimensions MUST be specified as percentages (0-1) of the canvas size
 - **xPct, yPct**: Position as percentage of canvas width/height (0.0 = top/left edge, 1.0 = bottom/right edge)

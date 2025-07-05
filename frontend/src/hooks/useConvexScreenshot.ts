@@ -44,90 +44,90 @@ export function useConvexScreenshot() {
       const textOverlayContainer = whiteboardElement.querySelector('div:last-child'); // The div with text overlays
       
       if (canvasElement) {
-        try {
-          console.log('[useConvexScreenshot] Forcing fabric.js to render all text objects...');
-          
-          // Get fabric canvas instance and force text rendering
-          const fabricCanvas = (canvasElement as any).__fabric;
-          if (fabricCanvas) {
-            // Force all text objects to be rendered properly
-            const textObjects = fabricCanvas.getObjects().filter((obj: any) => obj.type === 'textbox' || obj.type === 'text');
-            textObjects.forEach((obj: any) => {
-              obj.set({
-                visible: true,
-                opacity: 1
-              });
-              obj.setCoords();
-            });
-            fabricCanvas.requestRenderAll();
-            
-            // Wait for render to complete
-            await new Promise(resolve => setTimeout(resolve, 100));
-          }
-          
-          console.log('[useConvexScreenshot] Creating composite screenshot with text overlays...');
-          
-          // Create a new canvas to composite both canvas and text
-          const compositeCanvas = document.createElement('canvas');
-          const rect = whiteboardElement.getBoundingClientRect();
-          compositeCanvas.width = canvasElement.width || rect.width;
-          compositeCanvas.height = canvasElement.height || rect.height;
-          const ctx = compositeCanvas.getContext('2d');
-          
-          if (ctx) {
-            // Draw the fabric canvas first
-            ctx.drawImage(canvasElement, 0, 0);
-            
-            // Draw text overlays on top
-            if (textOverlayContainer) {
-              const textDivs = textOverlayContainer.querySelectorAll('div[style*="position: absolute"]');
-              
-              textDivs.forEach((textDiv: Element) => {
-                const htmlDiv = textDiv as HTMLElement;
-                const computedStyle = window.getComputedStyle(htmlDiv);
-                
-                // Get position and styling
-                const left = parseInt(computedStyle.left) || 0;
-                const top = parseInt(computedStyle.top) || 0;
-                const fontSize = computedStyle.fontSize;
-                const fontFamily = computedStyle.fontFamily;
-                const color = computedStyle.color;
-                const text = htmlDiv.textContent || '';
-                
-                if (text.trim()) {
-                  // Set up text styling
-                  ctx.font = `${fontSize} ${fontFamily}`;
-                  ctx.fillStyle = color;
-                  ctx.textBaseline = 'top';
-                  
-                  // Handle multi-line text
-                  const lines = text.split('\n');
-                  const lineHeight = parseInt(fontSize) * 1.2; // Approximate line height
-                  
-                  lines.forEach((line, index) => {
-                    if (line.trim()) {
-                      ctx.fillText(line, left, top + (index * lineHeight));
-                    }
-                  });
-                }
-              });
-            }
-            
-            const dataUrl = compositeCanvas.toDataURL('image/png');
-            console.log('[useConvexScreenshot] Composite screenshot with text successful');
-            return dataUrl;
-          }
-        } catch (compositeError) {
-          console.warn('[useConvexScreenshot] Composite screenshot failed:', compositeError);
-          
-          // Fallback to direct canvas capture
+        // Try simplest path: if Fabric canvas has all objects (including text), export directly
+        const fabricInstance = (canvasElement as any).__fabric;
+        if (fabricInstance) {
           try {
-            const dataUrl = canvasElement.toDataURL('image/png');
-            console.log('[useConvexScreenshot] Direct canvas screenshot successful (no text overlays)');
-            return dataUrl;
-          } catch (canvasError) {
-            console.warn('[useConvexScreenshot] Direct canvas capture also failed:', canvasError);
+            const directDataUrl = fabricInstance.toDataURL({ format: 'png', multiplier: 2 });
+            if (directDataUrl) {
+              return directDataUrl;
+            }
+          } catch (e) {
+            console.warn('[useConvexScreenshot] Direct fabric toDataURL failed, falling back:', e);
           }
+        }
+
+        console.log('[useConvexScreenshot] Forcing fabric.js to render all text objects...');
+        
+        // Get fabric canvas instance and force text rendering
+        const fabricCanvas = (canvasElement as any).__fabric;
+        if (fabricCanvas) {
+          // Force all text objects to be rendered properly
+          const textObjects = fabricCanvas.getObjects().filter((obj: any) => obj.type === 'textbox' || obj.type === 'text');
+          textObjects.forEach((obj: any) => {
+            obj.set({
+              visible: true,
+              opacity: 1
+            });
+            obj.setCoords();
+          });
+          fabricCanvas.requestRenderAll();
+          
+          // Wait for render to complete
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
+        console.log('[useConvexScreenshot] Creating composite screenshot with text overlays...');
+        
+        // Create a new canvas to composite both canvas and text
+        const compositeCanvas = document.createElement('canvas');
+        const rect = whiteboardElement.getBoundingClientRect();
+        compositeCanvas.width = canvasElement.width || rect.width;
+        compositeCanvas.height = canvasElement.height || rect.height;
+        const ctx = compositeCanvas.getContext('2d');
+        
+        if (ctx) {
+          // Draw the fabric canvas first
+          ctx.drawImage(canvasElement, 0, 0);
+          
+          // Draw text overlays on top
+          if (textOverlayContainer) {
+            const textDivs = textOverlayContainer.querySelectorAll('div[style*="position: absolute"]');
+            
+            textDivs.forEach((textDiv: Element) => {
+              const htmlDiv = textDiv as HTMLElement;
+              const computedStyle = window.getComputedStyle(htmlDiv);
+              
+              // Get position and styling
+              const left = parseInt(computedStyle.left) || 0;
+              const top = parseInt(computedStyle.top) || 0;
+              const fontSize = computedStyle.fontSize;
+              const fontFamily = computedStyle.fontFamily;
+              const color = computedStyle.color;
+              const text = htmlDiv.textContent || '';
+              
+              if (text.trim()) {
+                // Set up text styling
+                ctx.font = `${fontSize} ${fontFamily}`;
+                ctx.fillStyle = color;
+                ctx.textBaseline = 'top';
+                
+                // Handle multi-line text
+                const lines = text.split('\n');
+                const lineHeight = parseInt(fontSize) * 1.2; // Approximate line height
+                
+                lines.forEach((line, index) => {
+                  if (line.trim()) {
+                    ctx.fillText(line, left, top + (index * lineHeight));
+                  }
+                });
+              }
+            });
+          }
+          
+          const dataUrl = compositeCanvas.toDataURL('image/png');
+          console.log('[useConvexScreenshot] Composite screenshot with text successful');
+          return dataUrl;
         }
       }
       
@@ -191,7 +191,7 @@ export function useConvexScreenshot() {
   useEffect(() => {
     if (!sessionMessages || !sessionId) return;
 
-    sessionMessages.forEach(async (message) => {
+    sessionMessages.forEach(async (message: any) => {
       if (message.data?.type === 'screenshot_request') {
         console.log('[useConvexScreenshot] Convex screenshot request received:', message.data.request_id);
         console.log('[useConvexScreenshot] Context:', message.data.context || 'No context provided');
@@ -231,7 +231,7 @@ export function useConvexScreenshot() {
     
     // Update last checked timestamp
     if (sessionMessages.length > 0) {
-      lastCheckedTimestamp.current = Math.max(...sessionMessages.map(m => m.timestamp));
+      lastCheckedTimestamp.current = Math.max(...sessionMessages.map((m: any) => m.timestamp));
     }
   }, [sessionMessages, sessionId, submitScreenshotResponse]);
 

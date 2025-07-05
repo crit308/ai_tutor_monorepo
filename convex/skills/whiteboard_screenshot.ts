@@ -1,3 +1,4 @@
+'use node';
 import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { api } from "../_generated/api";
@@ -14,13 +15,13 @@ export const requestWhiteboardScreenshot = action({
   },
   returns: v.object({
     success: v.boolean(),
-    image_data: v.optional(v.string()),
+    image_url: v.optional(v.string()),
     error_message: v.optional(v.string()),
     request_id: v.string(),
   }),
   handler: async (ctx, args): Promise<{
     success: boolean;
-    image_data?: string;
+    image_url?: string;
     error_message?: string;
     request_id: string;
   }> => {
@@ -64,9 +65,33 @@ export const requestWhiteboardScreenshot = action({
         
         if (response.success && response.image_data) {
           console.log(`[Screenshot] Successfully received screenshot for request ${requestId}`);
+          
+          // 1. Strip data URI prefix if present
+          const base64 = response.image_data.replace(/^data:image\/[^;]+;base64,/, "");
+          
+          // 2. Convert to ArrayBuffer / Uint8Array
+          const buffer = Buffer.from(base64, "base64");
+          
+          // 3. Convert to Blob (or ArrayBuffer) for Convex storage
+          const blob = new Blob([buffer], { type: "image/png" });
+          
+          // 4. Store in Convex file storage
+          const fileId = await ctx.storage.store(blob);
+          
+          // 5. Get a signed URL (default expiry ~4h)
+          const url = await ctx.storage.getUrl(fileId);
+          
+          if (!url) {
+            return {
+              success: false,
+              error_message: "Failed to generate screenshot URL",
+              request_id: requestId,
+            };
+          }
+          
           return {
             success: true,
-            image_data: response.image_data,
+            image_url: url,
             request_id: requestId,
           };
         }
@@ -111,8 +136,8 @@ export const getWhiteboardScreenshot = action({
       request_context: "Legacy API call",
     });
     
-    if (result.success && result.image_data) {
-      return result.image_data;
+    if (result.success && result.image_url) {
+      return result.image_url;
     }
     
     // Return minimal fallback image

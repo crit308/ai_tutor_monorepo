@@ -28,10 +28,10 @@ export const inspectWhiteboardTool = createTool({
 
 📋 OBJECT LIST:
 ${inspectionResult.objectList.map(obj => 
-  `• ${obj.kind.toUpperCase()} "${obj.id}" at (${obj.bbox.x}, ${obj.bbox.y}) size ${obj.bbox.width}x${obj.bbox.height}${obj.text ? ` - Text: "${obj.text}"` : ''}${obj.role ? ` - Role: ${obj.role}` : ''}`
+  `• ${obj.kind.toUpperCase()} \"${obj.id}\" at (${obj.bbox.x}, ${obj.bbox.y}) size ${obj.bbox.width}x${obj.bbox.height}${obj.text ? ` - Text: \"${obj.text}\"` : ''}${obj.role ? ` - Role: ${obj.role}` : ''}`
 ).join('\n')}
 
-🔍 VISUAL ANALYSIS: Please examine the screenshot to understand the visual layout, colors, spatial relationships, alignment, and overall design quality that cannot be captured in text alone.`;
+🔍 VISUAL ANALYSIS: Refer to the image for spatial relationships, colors, and alignment that are not captured in text.`;
 
     // 2. Construct a multi-part content array
     const content = [
