@@ -60,6 +60,27 @@ ${inspectionResult.objectList.map(obj =>
   },
 });
 
+// --- DATA-ONLY WHITEBOARD INSPECTION TOOL ---
+export const getWhiteboardDataTool = createTool({
+  name: "get_whiteboard_data",
+  description: "Return JSON with screenshotUrl, boardSummary, and objectList for the current whiteboard. Afterwards, you (the model) should send an assistant message containing an image_url pointing to screenshotUrl so you can see the board.",
+  args: z.object({
+    sessionId: z.string(),
+  }),
+  async handler(ctx: any, args) {
+    const inspectionResult = await ctx.runAction(internal.skills.whiteboard_inspection.inspectWhiteboard, {
+      sessionId: args.sessionId,
+      userId: ctx.userId || null,
+    });
+
+    return {
+      screenshotUrl: inspectionResult.screenshotDataUrl,
+      boardSummary: inspectionResult.boardSummary,
+      objectList: inspectionResult.objectList,
+    };
+  },
+});
+
 // --- Minimal WB object schema to satisfy OpenAI strict mode ---
 const pct = () => z.number().min(0).max(1);
 
@@ -154,8 +175,7 @@ export const deleteWhiteboardObjectsTool = createTool({
 
 export const whiteboardTools = {
   // --- NEW PRIMARY VISION TOOL ---
-  inspect_whiteboard: inspectWhiteboardTool,
-
+  get_whiteboard_data: getWhiteboardDataTool,
   // --- MODIFICATION TOOLS (UNCHANGED) ---
   create_whiteboard_objects: createWhiteboardObjectsTool,
   update_whiteboard_objects: updateWhiteboardObjectsTool,

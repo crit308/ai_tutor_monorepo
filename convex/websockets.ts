@@ -76,11 +76,12 @@ export const getSessionMessages = query({
     
     const messages = await ctx.db
       .query("realtime_events")
-      .filter(q => q.eq(q.field("session_id"), args.session_id))
-      .filter(q => q.eq(q.field("event_type"), "agent_message"))
-      .filter(q => q.gte(q.field("timestamp"), since))
+      .withIndex("by_session", (q) => q.eq("session_id", args.session_id))
+      .filter((q) => q.eq(q.field("event_type"), "agent_message"))
+      .filter((q) => q.gte(q.field("timestamp"), since))
       .order("desc")
-      .take(50);
+      // Limit the number of messages returned further to minimise payload size
+      .take(30);
 
     return messages.map(msg => ({
       id: msg._id,

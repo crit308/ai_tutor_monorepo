@@ -18,17 +18,14 @@ export const executeWhiteboardSkill = action({
     user_id: v.string(),
   },
   returns: v.object({
-    payload: v.object({
-      message_text: v.string(),
-      message_type: v.string(),
-    }),
+    payload: v.any(),
     actions: v.array(v.any()),
   }),
-  handler: async (ctx, args): Promise<{payload: {message_text: string, message_type: string}, actions: any[]}> => {
+  handler: async (ctx, args): Promise<{payload: any, actions: any[]}> => {
     const start_time = Date.now();
     
     try {
-      let result: {payload: {message_text: string, message_type: string}, actions: any[]};
+      let result: {payload: {message_text?: string; message_content?: any; message_type: string}, actions: any[]};
 
       // Log the skill call for migration tracking and metrics
       await ctx.runMutation(api.metrics.logSkillCall, {
@@ -309,7 +306,7 @@ export const executeWhiteboardSkill = action({
           
           result = {
             payload: {
-              message_text: JSON.stringify(inspectionResult),
+              message_content: inspectionResult,
               message_type: "whiteboard_inspection",
             },
             actions: [],
@@ -421,7 +418,7 @@ export const WHITEBOARD_SKILLS_PROMPT = `
 
 Your interaction with the whiteboard is a simple loop: **See, Think, Act**.
 
-**1. See:** ALWAYS start by calling the \`inspect_whiteboard\` tool. This provides TRUE VISUAL PERCEPTION:
+**1. See:** ALWAYS start by calling the \`get_whiteboard_data\` tool. This returns JSON with a publicly accessible screenshot URL and structured data. After receiving it, immediately send an **assistant** message that embeds the screenshot as an image (type:"image_url") followed by your textual analysis. This gives you TRUE VISUAL PERCEPTION:
    - 👁️ **YOU CAN ACTUALLY SEE THE WHITEBOARD** - colors, layout, spacing, alignment, visual design
    - 📋 **Structured Data**: Precise object coordinates, IDs, text content, and properties
    - 🔍 **Complete Context**: Board dimensions, version, and any warnings
