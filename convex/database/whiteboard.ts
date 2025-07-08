@@ -716,22 +716,22 @@ export const applyWhiteboardPatch = mutation({
         continue;
       }
 
-      // Validate optional percentage dimensions
-      if (obj.widthPct !== undefined && (typeof obj.widthPct !== "number" || obj.widthPct < 0 || obj.widthPct > 1)) {
+      // Validate optional percentage dimensions (ignore if null or undefined)
+      if (obj.widthPct != null && (typeof obj.widthPct !== "number" || obj.widthPct < 0 || obj.widthPct > 1)) {
         issues.push({ level: "error", message: `Invalid widthPct for object ${obj.id}: must be between 0 and 1` });
         continue;
       }
-      if (obj.heightPct !== undefined && (typeof obj.heightPct !== "number" || obj.heightPct < 0 || obj.heightPct > 1)) {
+      if (obj.heightPct != null && (typeof obj.heightPct !== "number" || obj.heightPct < 0 || obj.heightPct > 1)) {
         issues.push({ level: "error", message: `Invalid heightPct for object ${obj.id}: must be between 0 and 1` });
         continue;
       }
 
-      // Validate optional percentage radii for ellipses
-      if (obj.rxPct !== undefined && (typeof obj.rxPct !== "number" || obj.rxPct < 0 || obj.rxPct > 1)) {
+      // Validate optional percentage radii for ellipses (ignore if null or undefined)
+      if (obj.rxPct != null && (typeof obj.rxPct !== "number" || obj.rxPct < 0 || obj.rxPct > 1)) {
         issues.push({ level: "error", message: `Invalid rxPct for object ${obj.id}: must be between 0 and 1` });
         continue;
       }
-      if (obj.ryPct !== undefined && (typeof obj.ryPct !== "number" || obj.ryPct < 0 || obj.ryPct > 1)) {
+      if (obj.ryPct != null && (typeof obj.ryPct !== "number" || obj.ryPct < 0 || obj.ryPct > 1)) {
         issues.push({ level: "error", message: `Invalid ryPct for object ${obj.id}: must be between 0 and 1` });
         continue;
       }

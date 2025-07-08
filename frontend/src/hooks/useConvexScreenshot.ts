@@ -48,7 +48,12 @@ export function useConvexScreenshot() {
         const fabricInstance = (canvasElement as any).__fabric;
         if (fabricInstance) {
           try {
-            const directDataUrl = fabricInstance.toDataURL({ format: 'png', multiplier: 2 });
+            // Ensure a white background so transparent areas don\'t appear black in the saved image
+            const directDataUrl = fabricInstance.toDataURL({ 
+              format: 'png', 
+              multiplier: 2,
+              backgroundColor: '#ffffff',
+            });
             if (directDataUrl) {
               return directDataUrl;
             }
@@ -87,7 +92,11 @@ export function useConvexScreenshot() {
         const ctx = compositeCanvas.getContext('2d');
         
         if (ctx) {
-          // Draw the fabric canvas first
+          // Paint white background first so any transparent pixels default to white
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, compositeCanvas.width, compositeCanvas.height);
+
+          // Draw the fabric canvas next
           ctx.drawImage(canvasElement, 0, 0);
           
           // Draw text overlays on top

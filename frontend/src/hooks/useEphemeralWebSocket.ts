@@ -264,7 +264,11 @@ export function useEphemeralWebSocket(
           const ctx = compositeCanvas.getContext('2d');
           
           if (ctx) {
-            // Draw the fabric canvas first
+            // Paint white background first
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, compositeCanvas.width, compositeCanvas.height);
+
+            // Draw the fabric canvas next
             ctx.drawImage(canvasElement, 0, 0);
             
             // Draw text overlays on top

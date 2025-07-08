@@ -259,11 +259,9 @@ function createFabricObjectInternal(spec: CanvasObjectSpec, canvas?: Canvas): Fa
                 });
                 break;
             }
-            case 'textbox':
-                fabricObject = new Textbox(spec.text ?? 'Text', {
+            case 'textbox': {
+                const tbOptions: any = {
                     ...baseOptions,
-                    width: coords.width ?? (canvas ? canvas.getWidth() * 0.85 : 250),
-                    ...(coords.height !== undefined && { height: coords.height }),
                     fontSize: spec.fontSize ?? 16,
                     fontFamily: spec.fontFamily ?? 'Arial',
                     fill: spec.fill ?? 'black',
@@ -273,13 +271,15 @@ function createFabricObjectInternal(spec: CanvasObjectSpec, canvas?: Canvas): Fa
                     hasControls: spec.hasControls ?? false,
                     hasBorders: spec.hasBorders ?? false,
                     visible: false,
-                });
+                };
+                if (coords.width !== undefined) tbOptions.width = coords.width;
+                if (coords.height !== undefined) tbOptions.height = coords.height;
+                fabricObject = new Textbox(spec.text ?? 'Text', tbOptions);
                 break;
-            case 'text':
-                // Treat plain text as a textbox for simplicity
-                fabricObject = new Textbox(spec.text ?? 'Text', {
+            }
+            case 'text': {
+                const textOptions: any = {
                     ...baseOptions,
-                    width: coords.width ?? (canvas ? canvas.getWidth() * 0.85 : 250),
                     fontSize: spec.fontSize ?? 18,
                     fontFamily: spec.fontFamily ?? 'Arial',
                     fill: spec.fill ?? 'black',
@@ -290,27 +290,54 @@ function createFabricObjectInternal(spec: CanvasObjectSpec, canvas?: Canvas): Fa
                     hasControls: spec.hasControls ?? false,
                     hasBorders: spec.hasBorders ?? false,
                     visible: false,
-                });
+                };
+                if (coords.width !== undefined) textOptions.width = coords.width;
+                fabricObject = new Textbox(spec.text ?? 'Text', textOptions);
                 break;
-            case 'line': { 
+            }
+            case 'line': {
+                // Determine line endpoints.
+                // Priority: explicit spec.points -> derive from coords.width/height -> default diagonal.
                 let linePoints: [number, number, number, number] = [0, 0, 50, 50];
+
                 if (Array.isArray(spec.points)) {
+                    // Use explicit points if provided
                     if (spec.points.length === 4 && typeof spec.points[0] === 'number') {
-                         linePoints = spec.points as [number, number, number, number];
-                     } else if (spec.points.length === 2 && typeof spec.points[0] === 'object' && spec.points[0] !== null && 'x' in spec.points[0]) {
-                         const p1 = spec.points[0] as { x: number; y: number };
-                         const p2 = spec.points[1] as { x: number; y: number };
-                         linePoints = [p1.x, p1.y, p2.x, p2.y];
-                     }
+                        linePoints = spec.points as [number, number, number, number];
+                    } else if (
+                        spec.points.length === 2 &&
+                        typeof spec.points[0] === 'object' &&
+                        spec.points[0] !== null &&
+                        'x' in spec.points[0]
+                    ) {
+                        const p1 = spec.points[0] as { x: number; y: number };
+                        const p2 = spec.points[1] as { x: number; y: number };
+                        linePoints = [p1.x, p1.y, p2.x, p2.y];
+                    }
                 }
+
+                // If no points yet, derive from width / height (if present)
+                if (!linePoints) {
+                    const w = coords.width ?? 50;
+                    const h = coords.height ?? 50;
+
+                    if (h > w) {
+                        // Predominantly vertical line – go from bottom-center to top-center
+                        linePoints = [w / 2, h, w / 2, 0];
+                    } else {
+                        // Predominantly horizontal (or square) – left-center to right-center
+                        linePoints = [0, h / 2, w, h / 2];
+                    }
+                }
+
                 fabricObject = new Line(linePoints, {
-                  stroke: spec.stroke ?? 'black',
-                  strokeWidth: spec.strokeWidth ?? 2,
-                  angle: spec.angle ?? 0,
-                  left: coords.x,
-                  top: coords.y,
-                  selectable: spec.selectable ?? true,
-                  evented: spec.evented ?? false,
+                    stroke: spec.stroke ?? 'black',
+                    strokeWidth: spec.strokeWidth ?? 2,
+                    angle: spec.angle ?? 0,
+                    left: coords.x,
+                    top: coords.y,
+                    selectable: spec.selectable ?? true,
+                    evented: spec.evented ?? false,
                 });
                 break;
             }
