@@ -109,6 +109,20 @@ const wbUpdateSchema = z.object({
   diff: wbObjectSchema,
 });
 
+// --- SHOW WHITEBOARD IMAGE (NO-OP) TOOL ---
+export const showWhiteboardImageTool = createTool({
+  name: "show_whiteboard_image",
+  description:
+    "Instruct the AI assistant to embed the provided whiteboard screenshot URL in the next assistant message so the vision model can actually see the board. This tool performs no server-side action except echoing the URL back.",
+  args: z.object({
+    url: z.string().describe("The HTTPS URL of the whiteboard screenshot to embed."),
+  }),
+  async handler(_ctx, args) {
+    // Simply echo back the URL so the calling framework has access if needed.
+    return { url: args.url };
+  },
+});
+
 // ---------------- TOOL DEFINITIONS ----------------
 // Tool: create_whiteboard_objects
 export const createWhiteboardObjectsTool = createTool({
@@ -180,4 +194,6 @@ export const whiteboardTools = {
   create_whiteboard_objects: createWhiteboardObjectsTool,
   update_whiteboard_objects: updateWhiteboardObjectsTool,
   delete_whiteboard_objects: deleteWhiteboardObjectsTool,
+  // --- SHOW WHITEBOARD IMAGE (NO-OP) TOOL ---
+  show_whiteboard_image: showWhiteboardImageTool,
 };

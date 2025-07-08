@@ -303,11 +303,13 @@ export default defineSchema({
     event_type: v.string(),
     session_id: v.optional(v.string()),
     user_id: v.optional(v.string()),
+    request_id: v.optional(v.string()), // For efficient lookup of screenshot responses
     event_data: v.any(),
     timestamp: v.number(),
   })
     .index("by_type", ["event_type"])
     .index("by_session", ["session_id"])
+    .index("by_request", ["request_id"])
     .index("by_timestamp", ["timestamp"]),
 
   // Error Logs

@@ -226,12 +226,14 @@ export const receiveScreenshot = mutation({
     })),
   },
   handler: async (ctx, args) => {
-    // Store the screenshot data
+    // Store the screenshot data.
+    // Duplicate request_id as a top-level field so we can query it efficiently
+    // without loading many large image blobs, preventing the 16 MB read limit.
     await ctx.db.insert("realtime_events", {
       event_type: "screenshot_response",
       session_id: args.session_id,
+      request_id: args.request_id, // <-- new top-level field
       event_data: {
-        request_id: args.request_id,
         image_data: args.image_data,
         metadata: args.metadata,
         received_at: Date.now(),
@@ -254,17 +256,17 @@ export const getScreenshotResponse = query({
     const timeout = args.timeout_ms || 10000; // 10 second default timeout
     const cutoffTime = Date.now() - timeout;
 
-    // Get all screenshot responses within the timeout period
-    const responses = await ctx.db
+    // Efficiently fetch the specific screenshot response using the by_request index.
+    // This touches at most a single document and prevents scanning many large blobs.
+    const responseArray = await ctx.db
       .query("realtime_events")
-      .filter(q => q.eq(q.field("session_id"), args.session_id))
+      .withIndex("by_request", q => q.eq("request_id", args.request_id))
       .filter(q => q.eq(q.field("event_type"), "screenshot_response"))
+      // (Optional) additional safety check on timestamp window
       .filter(q => q.gte(q.field("timestamp"), cutoffTime))
-      .order("desc")
-      .collect();
+      .take(1);
 
-    // Find the specific response matching our request_id
-    const response = responses.find(r => r.event_data.request_id === args.request_id);
+    const response = responseArray[0];
 
     if (response) {
       return {

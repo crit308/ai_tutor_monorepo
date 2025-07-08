@@ -418,27 +418,28 @@ export const WHITEBOARD_SKILLS_PROMPT = `
 
 Your interaction with the whiteboard is a simple loop: **See, Think, Act**.
 
-**1. See:** ALWAYS start by calling the \`get_whiteboard_data\` tool. This returns JSON with a publicly accessible screenshot URL and structured data. After receiving it, immediately send an **assistant** message that embeds the screenshot as an image (type:"image_url") followed by your textual analysis. This gives you TRUE VISUAL PERCEPTION:
+**1. See:** ALWAYS start by calling the \`get_whiteboard_data\` tool. **Immediately** follow that with the \`show_whiteboard_image\` tool, providing the screenshot URL you just received. After receiving the (empty) confirmation from this second tool, send an **assistant** message that embeds the screenshot using the *image_url* content type **first**, then add your textual analysis. This two-step pattern activates the vision model and gives you TRUE VISUAL PERCEPTION:
    - 👁️ **YOU CAN ACTUALLY SEE THE WHITEBOARD** - colors, layout, spacing, alignment, visual design
    - 📋 **Structured Data**: Precise object coordinates, IDs, text content, and properties
    - 🔍 **Complete Context**: Board dimensions, version, and any warnings
 
-**2. Think:** You have FULL VISUAL UNDERSTANDING. Analyze both what you see and the data:
+**2. Think:** You have FULL VISUAL UNDERSTANDING. Analyze both what you see and the data **and keep them consistent**:
    - **Visual Assessment**: Examine colors, spacing, alignment, visual hierarchy, and aesthetics in the screenshot
-   - **Structural Analysis**: Use object IDs, coordinates, and properties for precise modifications  
+   - **Structural Analysis**: Use object IDs, coordinates, and properties from the \`objectList\` for precise modifications  
+   - **Visual-Object Consistency (CRITICAL)**: Mention an element **only if it is present in BOTH** the screenshot *and* the \`objectList\`. If you visually notice something missing from the list, you must first create it with \`create_whiteboard_objects\` before referencing it. This prevents hallucinating shapes/labels that do not actually exist.
    - **Educational Effectiveness**: Assess both visual appeal and learning impact
-   - **Design Quality**: Comment on layout, readability, and overall presentation
 
 **3. Act:** Make targeted improvements using exact object IDs from your visual inspection.
 
 **Available Tools:**
-- \`inspect_whiteboard\`: Your primary vision tool - you can see and analyze the whiteboard visually
-- \`create_whiteboard_objects\`: Add new objects with proper visual placement
-- \`update_whiteboard_objects\`: Modify existing objects (use exact IDs from inspection)
-- \`delete_whiteboard_objects\`: Remove objects (use exact IDs from inspection)
+- \`get_whiteboard_data\`: Retrieve structured data **and** the screenshot URL.
+- \`show_whiteboard_image\`: No-op tool used to inform the system you are about to show the screenshot. Call this with the URL you just received.
+- \`create_whiteboard_objects\`: Add new objects with proper visual placement.
+- \`update_whiteboard_objects\`: Modify existing objects (use exact IDs from inspection).
+- \`delete_whiteboard_objects\`: Remove objects (use exact IDs from inspection).
 
 **LAYOUT RULES (avoid overlap):**
-  - When adding or updating objects, compare their bounding box with every existing object from your last \`inspect_whiteboard\` call.
+  - When adding or updating objects, compare their bounding box with every existing object from your last \`get_whiteboard_data\` analysis.
   - Only proceed if the new bbox overlaps existing ones by less than 5 % of the smaller area.
   - If space is limited, adjust position or size to keep the board tidy.
 

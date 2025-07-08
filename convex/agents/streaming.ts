@@ -13,9 +13,9 @@ import { whiteboardTools } from "./whiteboard_tools";
 
 // ------------------------------------------------------------------
 // Model selection
-// Use env var OPENAI_MODEL if provided, otherwise default to new o4 mini
+// Use env var OPENAI_MODEL if provided, otherwise default to GPT-4.1 2025-04-14
 // ------------------------------------------------------------------
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "o4-mini-2025-04-16";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1-2025-04-14";
 
 // Extra guidance so the LLM emits a pure JSON skill call when drawing is needed
 const JSON_SKILL_INSTRUCTION = `When calling tools, respond with either a SINGLE JSON object or an ARRAY of such objects, each following: { "skill_name": "<string>", "skill_args": { ... } }. Do NOT wrap in markdown fences or add prose around it.
