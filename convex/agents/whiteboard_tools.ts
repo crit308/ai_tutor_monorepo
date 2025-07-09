@@ -2,74 +2,56 @@
 import { createTool } from "@convex-dev/agent";
 import { z } from "zod";
 import { api, internal } from "../_generated/api";
+import { Id } from "../_generated/dataModel";
 
 // --- NEW PRIMARY VISION TOOL ---
+// 
+// IMPORTANT: This tool follows OpenAI Vision API best practices:
+// 1. Tool returns ONLY the URL string (no image analysis)
+// 2. Agent must embed the URL in next assistant message using image_url content type
+// 3. Vision model analyzes image AFTER it's embedded in the message
+// 4. No analysis happens inside this tool - it's purely for URL retrieval
+//
 export const inspectWhiteboardTool = createTool({
   name: "inspect_whiteboard",
-  description: "Get a comprehensive overview of the current whiteboard. Returns a visual screenshot and a structured list of all objects, their properties, and text content. Use this as your primary way to 'see' the board before making any changes.",
+  description: "Returns ONLY the screenshot URL string for the current whiteboard. After receiving this URL, the assistant must send a follow-up message that embeds the image using the image_url content type so the Vision model can analyze it.",
   args: z.object({
     sessionId: z.string().describe("The ID of the current session."),
   }),
   async handler(ctx: any, args) {
-    // Call the new action through internal API, passing userId for auth context
+    // Fetch screenshot via existing inspection action (reuse implementation)
     const inspectionResult = await ctx.runAction(internal.skills.whiteboard_inspection.inspectWhiteboard, {
-      sessionId: args.sessionId,
+      sessionId: args.sessionId as Id<"sessions">,
       userId: ctx.userId || null,
     });
 
-    // 1. Build the text part of the response
-    const textPart = `WHITEBOARD INSPECTION RESULTS:
-
-📊 BOARD SUMMARY:
-- Objects: ${inspectionResult.boardSummary.objectCount}
-- Version: ${inspectionResult.boardSummary.boardVersion}
-- Canvas: ${inspectionResult.boardSummary.canvasDimensions.width}x${inspectionResult.boardSummary.canvasDimensions.height}
-- Warnings: ${inspectionResult.boardSummary.warnings.join(', ') || 'None'}
-
-📋 OBJECT LIST:
-${inspectionResult.objectList.map(obj => 
-  `• ${obj.kind.toUpperCase()} \"${obj.id}\" at (${obj.bbox.x}, ${obj.bbox.y}) size ${obj.bbox.width}x${obj.bbox.height}${obj.text ? ` - Text: \"${obj.text}\"` : ''}${obj.role ? ` - Role: ${obj.role}` : ''}`
-).join('\n')}
-
-🔍 VISUAL ANALYSIS: Refer to the image for spatial relationships, colors, and alignment that are not captured in text.`;
-
-    // 2. Construct a multi-part content array
-    const content = [
-      {
-        type: "text",
-        text: textPart,
-      }
-    ];
-
-    // 3. Add the image part if it exists
-    if (inspectionResult.screenshotDataUrl) {
-      content.push({
-        type: "image_url",
-        image_url: {
-          url: inspectionResult.screenshotDataUrl,
-        },
-      });
-    } else {
-        // If no screenshot, add a warning to the text part
-        content[0].text += "\n\n⚠️ Screenshot not available. Relying on structured object data only.";
+    // Return ONLY the URL string - no analysis, no structured data
+    // The Vision model will analyze the image after it's embedded in the assistant message
+    const imageUrl = inspectionResult.screenshotDataUrl;
+    
+    // Fallback: tiny 1x1 PNG if screenshot missing
+    if (!imageUrl) {
+      return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
     }
 
-    // 4. Return the structured content array.
-    // The agent framework will use this to build a multi-modal message.
-    return content;
+    return imageUrl;
   },
 });
 
 // --- DATA-ONLY WHITEBOARD INSPECTION TOOL ---
+// 
+// Use this tool when you need structured data about whiteboard objects.
+// If you also need to SEE the whiteboard, use inspect_whiteboard instead.
+//
 export const getWhiteboardDataTool = createTool({
   name: "get_whiteboard_data",
-  description: "Return JSON with screenshotUrl, boardSummary, and objectList for the current whiteboard. Afterwards, you (the model) should send an assistant message containing an image_url pointing to screenshotUrl so you can see the board.",
+  description: "Return structured JSON data with screenshotUrl, boardSummary, and objectList for the current whiteboard. Use this when you need object data without visual analysis. For visual analysis, use inspect_whiteboard instead.",
   args: z.object({
     sessionId: z.string(),
   }),
   async handler(ctx: any, args) {
     const inspectionResult = await ctx.runAction(internal.skills.whiteboard_inspection.inspectWhiteboard, {
-      sessionId: args.sessionId,
+      sessionId: args.sessionId as Id<"sessions">,
       userId: ctx.userId || null,
     });
 
@@ -109,11 +91,16 @@ const wbUpdateSchema = z.object({
   diff: wbObjectSchema,
 });
 
-// --- SHOW WHITEBOARD IMAGE (NO-OP) TOOL ---
+// --- SHOW WHITEBOARD IMAGE (DEPRECATED) TOOL ---
+// 
+// DEPRECATED: This tool is no longer needed with correct OpenAI Vision API usage.
+// Use inspect_whiteboard instead, which returns the URL directly.
+// The agent should embed the URL in the next assistant message automatically.
+//
 export const showWhiteboardImageTool = createTool({
   name: "show_whiteboard_image",
   description:
-    "Instruct the AI assistant to embed the provided whiteboard screenshot URL in the next assistant message so the vision model can actually see the board. This tool performs no server-side action except echoing the URL back.",
+    "DEPRECATED: This tool is no longer needed. Use inspect_whiteboard instead, which returns the URL directly for embedding in assistant messages.",
   args: z.object({
     url: z.string().describe("The HTTPS URL of the whiteboard screenshot to embed."),
   }),
@@ -188,12 +175,14 @@ export const deleteWhiteboardObjectsTool = createTool({
 });
 
 export const whiteboardTools = {
-  // --- NEW PRIMARY VISION TOOL ---
+  // --- PRIMARY VISION TOOL (OpenAI Vision API compliant) ---
+  inspect_whiteboard: inspectWhiteboardTool,
+  // --- DATA-ONLY TOOL (for structured data without visual analysis) ---
   get_whiteboard_data: getWhiteboardDataTool,
   // --- MODIFICATION TOOLS (UNCHANGED) ---
   create_whiteboard_objects: createWhiteboardObjectsTool,
   update_whiteboard_objects: updateWhiteboardObjectsTool,
   delete_whiteboard_objects: deleteWhiteboardObjectsTool,
-  // --- SHOW WHITEBOARD IMAGE (NO-OP) TOOL ---
+  // --- DEPRECATED TOOL (no longer needed) ---
   show_whiteboard_image: showWhiteboardImageTool,
 };

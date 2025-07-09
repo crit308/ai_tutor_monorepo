@@ -123,7 +123,7 @@ import { api } from "../_generated/api";
 
 export const inspectWhiteboardTool = createTool({
   name: "inspect_whiteboard",
-  description: "Get a comprehensive overview of the current whiteboard. Returns a visual screenshot and a structured list of all objects, their properties, and text content. Use this as your primary way to 'see' the board before making any changes.",
+  description: "Returns ONLY the screenshot URL string for the current whiteboard. After receiving this URL, the assistant must send a follow-up message that embeds the image using the image_url content type so the Vision model can analyze it.",
   args: z.object({
     sessionId: z.string().describe("The ID of the current session."),
   }),
@@ -133,8 +133,9 @@ export const inspectWhiteboardTool = createTool({
       sessionId: args.sessionId,
     });
 
-    // Return the result as a stringified JSON for the agent to parse
-    return JSON.stringify(inspectionResult);
+    // Return ONLY the URL string - no analysis, no structured data
+    // The Vision model will analyze the image after it's embedded in the assistant message
+    return inspectionResult.screenshotDataUrl || "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
   },
 });
 Use code with caution.
@@ -190,14 +191,15 @@ export const WHITEBOARD_SKILLS_PROMPT = `
 
 Your interaction with the whiteboard is a simple loop: **See, Think, Act**.
 
-**1. See:** ALWAYS start by calling the \`inspect_whiteboard\` tool. This gives you a complete, multi-modal overview of the canvas, including a visual screenshot and a structured list of every object.
+**1. See:** Call the \`inspect_whiteboard\` tool to get the screenshot URL. After receiving the URL, you MUST immediately send an assistant message that embeds the image using the image_url content type so the Vision model can analyze it.
 
-**2. Think:** Analyze the output from \`inspect_whiteboard\`. Use the screenshot for visual assessment (layout, aesthetics) and the objectList to get precise IDs, roles, and text content for modifications.
+**2. Think:** Analyze the visual content from the embedded image. Use \`get_whiteboard_data\` separately if you need structured object data with IDs for modifications.
 
 **3. Act:** Call the appropriate modification tools (\`create_whiteboard_objects\`, \`update_whiteboard_objects\`, or \`delete_whiteboard_objects\`) to make your desired changes.
 
 **Available Tools:**
-- \`inspect_whiteboard\`: Your primary tool to see and understand the whiteboard.
+- \`inspect_whiteboard\`: Returns ONLY the screenshot URL. You must embed it in your next message for Vision analysis.
+- \`get_whiteboard_data\`: Returns structured object data when needed for modifications.
 - \`create_whiteboard_objects\`: Add new objects.
 - \`update_whiteboard_objects\`: Modify existing objects.
 - \`delete_whiteboard_objects\`: Remove objects.

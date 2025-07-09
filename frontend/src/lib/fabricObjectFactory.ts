@@ -187,16 +187,66 @@ function createFabricObjectInternal(spec: CanvasObjectSpec, canvas?: Canvas): Fa
 
     try {
         switch (spec.kind) {
-            case 'rect':
-                fabricObject = new Rect({
+            case 'rect': {
+                // Resolve width and height (consider percentage values if canvas provided)
+                let rectWidth = coords.width;
+                let rectHeight = coords.height;
+
+                if (canvas) {
+                    if (rectWidth === undefined && spec.widthPct !== undefined) {
+                        rectWidth = spec.widthPct * canvas.getWidth();
+                    }
+                    if (rectHeight === undefined && spec.heightPct !== undefined) {
+                        rectHeight = spec.heightPct * canvas.getHeight();
+                    }
+                }
+
+                rectWidth = rectWidth ?? (spec.width ?? 100);
+                rectHeight = rectHeight ?? (spec.height ?? 50);
+
+                // Persist resolved size back into coords for downstream consumers
+                coords.width = rectWidth;
+                coords.height = rectHeight;
+
+                const rect = new Rect({
                     ...baseOptions,
-                    width: coords.width ?? 50,
-                    height: coords.height ?? 50,
+                    width: rectWidth,
+                    height: rectHeight,
                     fill: spec.fill ?? 'transparent',
                     stroke: spec.stroke ?? 'black',
                     strokeWidth: spec.strokeWidth ?? 1,
                 });
+
+                if (spec.text) {
+                  // If a label is provided, group the rectangle with centered text
+                  const tb = new Textbox(spec.text, {
+                    left: 0,
+                    top: 0,
+                    width: rectWidth,
+                    height: rectHeight,
+                    originX: 'center',
+                    originY: 'center',
+                    fontSize: spec.fontSize ?? 16,
+                    fontFamily: 'Arial',
+                    fill: spec.stroke ?? '#000',
+                    textAlign: 'center',
+                    selectable: false,
+                    evented: false,
+                  });
+                  fabricObject = new Group([rect, tb], {
+                    left: coords.x,
+                    top: coords.y,
+                    angle: spec.angle ?? 0,
+                    originX: 'left',
+                    originY: 'top',
+                    selectable: rect.selectable,
+                    evented: rect.evented,
+                  });
+                } else {
+                  fabricObject = rect;
+                }
                 break;
+            }
             case 'ellipse': {
                 // Compute rx, ry
                 let rx = spec.rx;
@@ -296,12 +346,9 @@ function createFabricObjectInternal(spec: CanvasObjectSpec, canvas?: Canvas): Fa
                 break;
             }
             case 'line': {
-                // Determine line endpoints.
-                // Priority: explicit spec.points -> derive from coords.width/height -> default diagonal.
-                let linePoints: [number, number, number, number] = [0, 0, 50, 50];
+                let linePoints: [number, number, number, number] | null = null;
 
                 if (Array.isArray(spec.points)) {
-                    // Use explicit points if provided
                     if (spec.points.length === 4 && typeof spec.points[0] === 'number') {
                         linePoints = spec.points as [number, number, number, number];
                     } else if (
@@ -316,28 +363,38 @@ function createFabricObjectInternal(spec: CanvasObjectSpec, canvas?: Canvas): Fa
                     }
                 }
 
-                // If no points yet, derive from width / height (if present)
+                // If explicit points not supplied, build symmetrical points around (0,0)
                 if (!linePoints) {
                     const w = coords.width ?? 50;
                     const h = coords.height ?? 50;
-
-                    if (h > w) {
-                        // Predominantly vertical line – go from bottom-center to top-center
-                        linePoints = [w / 2, h, w / 2, 0];
+                    if (h >= w) {
+                        // vertical
+                        linePoints = [0, h / 2, 0, -h / 2];
                     } else {
-                        // Predominantly horizontal (or square) – left-center to right-center
-                        linePoints = [0, h / 2, w, h / 2];
+                        // horizontal
+                        linePoints = [-w / 2, 0, w / 2, 0];
                     }
                 }
 
+                const resolvedStrokeWidth = (() => {
+                    if (spec.strokeWidth === undefined) return 2;
+                    if (spec.strokeWidth > 0 && spec.strokeWidth < 1) {
+                        const canvasWidth = canvas?.getWidth?.() ?? 1000;
+                        return Math.max(1, spec.strokeWidth * canvasWidth);
+                    }
+                    return spec.strokeWidth;
+                })();
+
                 fabricObject = new Line(linePoints, {
                     stroke: spec.stroke ?? 'black',
-                    strokeWidth: spec.strokeWidth ?? 2,
+                    strokeWidth: resolvedStrokeWidth,
                     angle: spec.angle ?? 0,
                     left: coords.x,
                     top: coords.y,
                     selectable: spec.selectable ?? true,
                     evented: spec.evented ?? false,
+                    originX: 'center',
+                    originY: 'center',
                 });
                 break;
             }
@@ -474,6 +531,10 @@ function createFabricObjectInternal(spec: CanvasObjectSpec, canvas?: Canvas): Fa
                      strokeWidth: spec.strokeWidth ?? 1,
                  });
                  break;
+            }
+            case 'arrow': {
+                // Arrow objects are handled at the outer factory to avoid recursion loops
+                return null;
             }
             // IMPORTANT: Exclude 'group', 'image', 'arrow', 'radio', 'checkbox' or any complex/async types here
             default:
@@ -649,27 +710,51 @@ export function createFabricObject(canvas: Canvas, spec: CanvasObjectSpec): void
         return; // Exit void function - handled async
       }
       case 'arrow': {
-          // Simple arrow: Line + potential arrowhead logic (future)
-          let linePoints: [number, number, number, number] = [0, 0, 50, 0]; // Default horizontal arrow
-          if (Array.isArray(spec.points)) { // Re-use line logic for points
-              if (spec.points.length === 4 && typeof spec.points[0] === 'number') {
-                 linePoints = spec.points as [number, number, number, number];
-              } else if (spec.points.length === 2 && typeof spec.points[0] === 'object' && spec.points[0] !== null && 'x' in spec.points[0]) {
-                 const p1 = spec.points[0] as { x: number; y: number };
-                 const p2 = spec.points[1] as { x: number; y: number };
-                 linePoints = [p1.x, p1.y, p2.x, p2.y];
-             }
-          }
-          fabricObject = new Line(linePoints, {
-              stroke: spec.stroke ?? 'black',
-              strokeWidth: spec.strokeWidth ?? 2,
-              angle: spec.angle ?? 0,
-              left: x,
-              top: y,
-              selectable: spec.selectable ?? true,
-              evented: spec.evented ?? false,
-              // TODO: Add arrowhead marker (e.g., using Path or Triangle)
+          // Build vertical/horizontal shaft centred at (0,0)
+          const isVertical = (spec.heightPct ?? 0) >= (spec.widthPct ?? 0);
+          const shaftLen = isVertical ? (spec.height ?? (spec.heightPct ?? 0.1) * canvasHeight) : (spec.width ?? (spec.widthPct ?? 0.1) * canvasWidth);
+          const shaftStroke = spec.stroke ?? 'black';
+          const strokeW = (() => {
+            if (spec.strokeWidth === undefined) return 2;
+            if (spec.strokeWidth > 0 && spec.strokeWidth < 1) return Math.max(1, spec.strokeWidth * canvasWidth);
+            return spec.strokeWidth;
+          })();
+
+          const linePoints: [number, number, number, number] = isVertical ? [0, -shaftLen / 2, 0, shaftLen / 2] : [-shaftLen / 2, 0, shaftLen / 2, 0];
+          const shaft = new Line(linePoints, {
+            stroke: shaftStroke,
+            strokeWidth: strokeW,
+            originX: 'center',
+            originY: 'center',
+            selectable: spec.selectable ?? true,
+            evented: spec.evented ?? false,
           });
+
+          const angleRad = isVertical ? (shaftLen >= 0 ? Math.PI / 2 : -Math.PI / 2) : 0;
+          const headLength = strokeW * 6;
+          const head = new Triangle({
+            width: headLength,
+            height: headLength,
+            fill: shaftStroke,
+            originX: 'center',
+            originY: 'center',
+            selectable: spec.selectable ?? true,
+            evented: spec.evented ?? false,
+          });
+          // Position head at end of shaft
+          head.set({ left: linePoints[2], top: linePoints[3], angle: (isVertical ? 180 : 90) + (isVertical ? 0 : 0) });
+
+          const arrowGroup = new Group([shaft, head], {
+            left: x,
+            top: y,
+            originX: 'center',
+            originY: 'center',
+            angle: spec.angle ?? 0,
+            selectable: spec.selectable ?? true,
+            evented: spec.evented ?? false,
+          });
+
+          fabricObject = arrowGroup;
           break;
       }
       case 'radio': {

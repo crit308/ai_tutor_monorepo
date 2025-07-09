@@ -304,9 +304,11 @@ export const executeWhiteboardSkill = action({
             sessionId: args.session_id as Id<"sessions">,
           });
           
+          // Return ONLY the URL string - the agent will embed it in the next assistant message
+          // This follows OpenAI Vision API best practices
           result = {
             payload: {
-              message_content: inspectionResult,
+              message_text: inspectionResult.screenshotDataUrl || "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
               message_type: "whiteboard_inspection",
             },
             actions: [],
@@ -418,25 +420,54 @@ export const WHITEBOARD_SKILLS_PROMPT = `
 
 Your interaction with the whiteboard is a simple loop: **See, Think, Act**.
 
-**1. See:** ALWAYS start by calling the \`get_whiteboard_data\` tool. **Immediately** follow that with the \`show_whiteboard_image\` tool, providing the screenshot URL you just received. After receiving the (empty) confirmation from this second tool, send an **assistant** message that embeds the screenshot using the *image_url* content type **first**, then add your textual analysis. This two-step pattern activates the vision model and gives you TRUE VISUAL PERCEPTION:
-   - 👁️ **YOU CAN ACTUALLY SEE THE WHITEBOARD** - colors, layout, spacing, alignment, visual design
-   - 📋 **Structured Data**: Precise object coordinates, IDs, text content, and properties
-   - 🔍 **Complete Context**: Board dimensions, version, and any warnings
+**1. See:** Call the \`inspect_whiteboard\` tool to get the latest screenshot URL. After you receive the URL, you MUST immediately send an **assistant** message that includes:
+   - An \`image_url\` content part with the URL (so the Vision model can see the image)
+   - A \`text\` content part with your visual analysis
+   
+   Example format:
+   \`\`\`json
+   {
+     "role": "assistant",
+     "content": [
+       {
+         "type": "image_url",
+         "image_url": { "url": "https://...", "detail": "high" }
+       },
+       {
+         "type": "text", 
+         "text": "I can see the whiteboard contains..."
+       }
+     ]
+   }
+   \`\`\`
+   
+If you need structured data (object list, board summary) make a **separate** call to \`get_whiteboard_data\`.
 
 **2. Think:** You have FULL VISUAL UNDERSTANDING. Analyze both what you see and the data **and keep them consistent**:
-   - **Visual Assessment**: Examine colors, spacing, alignment, visual hierarchy, and aesthetics in the screenshot
-   - **Structural Analysis**: Use object IDs, coordinates, and properties from the \`objectList\` for precise modifications  
+   - **TRUTHFUL VISUAL REPORTING (CRITICAL)**: Describe ONLY what you actually see in the image. If the whiteboard is blank/white/empty, say so explicitly. Do NOT fabricate or imagine content that isn't visible.
+   - **Visual Assessment**: Examine colors, spacing, alignment, visual hierarchy, and aesthetics in the screenshot. **Do NOT describe shapes, text, or objects unless you have also fetched \`objectList\` via \`get_whiteboard_data\`.**
+   - **Structural Analysis**: Before mentioning specific objects, make a separate call to \`get_whiteboard_data\` to retrieve the current \`objectList\`. Use object IDs, coordinates, and properties from that list for precise modifications.
    - **Visual-Object Consistency (CRITICAL)**: Mention an element **only if it is present in BOTH** the screenshot *and* the \`objectList\`. If you visually notice something missing from the list, you must first create it with \`create_whiteboard_objects\` before referencing it. This prevents hallucinating shapes/labels that do not actually exist.
    - **Educational Effectiveness**: Assess both visual appeal and learning impact
 
 **3. Act:** Make targeted improvements using exact object IDs from your visual inspection.
 
 **Available Tools:**
-- \`get_whiteboard_data\`: Retrieve structured data **and** the screenshot URL.
-- \`show_whiteboard_image\`: No-op tool used to inform the system you are about to show the screenshot. Call this with the URL you just received.
+- \`inspect_whiteboard\`: Returns ONLY the screenshot URL. You must then embed this URL in your next assistant message using image_url content type for Vision analysis.
+- \`get_whiteboard_data\`: Retrieve structured data (board summary and object list) without image analysis.
 - \`create_whiteboard_objects\`: Add new objects with proper visual placement.
 - \`update_whiteboard_objects\`: Modify existing objects (use exact IDs from inspection).
 - \`delete_whiteboard_objects\`: Remove objects (use exact IDs from inspection).
+
+**NEW OBJECT TYPES & TIPS:**
+• \`line\` – now renders perfectly upright/horizontal when you supply *symmetrical* dimensions.  
+  – For a vertical line, keep \`widthPct\` very small (e.g. \`0.002\`) and set a larger \`heightPct\` (e.g. \`0.15\`).  
+  – For a horizontal line, do the opposite: small \`heightPct\`, larger \`widthPct\`.  
+  – The renderer centers the line, so no more unintended tilt.
+
+• \`arrow\` – identical to \`line\` but with an automatic arrow-head.  
+  – Use the same coordinate rules; the head is added at the *end* of the segment.  
+  – Color comes from \`stroke\`; head size scales with \`strokeWidth\`.
 
 **LAYOUT RULES (avoid overlap):**
   - When adding or updating objects, compare their bounding box with every existing object from your last \`get_whiteboard_data\` analysis.
@@ -454,6 +485,8 @@ Your interaction with the whiteboard is a simple loop: **See, Think, Act**.
 **NEVER use absolute coordinates (x, y, width, height) - they cause layout issues on different screen sizes.**
 
 **CRITICAL: You have TRUE VISUAL PERCEPTION. You can see colors, layouts, spacing, alignment, and visual relationships. Use this to provide detailed visual feedback and make aesthetically pleasing improvements.**
+
+**ANTI-HALLUCINATION RULE: NEVER describe visual content that you cannot actually see in the image. If the whiteboard appears blank, white, or empty, explicitly state this. Do not invent or imagine diagrams, text, or objects that are not visually present.**
 `;
 
 // Validation helper for skill arguments
