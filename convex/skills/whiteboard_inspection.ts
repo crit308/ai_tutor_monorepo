@@ -12,7 +12,7 @@ export const inspectWhiteboard = internalAction({
     userId: v.optional(v.string()), // Pass userId for auth context
   },
   returns: v.object({
-    screenshotDataUrl: v.union(v.string(), v.null()),
+    screenshotFileId: v.union(v.string(), v.null()),
     boardSummary: v.object({
       objectCount: v.number(),
       boardVersion: v.number(),
@@ -213,7 +213,7 @@ export const inspectWhiteboard = internalAction({
       });
       
       return {
-        screenshotDataUrl: (screenshotResult.image_url as string | undefined) || null,
+        screenshotFileId: (screenshotResult.file_id as string | undefined) || null,
         boardSummary: {
           objectCount: objects.length,
           boardVersion: boardVersion,
@@ -227,7 +227,7 @@ export const inspectWhiteboard = internalAction({
       
       // Return error state with empty data
       return {
-        screenshotDataUrl: null,
+        screenshotFileId: null,
         boardSummary: {
           objectCount: 0,
           boardVersion: 0,

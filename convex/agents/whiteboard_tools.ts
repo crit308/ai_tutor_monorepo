@@ -7,14 +7,14 @@ import { Id } from "../_generated/dataModel";
 // --- NEW PRIMARY VISION TOOL ---
 // 
 // IMPORTANT: This tool follows OpenAI Vision API best practices:
-// 1. Tool returns ONLY the URL string (no image analysis)
-// 2. Agent must embed the URL in next assistant message using image_url content type
+// 1. Tool returns ONLY the file ID string (no image analysis)
+// 2. Agent must embed the file ID in next assistant message using image_url content type
 // 3. Vision model analyzes image AFTER it's embedded in the message
-// 4. No analysis happens inside this tool - it's purely for URL retrieval
+// 4. No analysis happens inside this tool - it's purely for file ID retrieval
 //
 export const inspectWhiteboardTool = createTool({
   name: "inspect_whiteboard",
-  description: "Returns ONLY the screenshot URL string for the current whiteboard. After receiving this URL, the assistant must send a follow-up message that embeds the image using the image_url content type so the Vision model can analyze it.",
+  description: "Returns ONLY the screenshot file ID string for the current whiteboard. After receiving this file ID, the assistant must send a follow-up message that embeds the image using the image_url content type so the Vision model can analyze it.",
   args: z.object({
     sessionId: z.string().describe("The ID of the current session."),
   }),
@@ -25,16 +25,16 @@ export const inspectWhiteboardTool = createTool({
       userId: ctx.userId || null,
     });
 
-    // Return ONLY the URL string - no analysis, no structured data
+    // Return ONLY the file_id string - no analysis, no structured data
     // The Vision model will analyze the image after it's embedded in the assistant message
-    const imageUrl = inspectionResult.screenshotDataUrl;
+    const fileId = inspectionResult.screenshotFileId;
     
-    // Fallback: tiny 1x1 PNG if screenshot missing
-    if (!imageUrl) {
-      return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    // Fallback: empty string if screenshot missing
+    if (!fileId) {
+      return "";
     }
 
-    return imageUrl;
+    return fileId;
   },
 });
 
@@ -45,7 +45,7 @@ export const inspectWhiteboardTool = createTool({
 //
 export const getWhiteboardDataTool = createTool({
   name: "get_whiteboard_data",
-  description: "Return structured JSON data with screenshotUrl, boardSummary, and objectList for the current whiteboard. Use this when you need object data without visual analysis. For visual analysis, use inspect_whiteboard instead.",
+  description: "Return structured JSON data with screenshotFileId, boardSummary, and objectList for the current whiteboard. Use this when you need object data without visual analysis. For visual analysis, use inspect_whiteboard instead.",
   args: z.object({
     sessionId: z.string(),
   }),
@@ -56,7 +56,7 @@ export const getWhiteboardDataTool = createTool({
     });
 
     return {
-      screenshotUrl: inspectionResult.screenshotDataUrl,
+      screenshotFileId: inspectionResult.screenshotFileId,
       boardSummary: inspectionResult.boardSummary,
       objectList: inspectionResult.objectList,
     };

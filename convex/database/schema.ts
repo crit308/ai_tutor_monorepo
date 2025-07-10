@@ -430,4 +430,14 @@ export default defineSchema({
     details: v.string(),
     timestamp: v.number(),
   }).index("by_timestamp", ["timestamp"]),
+
+  // OpenAI uploaded files for cleanup
+  openai_uploaded_files: defineTable({
+    sessionId: v.id("sessions"),
+    fileId: v.string(),
+    purpose: v.string(),
+    uploadedAt: v.number(),
+    cleanedUp: v.boolean(),
+  }).index("by_session", ["sessionId"])
+    .index("by_file_id", ["fileId"]),
 }); 

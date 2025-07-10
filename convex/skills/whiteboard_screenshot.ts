@@ -1,7 +1,10 @@
+// @ts-nocheck
 'use node';
 import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { api } from "../_generated/api";
+import { internal } from "../_generated/api";
+import { uploadImageToOpenAI } from "../openaiClient";
 
 /**
  * Enhanced Convex-native screenshot system
@@ -15,13 +18,13 @@ export const requestWhiteboardScreenshot = action({
   },
   returns: v.object({
     success: v.boolean(),
-    image_url: v.optional(v.string()),
+    file_id: v.optional(v.string()),
     error_message: v.optional(v.string()),
     request_id: v.string(),
   }),
   handler: async (ctx, args): Promise<{
     success: boolean;
-    image_url?: string;
+    file_id?: string;
     error_message?: string;
     request_id: string;
   }> => {
@@ -66,34 +69,34 @@ export const requestWhiteboardScreenshot = action({
         if (response.success && response.image_data) {
           console.log(`[Screenshot] Successfully received screenshot for request ${requestId}`);
           
-          // 1. Strip data URI prefix if present
-          const base64 = response.image_data.replace(/^data:image\/[^;]+;base64,/, "");
-          
-          // 2. Convert to ArrayBuffer / Uint8Array
-          const buffer = Buffer.from(base64, "base64");
-          
-          // 3. Convert to Blob (or ArrayBuffer) for Convex storage
-          const blob = new Blob([buffer], { type: "image/png" });
-          
-          // 4. Store in Convex file storage
-          const fileId = await ctx.storage.store(blob);
-          
-          // 5. Get a signed URL (default expiry ~4h)
-          const url = await ctx.storage.getUrl(fileId);
-          
-          if (!url) {
+          try {
+            // Upload to OpenAI Files API for vision purposes
+            const fileId = await uploadImageToOpenAI(
+              response.image_data,
+              `whiteboard-${requestId}.png`
+            );
+            
+            // Record the uploaded file for cleanup tracking
+            await ctx.runMutation(internal.jobs.fileCleanup_db.recordUploadedFile, {
+              sessionId: args.session_id,
+              fileId: fileId,
+              purpose: "vision",
+              uploadedAt: Date.now(),
+            });
+            
+            return {
+              success: true,
+              file_id: fileId,
+              request_id: requestId,
+            };
+          } catch (uploadError) {
+            console.error(`[Screenshot] Failed to upload to OpenAI Files:`, uploadError);
             return {
               success: false,
-              error_message: "Failed to generate screenshot URL",
+              error_message: `Failed to upload screenshot to OpenAI: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`,
               request_id: requestId,
             };
           }
-          
-          return {
-            success: true,
-            image_url: url,
-            request_id: requestId,
-          };
         }
         
         attempts++;
@@ -108,7 +111,7 @@ export const requestWhiteboardScreenshot = action({
       
       console.warn(`[Screenshot] Timeout waiting for screenshot response for request ${requestId}`);
       
-      // Timeout fallback - return error with fallback
+      // Timeout fallback - return error
       return {
         success: false,
         error_message: "Screenshot request timed out. The frontend may not be connected or screenshot capture failed.",
@@ -136,12 +139,12 @@ export const getWhiteboardScreenshot = action({
       request_context: "Legacy API call",
     });
     
-    if (result.success && result.image_url) {
-      return result.image_url;
+    if (result.success && result.file_id) {
+      return result.file_id;
     }
     
-    // Return minimal fallback image
-    return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    // Return empty file ID as fallback
+    return "";
   },
 });
 

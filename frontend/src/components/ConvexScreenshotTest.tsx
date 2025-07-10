@@ -27,28 +27,36 @@ export const ConvexScreenshotTest: React.FC = () => {
         request_context: "Testing AI agent screenshot capability - user clicked test button"
       });
       
-      if (result.success && result.image_data) {
-        console.log('[ConvexScreenshotTest] Screenshot received successfully!');
+      if (result.success && result.file_id) {
+        console.log('[ConvexScreenshotTest] Screenshot uploaded to OpenAI Files API successfully!');
         
-        // Display the screenshot in a new window for verification
+        // Display the result information in a new window for verification
         const newWindow = window.open('', '_blank');
         if (newWindow) {
           newWindow.document.write(`
             <html>
               <head><title>AI Agent Screenshot Test</title></head>
               <body style="margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f0f0f0;">
-                <div style="text-align: center;">
+                <div style="text-align: center; padding: 20px;">
                   <h2>AI Agent Screenshot Test Result</h2>
-                  <p>Screenshot captured via Convex real-time system</p>
-                  <img src="${result.image_data}" style="max-width: 90vw; max-height: 80vh; border: 2px solid #333; border-radius: 8px;" />
-                  <p style="margin-top: 20px; color: #666;">Request ID: ${result.request_id}</p>
+                  <p>Screenshot captured and uploaded to OpenAI Files API</p>
+                  <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <h3 style="color: #059669;">✅ Upload Successful</h3>
+                    <p><strong>OpenAI File ID:</strong> <code style="background: #f3f4f6; padding: 4px 8px; border-radius: 4px;">${result.file_id}</code></p>
+                    <p><strong>Purpose:</strong> vision</p>
+                    <p><strong>Request ID:</strong> ${result.request_id}</p>
+                    <p style="color: #6b7280; margin-top: 20px;">
+                      This file is now available to OpenAI's Vision models for analysis.
+                      The AI agent can reference this image using the file ID.
+                    </p>
+                  </div>
                 </div>
               </body>
             </html>
           `);
         }
         
-        alert(`AI Agent Screenshot Test SUCCESSFUL!\n\nThe AI agent can now request screenshots via Convex.\nCheck the new window to see the captured image.\n\nRequest ID: ${result.request_id}`);
+        alert(`AI Agent Screenshot Test SUCCESSFUL!\n\nScreenshot uploaded to OpenAI Files API.\nFile ID: ${result.file_id}\n\nThe AI agent can now analyze this image using OpenAI Vision models.\n\nRequest ID: ${result.request_id}`);
       } else {
         console.error('[ConvexScreenshotTest] Screenshot failed:', result.error_message);
         alert(`AI Agent Screenshot Test FAILED:\n${result.error_message}\n\nRequest ID: ${result.request_id}`);
@@ -63,8 +71,8 @@ export const ConvexScreenshotTest: React.FC = () => {
     <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
       <h3 className="text-lg font-semibold mb-2 text-green-800">🤖 AI Agent Screenshot Test</h3>
       <p className="text-sm text-green-700 mb-4">
-        This tests the AI agent's ability to request screenshots via Convex real-time updates.
-        The AI agent can now see exactly what students see!
+        This tests the AI agent's ability to request screenshots and upload them to OpenAI Files API.
+        The AI agent can now analyze whiteboard content using OpenAI Vision models!
       </p>
       <div className="flex gap-2">
         <Button 

@@ -1,4 +1,5 @@
 import { cronJobs } from "convex/server";
+import { api } from "../_generated/api";
 
 const crons = cronJobs();
 
@@ -32,6 +33,14 @@ crons.interval(
   { minutes: 15 },
   "jobs/background:systemHealthCheck" as any,
   {}
+);
+
+// Daily cleanup of old OpenAI uploaded files (older than 24 hours)
+crons.daily(
+  "cleanup-old-openai-files",
+  { hourUTC: 2, minuteUTC: 0 }, // Run at 2 AM UTC
+  api.jobs.fileCleanup.cleanupOldFiles,
+  { olderThanHours: 24 }
 );
 
 export default crons; 

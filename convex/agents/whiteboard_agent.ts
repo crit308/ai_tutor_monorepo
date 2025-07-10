@@ -304,11 +304,11 @@ export const executeWhiteboardSkill = action({
             sessionId: args.session_id as Id<"sessions">,
           });
           
-          // Return ONLY the URL string - the agent will embed it in the next assistant message
+          // Return ONLY the file ID string - the agent will embed it in the next assistant message
           // This follows OpenAI Vision API best practices
           result = {
             payload: {
-              message_text: inspectionResult.screenshotDataUrl || "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+              message_text: inspectionResult.screenshotFileId || "",
               message_type: "whiteboard_inspection",
             },
             actions: [],
@@ -420,8 +420,8 @@ export const WHITEBOARD_SKILLS_PROMPT = `
 
 Your interaction with the whiteboard is a simple loop: **See, Think, Act**.
 
-**1. See:** Call the \`inspect_whiteboard\` tool to get the latest screenshot URL. After you receive the URL, you MUST immediately send an **assistant** message that includes:
-   - An \`image_url\` content part with the URL (so the Vision model can see the image)
+**1. See:** Call the \`inspect_whiteboard\` tool to get the latest screenshot file ID. After you receive the file ID, you MUST immediately send an **assistant** message that includes:
+   - An \`image_url\` content part with the file ID (so the Vision model can see the image)
    - A \`text\` content part with your visual analysis
    
    Example format:
@@ -431,7 +431,7 @@ Your interaction with the whiteboard is a simple loop: **See, Think, Act**.
      "content": [
        {
          "type": "image_url",
-         "image_url": { "url": "https://...", "detail": "high" }
+         "image_url": { "file_id": "file-abc123", "detail": "high" }
        },
        {
          "type": "text", 
@@ -453,7 +453,7 @@ If you need structured data (object list, board summary) make a **separate** cal
 **3. Act:** Make targeted improvements using exact object IDs from your visual inspection.
 
 **Available Tools:**
-- \`inspect_whiteboard\`: Returns ONLY the screenshot URL. You must then embed this URL in your next assistant message using image_url content type for Vision analysis.
+- \`inspect_whiteboard\`: Returns ONLY the screenshot file ID. You must then embed this file ID in your next assistant message using image_url content type for Vision analysis.
 - \`get_whiteboard_data\`: Retrieve structured data (board summary and object list) without image analysis.
 - \`create_whiteboard_objects\`: Add new objects with proper visual placement.
 - \`update_whiteboard_objects\`: Modify existing objects (use exact IDs from inspection).

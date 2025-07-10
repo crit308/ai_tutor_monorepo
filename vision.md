@@ -221,3 +221,191 @@ In convex/skills/whiteboard_query.ts:
 Delete the query functions: getWhiteboardSummary, getEnhancedWhiteboardSummary, getWhiteboardAsSVG, getWhiteboardAsImage.
 In convex/skills/whiteboard_screenshot.ts:
 The core requestWhiteboardScreenshot action is still needed by our new tool, so keep it. You can mark the getWhiteboardScreenshot export as deprecated or remove it if it's no longer called directly.
+
+# AI Tutor Vision System - OpenAI Files API Implementation
+
+## Overview
+
+This document describes the updated whiteboard vision system that uses OpenAI's Files API for reliable image analysis. The system replaces the previous approach of direct URL/base64 embedding with a file-based approach that eliminates hallucination issues.
+
+## Problem Solved
+
+**Issue**: The AI was hallucinating visual content when analyzing whiteboard screenshots, claiming to see detailed diagrams when the whiteboard was actually blank.
+
+**Root Cause**: OpenAI's Vision model couldn't reliably fetch images from Convex storage URLs, leading to inconsistent analysis.
+
+**Solution**: Upload screenshots to OpenAI Files API and reference them by `file_id`, ensuring reliable image delivery to Vision models.
+
+## Architecture
+
+### Core Components
+
+1. **Screenshot Capture**: `whiteboard_screenshot.ts` captures canvas and uploads to OpenAI Files API
+2. **File Management**: `openaiClient.ts` handles upload/delete operations with OpenAI
+3. **Cleanup System**: `fileCleanup.ts` tracks and removes old files automatically
+4. **Agent Integration**: Tools return `file_id` for Vision model embedding
+
+### Data Flow
+
+```
+1. Agent calls inspect_whiteboard tool
+2. Screenshot captured from frontend canvas
+3. Image uploaded to OpenAI Files API → file_id returned
+4. Agent embeds image using: {"type": "image_url", "image_url": {"file_id": "file-abc123", "detail": "high"}}
+5. Vision model analyzes embedded image reliably
+6. Cleanup job removes old files daily
+```
+
+## Implementation Details
+
+### OpenAI Files API Integration
+
+```typescript
+// Upload screenshot to OpenAI Files API
+export async function uploadImageToOpenAI(imageData: string): Promise<string> {
+  const openai = getOpenAIClient();
+  const base64 = imageData.replace(/^data:image\/[^;]+;base64,/, "");
+  const buffer = Buffer.from(base64, "base64");
+  const blob = new Blob([buffer], { type: "image/png" });
+  
+  const file = await openai.files.create({
+    file: blob,
+    purpose: "vision",
+  });
+  
+  return file.id; // Returns file-abc123
+}
+```
+
+### Vision Tool Integration
+
+The `inspect_whiteboard` tool now returns `file_id` instead of URL:
+
+```typescript
+// Returns ONLY the file ID string
+export const inspectWhiteboardTool = createTool({
+  name: "inspect_whiteboard", 
+  description: "Returns ONLY the screenshot file ID string for the current whiteboard.",
+  async handler(ctx, args) {
+    const result = await ctx.runAction(api.skills.whiteboard_inspection.inspectWhiteboard, {
+      sessionId: args.sessionId,
+    });
+    
+    return result.screenshotFileId || "";
+  },
+});
+```
+
+### Agent Prompt Instructions
+
+```
+**1. See:** Call the `inspect_whiteboard` tool to get the latest screenshot file ID. 
+After you receive the file ID, you MUST immediately send an **assistant** message that includes:
+- An `image_url` content part with the file ID (so the Vision model can see the image)
+- A `text` content part with your visual analysis
+
+Example format:
+```json
+{
+  "role": "assistant",
+  "content": [
+    {
+      "type": "image_url",
+      "image_url": { "file_id": "file-abc123", "detail": "high" }
+    },
+    {
+      "type": "text", 
+      "text": "I can see the whiteboard contains..."
+    }
+  ]
+}
+```
+
+### File Cleanup System
+
+- **Tracking**: Each uploaded file is recorded in `openai_uploaded_files` table
+- **Session Cleanup**: Files cleaned when session ends
+- **Automatic Cleanup**: Daily cron job removes files older than 24 hours
+- **Manual Cleanup**: Admin actions available for immediate cleanup
+
+### Database Schema
+
+```typescript
+openai_uploaded_files: defineTable({
+  sessionId: v.id("sessions"),
+  fileId: v.string(),           // OpenAI file ID
+  purpose: v.string(),          // "vision"
+  uploadedAt: v.number(),       // Timestamp
+  cleanedUp: v.boolean(),       // Cleanup status
+}).index("by_session", ["sessionId"])
+  .index("by_file_id", ["fileId"])
+```
+
+## Benefits
+
+1. **Eliminates Hallucination**: Vision model receives reliable image data
+2. **No Token Limits**: File references don't consume prompt tokens like base64
+3. **Better Performance**: Files optimized for Vision API processing
+4. **Automatic Cleanup**: Prevents accumulation of unused files
+5. **Consistent Analysis**: Same image data guaranteed for each analysis
+
+## Migration Guide
+
+### Breaking Changes
+
+- `screenshotDataUrl` → `screenshotFileId`
+- `image_url.url` → `image_url.file_id`
+- Tool return type changed from URL string to file ID string
+
+### Frontend Updates
+
+Test components updated to show file ID instead of displaying images directly:
+
+```typescript
+// Before
+if (result.success && result.image_data) {
+  // Display image with result.image_data URL
+}
+
+// After  
+if (result.success && result.file_id) {
+  // Show file ID: result.file_id
+  // Image analysis happens in backend via Vision API
+}
+```
+
+### Monitoring
+
+- File upload/delete operations logged with request IDs
+- Cleanup metrics tracked (files cleaned, errors)
+- OpenAI API errors captured and handled gracefully
+
+## Configuration
+
+### Environment Variables
+
+```bash
+OPENAI_API_KEY=sk-...  # Required for Files API access
+```
+
+### Cleanup Schedule
+
+```typescript
+// Daily cleanup at 2 AM UTC
+crons.daily(
+  "cleanup-old-openai-files",
+  { hourUTC: 2, minuteUTC: 0 },
+  api.jobs.fileCleanup.cleanupOldFiles,
+  { olderThanHours: 24 }
+);
+```
+
+## Testing
+
+Use `ConvexScreenshotTest` component to verify:
+1. Screenshot capture works
+2. File uploaded to OpenAI Files API  
+3. File ID returned successfully
+4. Cleanup tracking enabled
+
+The test will show the OpenAI file ID instead of displaying the image directly, confirming the new workflow is functioning.
