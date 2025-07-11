@@ -418,75 +418,23 @@ export const legacyWhiteboardSkillDispatch = action({
 export const WHITEBOARD_SKILLS_PROMPT = `
 ## Whiteboard Skills
 
-Your interaction with the whiteboard is a simple loop: **See, Think, Act**.
+Workflow: **See → Think → Act**
 
-**1. See:** Call the \`inspect_whiteboard\` tool to get the latest screenshot file ID. After you receive the file ID, you MUST immediately send an **assistant** message that includes:
-   - An \`image_url\` content part with the file ID (so the Vision model can see the image)
-   - A \`text\` content part with your visual analysis
-   
-   Example format:
-   \`\`\`json
-   {
-     "role": "assistant",
-     "content": [
-       {
-         "type": "image_url",
-         "image_url": { "file_id": "file-abc123", "detail": "high" }
-       },
-       {
-         "type": "text", 
-         "text": "I can see the whiteboard contains..."
-       }
-     ]
-   }
-   \`\`\`
-   
-If you need structured data (object list, board summary) make a **separate** call to \`get_whiteboard_data\`.
+1. **See**
+• Call \`inspect_whiteboard\` to request a screenshot. It returns a **file_id**.
+• The backend will immediately embed that image in the chat as a **user** message (image + label).
+• Wait until you see that image before analysing. **Do NOT** send your own image-only assistant message.
 
-**2. Think:** You have FULL VISUAL UNDERSTANDING. Analyze both what you see and the data **and keep them consistent**:
-   - **TRUTHFUL VISUAL REPORTING (CRITICAL)**: Describe ONLY what you actually see in the image. If the whiteboard is blank/white/empty, say so explicitly. Do NOT fabricate or imagine content that isn't visible.
-   - **Visual Assessment**: Examine colors, spacing, alignment, visual hierarchy, and aesthetics in the screenshot. **Do NOT describe shapes, text, or objects unless you have also fetched \`objectList\` via \`get_whiteboard_data\`.**
-   - **Structural Analysis**: Before mentioning specific objects, make a separate call to \`get_whiteboard_data\` to retrieve the current \`objectList\`. Use object IDs, coordinates, and properties from that list for precise modifications.
-   - **Visual-Object Consistency (CRITICAL)**: Mention an element **only if it is present in BOTH** the screenshot *and* the \`objectList\`. If you visually notice something missing from the list, you must first create it with \`create_whiteboard_objects\` before referencing it. This prevents hallucinating shapes/labels that do not actually exist.
-   - **Educational Effectiveness**: Assess both visual appeal and learning impact
+2. **Think**
+• Provide truthful visual analysis of the screenshot.
+• If the board is blank, say so. Do not hallucinate content.
 
-**3. Act:** Make targeted improvements using exact object IDs from your visual inspection.
+3. **Act**
+• Explain, draw, or ask follow-up questions. If you need another screenshot later, call \`inspect_whiteboard\` again.
 
-**Available Tools:**
-- \`inspect_whiteboard\`: Returns ONLY the screenshot file ID. You must then embed this file ID in your next assistant message using image_url content type for Vision analysis.
-- \`get_whiteboard_data\`: Retrieve structured data (board summary and object list) without image analysis.
-- \`create_whiteboard_objects\`: Add new objects with proper visual placement.
-- \`update_whiteboard_objects\`: Modify existing objects (use exact IDs from inspection).
-- \`delete_whiteboard_objects\`: Remove objects (use exact IDs from inspection).
-
-**NEW OBJECT TYPES & TIPS:**
-• \`line\` – now renders perfectly upright/horizontal when you supply *symmetrical* dimensions.  
-  – For a vertical line, keep \`widthPct\` very small (e.g. \`0.002\`) and set a larger \`heightPct\` (e.g. \`0.15\`).  
-  – For a horizontal line, do the opposite: small \`heightPct\`, larger \`widthPct\`.  
-  – The renderer centers the line, so no more unintended tilt.
-
-• \`arrow\` – identical to \`line\` but with an automatic arrow-head.  
-  – Use the same coordinate rules; the head is added at the *end* of the segment.  
-  – Color comes from \`stroke\`; head size scales with \`strokeWidth\`.
-
-**LAYOUT RULES (avoid overlap):**
-  - When adding or updating objects, compare their bounding box with every existing object from your last \`get_whiteboard_data\` analysis.
-  - Only proceed if the new bbox overlaps existing ones by less than 5 % of the smaller area.
-  - If space is limited, adjust position or size to keep the board tidy.
-
-**CRITICAL COORDINATE SYSTEM:**
-- **ONLY USE PERCENTAGE-BASED COORDINATES**: All positions and dimensions MUST be specified as percentages (0-1) of the canvas size
-- **xPct, yPct**: Position as percentage of canvas width/height (0.0 = top/left edge, 1.0 = bottom/right edge)
-- **widthPct, heightPct**: Size as percentage of canvas width/height
-- **rxPct, ryPct**: Radii for ellipses as percentage of canvas width/height
-- **Example**: xPct: 0.1 (10% from left), yPct: 0.2 (20% from top), widthPct: 0.3 (30% of canvas width)
-- **Benefits**: Responsive layout that works across all screen sizes and devices
-
-**NEVER use absolute coordinates (x, y, width, height) - they cause layout issues on different screen sizes.**
-
-**CRITICAL: You have TRUE VISUAL PERCEPTION. You can see colors, layouts, spacing, alignment, and visual relationships. Use this to provide detailed visual feedback and make aesthetically pleasing improvements.**
-
-**ANTI-HALLUCINATION RULE: NEVER describe visual content that you cannot actually see in the image. If the whiteboard appears blank, white, or empty, explicitly state this. Do not invent or imagine diagrams, text, or objects that are not visually present.**
+**CRITICAL RULES**
+• After calling \`inspect_whiteboard\`, do **NOT** call it again until you have analysed the current image.
+• Never combine the screenshot and your analysis in the same assistant message.
 `;
 
 // Validation helper for skill arguments

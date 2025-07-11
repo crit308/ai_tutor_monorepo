@@ -1,3 +1,4 @@
+'use client';
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
@@ -12,13 +13,16 @@ import { useRouter } from "next/navigation";
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
-  content: string;
+  content: string; // textual part (may be empty when only images)
+  images?: Array<{ file_id?: string; url?: string; detail?: string }>; // extracted image parts
   interaction?: TutorInteractionResponse;
   whiteboard_actions?: WhiteboardAction[];
   createdAt?: number;
   isStreaming?: boolean;
   isInternal?: boolean;
 }
+
+export type { ChatMessage };
 
 interface TutorStreamHandlers {
   onMessage?: (message: ChatMessage) => void;
@@ -271,17 +275,63 @@ export function useTutorStream(
       const validMessages = agentMessages.results.filter(msg => {
         if (!msg.message || msg.message.content == null) return false;
         
-        // Handle empty array content
-        if (Array.isArray(msg.message.content) && msg.message.content.length === 0) {
+        // Keep messages that contain image_url parts even if textual part is empty
+        if (Array.isArray(msg.message.content)) {
+          const hasImagePart = msg.message.content.some((p: any) => p?.type === 'image_url');
+          const hasTextPart  = msg.message.content.some((p: any) => p?.type === 'text' && p.text?.trim());
+          return hasImagePart || hasTextPart;
+        }
+
+        // Otherwise ensure content not blank
+        if (typeof msg.message.content === 'string' && msg.message.content.trim() === '') {
           return false;
         }
-        
         return true;
       });
       
       console.log('[useTutorStream] Valid messages after filtering:', validMessages.length);
       
-      const converted = toUIMessages(validMessages);
+      // Custom conversion that preserves image parts
+      const converted = validMessages.map((rawMsg: any, idx: number) => {
+        const role: 'user' | 'assistant' = rawMsg.message.role === 'user' ? 'user' : 'assistant';
+        let textContent = '';
+        let images: Array<{file_id?: string; url?: string; detail?: string}> = [];
+
+        const contentRaw = rawMsg.message.content;
+
+        if (Array.isArray(contentRaw)) {
+          contentRaw.forEach((part: any) => {
+            if (part?.type === 'image_url') {
+              if (part.image_url?.file_id) {
+                images.push({ file_id: part.image_url.file_id, detail: part.image_url.detail });
+              } else if (part.image_url?.url) {
+                images.push({ url: part.image_url.url, detail: part.image_url.detail });
+              }
+            } else if (part?.type === 'text' && part.text) {
+              textContent += (textContent ? '\n' : '') + part.text;
+            }
+          });
+        } else if (typeof contentRaw === 'string') {
+          textContent = contentRaw;
+        }
+
+        const rawCreated = rawMsg.createdAt;
+        const createdMs = typeof rawCreated === 'number'
+          ? rawCreated
+          : rawCreated instanceof Date
+          ? rawCreated.getTime()
+          : Date.now();
+
+        return {
+          id: rawMsg.key || rawMsg.id || `msg-${idx}-${Date.now()}`,
+          role,
+          content: textContent,
+          images: images.length ? images : undefined,
+          createdAt: createdMs,
+          isStreaming: rawMsg.status === 'streaming',
+          isInternal: false, // will be updated later in downstream logic
+        } as ChatMessage;
+      });
       console.log('[useTutorStream] Converted UI messages:', converted.length);
       
       // Cache the results
@@ -370,8 +420,13 @@ export function useTutorStream(
             content,
             interaction: undefined, // These will be parsed from content if needed
             whiteboard_actions: undefined, // These will be parsed from content if needed
-            createdAt: msg.createdAt?.getTime() || Date.now(),
-            isStreaming: msg.status === 'streaming',
+            createdAt: (() => {
+              const c = (msg as any).createdAt;
+              if (typeof c === 'number') return c;
+              if (c instanceof Date) return c.getTime();
+              return Date.now();
+            })(),
+            isStreaming: (msg as any).isStreaming === true,
             isInternal: isInternalMessage
           };
         });

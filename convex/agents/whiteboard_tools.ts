@@ -14,7 +14,7 @@ import { Id } from "../_generated/dataModel";
 //
 export const inspectWhiteboardTool = createTool({
   name: "inspect_whiteboard",
-  description: "Returns ONLY the screenshot file ID string for the current whiteboard. After receiving this file ID, the assistant must send a follow-up message that embeds the image using the image_url content type so the Vision model can analyze it.",
+  description: "Takes a screenshot of the whiteboard and returns a special formatted response. The system will automatically inject the image into the conversation for vision analysis.",
   args: z.object({
     sessionId: z.string().describe("The ID of the current session."),
   }),
@@ -25,16 +25,17 @@ export const inspectWhiteboardTool = createTool({
       userId: ctx.userId || null,
     });
 
-    // Return ONLY the file_id string - no analysis, no structured data
-    // The Vision model will analyze the image after it's embedded in the assistant message
+    // Return a structured response with a special marker
     const fileId = inspectionResult.screenshotFileId;
     
-    // Fallback: empty string if screenshot missing
     if (!fileId) {
-      return "";
+      return "No screenshot available. The whiteboard might be empty or there was an error capturing it.";
     }
 
-    return fileId;
+    // Return a response that includes the file ID in a way we can detect
+    return `I've captured a screenshot of the whiteboard. Let me analyze what I see...
+
+[WHITEBOARD_SCREENSHOT:${fileId}]`;
   },
 });
 

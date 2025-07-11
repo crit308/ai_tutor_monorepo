@@ -212,8 +212,10 @@ export const inspectWhiteboard = internalAction({
         console.log(`[inspectWhiteboard] Object ${obj.id} (${obj.kind}): bbox ${obj.bbox.width}x${obj.bbox.height} at (${obj.bbox.x}, ${obj.bbox.y})`);
       });
       
+      const screenshotRef = (screenshotResult.image_data as string | undefined) || (screenshotResult.file_id as string | undefined) || null;
+
       return {
-        screenshotFileId: (screenshotResult.file_id as string | undefined) || null,
+        screenshotFileId: screenshotRef,
         boardSummary: {
           objectCount: objects.length,
           boardVersion: boardVersion,

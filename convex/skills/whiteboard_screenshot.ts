@@ -19,12 +19,14 @@ export const requestWhiteboardScreenshot = action({
   returns: v.object({
     success: v.boolean(),
     file_id: v.optional(v.string()),
+    image_data: v.optional(v.string()),
     error_message: v.optional(v.string()),
     request_id: v.string(),
   }),
   handler: async (ctx, args): Promise<{
     success: boolean;
     file_id?: string;
+    image_data?: string;
     error_message?: string;
     request_id: string;
   }> => {
@@ -69,34 +71,16 @@ export const requestWhiteboardScreenshot = action({
         if (response.success && response.image_data) {
           console.log(`[Screenshot] Successfully received screenshot for request ${requestId}`);
           
-          try {
-            // Upload to OpenAI Files API for vision purposes
-            const fileId = await uploadImageToOpenAI(
-              response.image_data,
-              `whiteboard-${requestId}.png`
-            );
-            
-            // Record the uploaded file for cleanup tracking
-            await ctx.runMutation(internal.jobs.fileCleanup_db.recordUploadedFile, {
-              sessionId: args.session_id,
-              fileId: fileId,
-              purpose: "vision",
-              uploadedAt: Date.now(),
-            });
-            
-            return {
-              success: true,
-              file_id: fileId,
-              request_id: requestId,
-            };
-          } catch (uploadError) {
-            console.error(`[Screenshot] Failed to upload to OpenAI Files:`, uploadError);
-            return {
-              success: false,
-              error_message: `Failed to upload screenshot to OpenAI: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`,
-              request_id: requestId,
-            };
-          }
+          // Skip OpenAI upload and return the base64 data directly
+          // This is more compatible with the Convex Agent component
+          console.log(`[Screenshot] Returning base64 data URI directly (skipping OpenAI upload)`);
+          
+          return {
+            success: true,
+            file_id: undefined,
+            image_data: response.image_data,
+            request_id: requestId,
+          };
         }
         
         attempts++;
@@ -114,6 +98,7 @@ export const requestWhiteboardScreenshot = action({
       // Timeout fallback - return error
       return {
         success: false,
+        image_data: undefined,
         error_message: "Screenshot request timed out. The frontend may not be connected or screenshot capture failed.",
         request_id: requestId,
       };

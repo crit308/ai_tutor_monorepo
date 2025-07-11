@@ -171,6 +171,7 @@ export const sendStreamingMessage = mutation({
       threadId: args.threadId,
       sessionId: args.sessionId,
       promptMessageId: messageId,
+      followUpForVisionAnalysis: false, // Default value for normal responses
     });
     
     return { messageId };
@@ -202,6 +203,7 @@ export const sendStreamingMessageInternal = internalMutation({
       threadId: args.threadId,
       sessionId: args.sessionId,
       promptMessageId: messageId,
+      followUpForVisionAnalysis: false, // Default value for normal responses
     });
     
     return { messageId };
@@ -216,18 +218,37 @@ export const generateStreamingResponse = internalAction({
     threadId: v.string(),
     sessionId: v.optional(v.id("sessions")),
     promptMessageId: v.string(),
+    followUpForVisionAnalysis: v.optional(v.boolean()), // Flag to indicate this is a follow-up for vision analysis
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     try {
-      console.log(`[Agent Streaming] Starting OpenAI stream for thread: ${args.threadId}`);
+      console.log(`[Agent Streaming] Starting OpenAI stream for thread: ${args.threadId}, followUp: ${args.followUpForVisionAnalysis || false}`);
       
       // Get enhanced system prompt with knowledge base context
       let customInstructions = "You are a helpful AI tutor. Provide clear, educational responses that help students learn effectively.";
-      // Append whiteboard skills prompt so the model knows how to invoke whiteboard actions
-      customInstructions += "\n\n" + WHITEBOARD_SKILLS_PROMPT + JSON_SKILL_INSTRUCTION;
       
-      if (args.sessionId) {
+      // If this is a follow-up for vision analysis, provide specific instructions
+      if (args.followUpForVisionAnalysis) {
+        customInstructions = `You are a helpful AI tutor. You just sent an image-only message containing a whiteboard screenshot. 
+
+**CRITICAL INSTRUCTION**: You must now provide visual analysis of the whiteboard image that was just embedded in the previous message. The image is already in the conversation context, so you can see it and should analyze it.
+
+**DO NOT** call inspect_whiteboard again. **DO NOT** send another image-only message.
+
+**YOUR TASK**: Provide detailed visual analysis of the whiteboard screenshot that was just embedded. Describe what you see, analyze the content, and provide educational feedback based on the visual content.
+
+If the whiteboard appears blank or empty, say so explicitly and offer to help create educational content.
+
+Respond with regular text describing what you observe in the image.`;
+      } else {
+        // Append whiteboard skills prompt for normal responses
+        customInstructions += "\n\n" + WHITEBOARD_SKILLS_PROMPT + JSON_SKILL_INSTRUCTION;
+      }
+      
+      // Only enrich with knowledge base & whiteboard tool instructions for normal responses,
+      // NOT for follow-up vision analysis (to avoid reintroducing tool prompts).
+      if (!args.followUpForVisionAnalysis && args.sessionId) {
         try {
           // Get session to access knowledge base
           const session = await ctx.runQuery(internal.functions.getSessionInternal, {
@@ -343,7 +364,7 @@ Begin the tutoring session now with a warm welcome and introduction to the topic
         chat: openai.responses(OPENAI_MODEL),
         textEmbedding: openai.embedding("text-embedding-3-small"),
         instructions: customInstructions,
-        tools: whiteboardTools,
+        tools: args.followUpForVisionAnalysis ? {} : whiteboardTools, // Remove tools in follow-up to prevent calling inspect_whiteboard again
         maxSteps: 6,
       });
 
@@ -368,7 +389,216 @@ Begin the tutoring session now with a warm welcome and introduction to the topic
       const fullResponse = await result.text;
       console.log(`[Agent Streaming] Completed OpenAI stream, response length: ${fullResponse.length}`);
       console.log("[Agent Streaming] Raw assistant response:", fullResponse);
+      
+      // Log the result object to see what properties are available
+      console.log("[Agent Streaming] Result object keys:", Object.keys(result));
+      console.log("[Agent Streaming] Result toolCalls:", (result as any).toolCalls);
+      console.log("[Agent Streaming] Result steps:", (result as any).steps);
+      
+      // Check if there's a way to access the tool calls
+      if ((result as any).toolCalls || (result as any).steps) {
+        console.log("[Agent Streaming] Found tool call information in result");
+        
+        // Try to await the promises
+        try {
+          const toolCalls = await (result as any).toolCallsPromise;
+          console.log("[Agent Streaming] Resolved toolCalls:", toolCalls);
+          
+          // Check if inspect_whiteboard was called
+          if (toolCalls && Array.isArray(toolCalls)) {
+            for (const toolCall of toolCalls) {
+              console.log("[Agent Streaming] Tool call:", toolCall.name, toolCall.result);
+              if (toolCall.name === "inspect_whiteboard" && toolCall.result) {
+                const resultStr = typeof toolCall.result === "string" ? toolCall.result : JSON.stringify(toolCall.result);
+                const match = resultStr.match(/\[WHITEBOARD_SCREENSHOT:([^\]]+)\]/);
+                if (match) {
+                  const fileId = match[1];
+                  console.log("[Agent Streaming] Found whiteboard screenshot in tool result:", fileId);
+                  
+                  // Inject the screenshot as an image message
+                  const imageUrlPayload = fileId.startsWith("file-")
+                    ? { file_id: fileId }
+                    : { url: fileId };
+
+                  const addRes = await ctx.runMutation(components.agent.messages.addMessages, {
+                    threadId: args.threadId,
+                    messages: [
+                      {
+                        message: {
+                          role: "user",
+                          content: [
+                            {
+                              type: "image_url",
+                              image_url: { ...imageUrlPayload, detail: "high" },
+                            },
+                            {
+                              type: "text",
+                              text: "(whiteboard screenshot)",
+                            },
+                          ],
+                        },
+                      },
+                    ],
+                  });
+
+                  const injectedId = addRes?.messages?.[0]?._id ?? args.promptMessageId;
+
+                  // Schedule a follow-up response for vision analysis
+                  await ctx.scheduler.runAfter(0, internal.agents.streaming.generateStreamingResponse, {
+                    threadId: args.threadId,
+                    sessionId: args.sessionId,
+                    promptMessageId: injectedId,
+                    followUpForVisionAnalysis: true,
+                  });
+
+                  console.log("[Agent Streaming] Follow-up vision analysis scheduled from tool result");
+                  return null;
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.log("[Agent Streaming] Error accessing tool calls:", e);
+        }
+      }
+      
+      // ------------------------------------------------------------------
+      // ⚡ NEW VISION WORKFLOW ⚡
+      // Detect if the assistant's response contains a whiteboard screenshot marker.
+      // If found, extract the file ID and inject it as an image message.
+      // ------------------------------------------------------------------
+
+      if (!args.followUpForVisionAnalysis) {
+        // Check if the response contains a whiteboard screenshot marker
+        const screenshotMatch = fullResponse.match(/\[WHITEBOARD_SCREENSHOT:([^\]]+)\]/);
+        
+        if (screenshotMatch) {
+          const fileId = screenshotMatch[1];
+          console.log("[Agent Streaming] Found whiteboard screenshot marker with file ID:", fileId);
+          
+          // Inject the screenshot as an image message
+          const imageUrlPayload = fileId.startsWith("file-")
+            ? { file_id: fileId }
+            : { url: fileId };
+
+          const addRes = await ctx.runMutation(components.agent.messages.addMessages, {
+            threadId: args.threadId,
+            messages: [
+              {
+                message: {
+                  role: "user",
+                  content: [
+                    {
+                      type: "image_url",
+                      image_url: { ...imageUrlPayload, detail: "high" },
+                    },
+                    {
+                      type: "text",
+                      text: "(whiteboard screenshot)",
+                    },
+                  ],
+                },
+              },
+            ],
+          });
+
+          const injectedId = addRes?.messages?.[0]?._id ?? args.promptMessageId;
+
+          // Schedule a follow-up response for vision analysis
+          await ctx.scheduler.runAfter(0, internal.agents.streaming.generateStreamingResponse, {
+            threadId: args.threadId,
+            sessionId: args.sessionId,
+            promptMessageId: injectedId,
+            followUpForVisionAnalysis: true,
+          });
+
+          console.log("[Agent Streaming] Follow-up vision analysis scheduled");
+        }
+      } else {
+        // This was the analysis turn – nothing further to schedule
+        console.log("[Agent Streaming] Analysis follow-up complete");
+      }
+      
       // All tool calls are now automatically handled via whiteboardTools.
+      
+      // After streaming completes, check if inspect_whiteboard was called by looking at recent messages
+      if (!args.followUpForVisionAnalysis) {
+        // Get the latest messages to check for tool calls
+        const recentMessages = await ctx.runQuery(components.agent.messages.listMessagesByThreadId, {
+          threadId: args.threadId,
+          paginationOpts: { numItems: 10, cursor: null },
+          order: "desc",
+        });
+        
+        console.log("[Agent Streaming] Checking recent messages for tool calls");
+        
+        // Look for tool messages that indicate inspect_whiteboard was called
+        let foundScreenshotFileId: string | null = null;
+        for (const msg of recentMessages.page) {
+          // Check if this is a tool message
+          if (msg.tool && msg.message?.content) {
+            const content = typeof msg.message.content === "string" ? msg.message.content : JSON.stringify(msg.message.content);
+            console.log("[Agent Streaming] Tool message found:", msg.message.name || "unknown", content.substring(0, 100));
+            
+            // Check if it's inspect_whiteboard and contains a screenshot marker
+            if (content.includes("WHITEBOARD_SCREENSHOT:")) {
+              const match = content.match(/\[WHITEBOARD_SCREENSHOT:([^\]]+)\]/);
+              if (match) {
+                foundScreenshotFileId = match[1];
+                console.log("[Agent Streaming] Found whiteboard screenshot in tool message:", foundScreenshotFileId);
+                break;
+              }
+            }
+          }
+        }
+        
+        // If we found a screenshot file ID, inject it as an image message
+        if (foundScreenshotFileId) {
+          // The screenshot system now always returns base64 data URIs
+          console.log("[Agent Streaming] Processing whiteboard screenshot data URI");
+          
+          // Inject it as an image message for the Agent component
+          const imageUrlPayload = foundScreenshotFileId.startsWith("file-")
+            ? { file_id: foundScreenshotFileId }
+            : { url: foundScreenshotFileId };
+
+          const addRes = await ctx.runMutation(components.agent.messages.addMessages, {
+            threadId: args.threadId,
+            messages: [
+              {
+                message: {
+                  role: "user",
+                  content: [
+                    {
+                      type: "image_url",
+                      image_url: { ...imageUrlPayload, detail: "high" },
+                    },
+                    {
+                      type: "text",
+                      text: "(whiteboard screenshot)",
+                    },
+                  ],
+                },
+              },
+            ],
+          });
+
+          const injectedId = addRes?.messages?.[0]?._id ?? args.promptMessageId;
+
+          // Schedule a follow-up response for vision analysis
+          await ctx.scheduler.runAfter(0, internal.agents.streaming.generateStreamingResponse, {
+            threadId: args.threadId,
+            sessionId: args.sessionId,
+            promptMessageId: injectedId,
+            followUpForVisionAnalysis: true,
+          });
+
+          console.log("[Agent Streaming] Follow-up vision analysis scheduled from message history");
+        }
+      } else {
+        // This was the analysis turn – nothing further to schedule
+        console.log("[Agent Streaming] Analysis follow-up complete");
+      }
       
     } catch (error) {
       console.error("[Agent Streaming] Error generating response:", error);
