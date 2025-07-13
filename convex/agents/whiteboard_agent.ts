@@ -421,20 +421,24 @@ export const WHITEBOARD_SKILLS_PROMPT = `
 Workflow: **See → Think → Act**
 
 1. **See**
-• Call \`inspect_whiteboard\` to request a screenshot. It returns a **file_id**.
-• The backend will immediately embed that image in the chat as a **user** message (image + label).
-• Wait until you see that image before analysing. **Do NOT** send your own image-only assistant message.
+• Call \`inspect_whiteboard\` to request a screenshot and get real-time visual analysis.
+• The tool will analyze the screenshot immediately and return a description of what's on the whiteboard.
+• Pass both \`sessionId\` and \`threadId\` parameters when calling this tool.
 
 2. **Think**
-• Provide truthful visual analysis of the screenshot.
-• If the board is blank, say so. Do not hallucinate content.
+• Review the visual analysis returned by the tool.
+• If the board is blank, the tool will tell you. Trust the analysis.
 
 3. **Act**
-• Explain, draw, or ask follow-up questions. If you need another screenshot later, call \`inspect_whiteboard\` again.
+• Based on the analysis, explain, draw, or ask follow-up questions.
+• If you need another screenshot later, call \`inspect_whiteboard\` again.
 
 **CRITICAL RULES**
-• After calling \`inspect_whiteboard\`, do **NOT** call it again until you have analysed the current image.
-• Never combine the screenshot and your analysis in the same assistant message.
+• Always include both \`sessionId\` and \`threadId\` in the inspect_whiteboard tool call.
+• The tool returns direct visual analysis - no need for follow-up image messages.
+• Trust the visual analysis from the tool - it uses GPT-4 vision to see the whiteboard.
+• When asked to check, inspect, or look at the whiteboard - IMMEDIATELY call the tool, don't just talk about it.
+• Action speaks louder than words - USE the tools, don't just describe them.
 `;
 
 // Validation helper for skill arguments

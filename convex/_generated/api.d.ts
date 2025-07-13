@@ -21,6 +21,7 @@ import type * as agents_streaming from "../agents/streaming.js";
 import type * as agents_teacherAgent from "../agents/teacherAgent.js";
 import type * as agents_tests from "../agents/tests.js";
 import type * as agents_types from "../agents/types.js";
+import type * as agents_visionService from "../agents/visionService.js";
 import type * as agents_whiteboard_agent from "../agents/whiteboard_agent.js";
 import type * as agents_whiteboard_tools from "../agents/whiteboard_tools.js";
 import type * as api_endpoints from "../api/endpoints.js";
@@ -92,6 +93,7 @@ declare const fullApi: ApiFromModules<{
   "agents/teacherAgent": typeof agents_teacherAgent;
   "agents/tests": typeof agents_tests;
   "agents/types": typeof agents_types;
+  "agents/visionService": typeof agents_visionService;
   "agents/whiteboard_agent": typeof agents_whiteboard_agent;
   "agents/whiteboard_tools": typeof agents_whiteboard_tools;
   "api/endpoints": typeof api_endpoints;

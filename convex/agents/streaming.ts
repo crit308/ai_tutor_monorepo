@@ -21,10 +21,20 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1-2025-04-14";
 const JSON_SKILL_INSTRUCTION = `When calling tools, respond with either a SINGLE JSON object or an ARRAY of such objects, each following: { "skill_name": "<string>", "skill_args": { ... } }. Do NOT wrap in markdown fences or add prose around it.
 
 Rules for when to call tools:
-• If the student explicitly asks you to draw, sketch, annotate, use the board / whiteboard / canvas, or requests a diagram/visual, you MUST respond with appropriate whiteboard tool calls (usually start with get_whiteboard_summary then apply_whiteboard_patch).  
-• Always include a valid "sessionId" field in every tool call. The correct value is provided in the **SessionId** line of the system prompt below.
+• If the student explicitly asks you to draw, sketch, annotate, use the board / whiteboard / canvas, or requests a diagram/visual, you MUST respond with appropriate whiteboard tool calls (usually start with inspect_whiteboard to see the current state).  
+• Always include both "sessionId" and "threadId" fields in every tool call.
+• The sessionId is provided in the **SessionId** line of the system prompt below.
+• The threadId is the current conversation thread ID you're responding in.
 
-MANDATORY: After an "apply_whiteboard_patch" call, include "get_whiteboard_summary" in the same array (or as your next single-object response) so you can inspect the updated board before speaking to the student. Only reply normally once the board is finalized.`;
+For inspect_whiteboard tool:
+• This tool returns real-time visual analysis of the whiteboard, not just a file ID.
+• You'll get a description of what's on the whiteboard directly from the tool.
+• No need to wait for image messages - the analysis is immediate.
+
+IMPORTANT: 
+• When asked about the whiteboard or to check/inspect it, IMMEDIATELY call inspect_whiteboard.
+• When starting a new tutoring session, consider calling inspect_whiteboard to see if there's any existing content.
+• Don't just describe what you CAN do - actually DO it by calling the tool.`;
 
 // Create the AI Tutor Agent using the Convex Agent component
 const tutorAgent = new Agent(components.agent, {
@@ -346,17 +356,18 @@ Begin the tutoring session now with a warm welcome and introduction to the topic
             }
           }
 
-          // Surface the exact sessionId so the model can include it in tool calls
+          // Surface the exact sessionId and threadId so the model can include them in tool calls
           if (args.sessionId) {
             customInstructions += `\nSessionId: ${args.sessionId}`;
           }
+          customInstructions += `\nThreadId: ${args.threadId}`;
         } catch (error) {
           console.log("[Agent Streaming] Could not load knowledge base context:", error);
         }
       }
 
-      // No automatic whiteboard summary injection. The tutor should call
-      // `get_whiteboard_summary` when it needs to inspect the current board.
+      // Vision analysis now happens directly in the inspect_whiteboard tool
+      // No need to detect markers or schedule follow-ups
 
       // Create a new agent instance with custom instructions for this specific response
       const customAgent = new Agent(components.agent, {
@@ -375,11 +386,11 @@ Begin the tutoring session now with a warm welcome and introduction to the topic
       
       // Stream the response using the agent's built-in streaming
       const result = await thread.streamText(
-        { 
+        {
           promptMessageId: args.promptMessageId,
         },
-        { 
-          saveStreamDeltas: true,
+        {
+          saveStreamDeltas: false,
         }
       );
       
@@ -416,20 +427,18 @@ Begin the tutoring session now with a warm welcome and introduction to the topic
                   console.log("[Agent Streaming] Found whiteboard screenshot in tool result:", fileId);
                   
                   // Inject the screenshot as an image message
-                  const imageUrlPayload = fileId.startsWith("file-")
-                    ? { file_id: fileId }
-                    : { url: fileId };
-
                   const addRes = await ctx.runMutation(components.agent.messages.addMessages, {
                     threadId: args.threadId,
                     messages: [
                       {
                         message: {
-                          role: "user",
+                          role: "assistant",
                           content: [
                             {
-                              type: "image_url",
-                              image_url: { ...imageUrlPayload, detail: "high" },
+                              type: "file",
+                              data: fileId,
+                              mimeType: "image/png",
+                              filename: "whiteboard.png",
                             },
                             {
                               type: "text",
@@ -460,144 +469,6 @@ Begin the tutoring session now with a warm welcome and introduction to the topic
         } catch (e) {
           console.log("[Agent Streaming] Error accessing tool calls:", e);
         }
-      }
-      
-      // ------------------------------------------------------------------
-      // ⚡ NEW VISION WORKFLOW ⚡
-      // Detect if the assistant's response contains a whiteboard screenshot marker.
-      // If found, extract the file ID and inject it as an image message.
-      // ------------------------------------------------------------------
-
-      if (!args.followUpForVisionAnalysis) {
-        // Check if the response contains a whiteboard screenshot marker
-        const screenshotMatch = fullResponse.match(/\[WHITEBOARD_SCREENSHOT:([^\]]+)\]/);
-        
-        if (screenshotMatch) {
-          const fileId = screenshotMatch[1];
-          console.log("[Agent Streaming] Found whiteboard screenshot marker with file ID:", fileId);
-          
-          // Inject the screenshot as an image message
-          const imageUrlPayload = fileId.startsWith("file-")
-            ? { file_id: fileId }
-            : { url: fileId };
-
-          const addRes = await ctx.runMutation(components.agent.messages.addMessages, {
-            threadId: args.threadId,
-            messages: [
-              {
-                message: {
-                  role: "user",
-                  content: [
-                    {
-                      type: "image_url",
-                      image_url: { ...imageUrlPayload, detail: "high" },
-                    },
-                    {
-                      type: "text",
-                      text: "(whiteboard screenshot)",
-                    },
-                  ],
-                },
-              },
-            ],
-          });
-
-          const injectedId = addRes?.messages?.[0]?._id ?? args.promptMessageId;
-
-          // Schedule a follow-up response for vision analysis
-          await ctx.scheduler.runAfter(0, internal.agents.streaming.generateStreamingResponse, {
-            threadId: args.threadId,
-            sessionId: args.sessionId,
-            promptMessageId: injectedId,
-            followUpForVisionAnalysis: true,
-          });
-
-          console.log("[Agent Streaming] Follow-up vision analysis scheduled");
-        }
-      } else {
-        // This was the analysis turn – nothing further to schedule
-        console.log("[Agent Streaming] Analysis follow-up complete");
-      }
-      
-      // All tool calls are now automatically handled via whiteboardTools.
-      
-      // After streaming completes, check if inspect_whiteboard was called by looking at recent messages
-      if (!args.followUpForVisionAnalysis) {
-        // Get the latest messages to check for tool calls
-        const recentMessages = await ctx.runQuery(components.agent.messages.listMessagesByThreadId, {
-          threadId: args.threadId,
-          paginationOpts: { numItems: 10, cursor: null },
-          order: "desc",
-        });
-        
-        console.log("[Agent Streaming] Checking recent messages for tool calls");
-        
-        // Look for tool messages that indicate inspect_whiteboard was called
-        let foundScreenshotFileId: string | null = null;
-        for (const msg of recentMessages.page) {
-          // Check if this is a tool message
-          if (msg.tool && msg.message?.content) {
-            const content = typeof msg.message.content === "string" ? msg.message.content : JSON.stringify(msg.message.content);
-            console.log("[Agent Streaming] Tool message found:", msg.message.name || "unknown", content.substring(0, 100));
-            
-            // Check if it's inspect_whiteboard and contains a screenshot marker
-            if (content.includes("WHITEBOARD_SCREENSHOT:")) {
-              const match = content.match(/\[WHITEBOARD_SCREENSHOT:([^\]]+)\]/);
-              if (match) {
-                foundScreenshotFileId = match[1];
-                console.log("[Agent Streaming] Found whiteboard screenshot in tool message:", foundScreenshotFileId);
-                break;
-              }
-            }
-          }
-        }
-        
-        // If we found a screenshot file ID, inject it as an image message
-        if (foundScreenshotFileId) {
-          // The screenshot system now always returns base64 data URIs
-          console.log("[Agent Streaming] Processing whiteboard screenshot data URI");
-          
-          // Inject it as an image message for the Agent component
-          const imageUrlPayload = foundScreenshotFileId.startsWith("file-")
-            ? { file_id: foundScreenshotFileId }
-            : { url: foundScreenshotFileId };
-
-          const addRes = await ctx.runMutation(components.agent.messages.addMessages, {
-            threadId: args.threadId,
-            messages: [
-              {
-                message: {
-                  role: "user",
-                  content: [
-                    {
-                      type: "image_url",
-                      image_url: { ...imageUrlPayload, detail: "high" },
-                    },
-                    {
-                      type: "text",
-                      text: "(whiteboard screenshot)",
-                    },
-                  ],
-                },
-              },
-            ],
-          });
-
-          const injectedId = addRes?.messages?.[0]?._id ?? args.promptMessageId;
-
-          // Schedule a follow-up response for vision analysis
-          await ctx.scheduler.runAfter(0, internal.agents.streaming.generateStreamingResponse, {
-            threadId: args.threadId,
-            sessionId: args.sessionId,
-            promptMessageId: injectedId,
-            followUpForVisionAnalysis: true,
-          });
-
-          console.log("[Agent Streaming] Follow-up vision analysis scheduled from message history");
-        }
-      } else {
-        // This was the analysis turn – nothing further to schedule
-        console.log("[Agent Streaming] Analysis follow-up complete");
       }
       
     } catch (error) {

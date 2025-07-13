@@ -275,18 +275,21 @@ export function useTutorStream(
       const validMessages = agentMessages.results.filter(msg => {
         if (!msg.message || msg.message.content == null) return false;
         
-        // Keep messages that contain image_url parts even if textual part is empty
+        let hasImagePart = false;
+        let hasTextPart = false;
         if (Array.isArray(msg.message.content)) {
-          const hasImagePart = msg.message.content.some((p: any) => p?.type === 'image_url');
-          const hasTextPart  = msg.message.content.some((p: any) => p?.type === 'text' && p.text?.trim());
-          return hasImagePart || hasTextPart;
+          hasImagePart = msg.message.content.some((p: any) =>
+            p?.type === 'image_url' || (p?.type === 'file' && p.mimeType?.startsWith('image/'))
+          );
+          hasTextPart = msg.message.content.some((p: any) =>
+            p?.type === 'text' && p.text?.trim()
+          );
+        } else if (typeof msg.message.content === 'string') {
+          hasTextPart = msg.message.content.trim() !== '';
         }
-
-        // Otherwise ensure content not blank
-        if (typeof msg.message.content === 'string' && msg.message.content.trim() === '') {
-          return false;
-        }
-        return true;
+        // Only display if message has meaningful text OR it's a user message
+        // (We currently can't render image-only assistant messages.)
+        return hasTextPart || msg.message.role === 'user';
       });
       
       console.log('[useTutorStream] Valid messages after filtering:', validMessages.length);
@@ -307,7 +310,9 @@ export function useTutorStream(
               } else if (part.image_url?.url) {
                 images.push({ url: part.image_url.url, detail: part.image_url.detail });
               }
-            } else if (part?.type === 'text' && part.text) {
+            } else if (part?.type === 'file' && part.mimeType?.startsWith('image/')) {
+              images.push({ file_id: part.data });
+            } else if (part?.type === 'text' && part.text?.trim()) {
               textContent += (textContent ? '\n' : '') + part.text;
             }
           });

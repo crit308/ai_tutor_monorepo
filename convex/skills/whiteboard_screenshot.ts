@@ -71,14 +71,14 @@ export const requestWhiteboardScreenshot = action({
         if (response.success && response.image_data) {
           console.log(`[Screenshot] Successfully received screenshot for request ${requestId}`);
           
-          // Skip OpenAI upload and return the base64 data directly
-          // This is more compatible with the Convex Agent component
-          console.log(`[Screenshot] Returning base64 data URI directly (skipping OpenAI upload)`);
+          // Upload the screenshot to OpenAI Files API and obtain a stable file_id
+          const fileId = await uploadImageToOpenAI(response.image_data, `whiteboard_${Date.now()}.png`);
+          console.log(`[Screenshot] Uploaded screenshot to OpenAI, file_id: ${fileId}`);
           
           return {
             success: true,
-            file_id: undefined,
-            image_data: response.image_data,
+            file_id: fileId,
+            image_data: undefined,
             request_id: requestId,
           };
         }

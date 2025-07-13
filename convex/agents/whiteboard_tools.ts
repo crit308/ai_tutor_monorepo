@@ -17,6 +17,7 @@ export const inspectWhiteboardTool = createTool({
   description: "Takes a screenshot of the whiteboard and returns a special formatted response. The system will automatically inject the image into the conversation for vision analysis.",
   args: z.object({
     sessionId: z.string().describe("The ID of the current session."),
+    threadId: z.string().describe("The ID of the current thread."),
   }),
   async handler(ctx: any, args) {
     // Fetch screenshot via existing inspection action (reuse implementation)
@@ -25,17 +26,74 @@ export const inspectWhiteboardTool = createTool({
       userId: ctx.userId || null,
     });
 
-    // Return a structured response with a special marker
-    const fileId = inspectionResult.screenshotFileId;
+    const screenshotFileId = inspectionResult.screenshotFileId || "(no screenshot)";
     
-    if (!fileId) {
-      return "No screenshot available. The whiteboard might be empty or there was an error capturing it.";
+    // If we have a screenshot, analyze it immediately with vision service
+    if (screenshotFileId && screenshotFileId !== "(no screenshot)" && screenshotFileId.startsWith("file-")) {
+      try {
+        console.log(`[inspect_whiteboard] Analyzing screenshot with vision service: ${screenshotFileId}`);
+        
+        // Call vision service directly to get real-time analysis
+        const visionResult = await ctx.runAction(internal.agents.visionService.analyzeWhiteboardImage, {
+          fileId: screenshotFileId,
+          threadId: args.threadId || "temp-thread", // Provide a fallback if threadId is not available
+          sessionId: args.sessionId,
+          contextMessages: [], // We don't need context for immediate analysis
+        });
+        
+        if (visionResult.success && visionResult.analysis) {
+          console.log(`[inspect_whiteboard] Vision analysis successful`);
+          
+          // Return the actual vision analysis combined with board metadata
+          return `${visionResult.analysis}
+
+**Board Metadata:**
+- Total objects: ${inspectionResult.boardSummary.objectCount}
+- Board version: ${inspectionResult.boardSummary.boardVersion}
+- Canvas dimensions: ${inspectionResult.boardSummary.canvasDimensions.width}x${inspectionResult.boardSummary.canvasDimensions.height}
+${inspectionResult.boardSummary.warnings.length > 0 ? `- Warnings: ${inspectionResult.boardSummary.warnings.join(", ")}` : ""}`;
+        } else {
+          console.error(`[inspect_whiteboard] Vision analysis failed: ${visionResult.error}`);
+          // Fall back to object list if vision fails
+          return `I captured a screenshot but had trouble analyzing it visually. Here's what I can tell from the object data:
+
+Board Summary:
+- Total objects: ${inspectionResult.boardSummary.objectCount}
+- Board version: ${inspectionResult.boardSummary.boardVersion}
+- Canvas size: ${inspectionResult.boardSummary.canvasDimensions.width}x${inspectionResult.boardSummary.canvasDimensions.height}
+
+Objects on the whiteboard:
+${inspectionResult.objectList.length === 0 ? "- No objects currently on the whiteboard" : 
+  inspectionResult.objectList.map(obj => 
+    `- ${obj.id} (${obj.kind}): ${obj.text || "no text"} at (${obj.bbox.x}, ${obj.bbox.y})`
+  ).join("\n")}`;
+        }
+      } catch (error) {
+        console.error(`[inspect_whiteboard] Error calling vision service:`, error);
+        // Fall back to object list
+        return `I captured a screenshot but encountered an error analyzing it. Here's the object data:
+
+Board Summary:
+- Total objects: ${inspectionResult.boardSummary.objectCount}
+- Canvas size: ${inspectionResult.boardSummary.canvasDimensions.width}x${inspectionResult.boardSummary.canvasDimensions.height}
+
+Objects: ${inspectionResult.objectList.length === 0 ? "No objects on whiteboard" : inspectionResult.objectList.length + " objects present"}`;
+      }
+    } else {
+      // No screenshot available, return object list
+      return `No screenshot was captured. Here's the current whiteboard state:
+
+Board Summary:
+- Total objects: ${inspectionResult.boardSummary.objectCount}
+- Board version: ${inspectionResult.boardSummary.boardVersion}
+- Canvas size: ${inspectionResult.boardSummary.canvasDimensions.width}x${inspectionResult.boardSummary.canvasDimensions.height}
+
+Objects on the whiteboard:
+${inspectionResult.objectList.length === 0 ? "- No objects currently on the whiteboard" : 
+  inspectionResult.objectList.map(obj => 
+    `- ${obj.id} (${obj.kind}): ${obj.text || "no text"} at (${obj.bbox.x}, ${obj.bbox.y})`
+  ).join("\n")}`;
     }
-
-    // Return a response that includes the file ID in a way we can detect
-    return `I've captured a screenshot of the whiteboard. Let me analyze what I see...
-
-[WHITEBOARD_SCREENSHOT:${fileId}]`;
   },
 });
 
