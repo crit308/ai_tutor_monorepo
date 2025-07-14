@@ -2,6 +2,20 @@ import { query, mutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { requireAuth } from "../auth/middleware";
+import { 
+  WBObject, 
+  WBLine,
+  WBArrow,
+  WhiteboardPatch, 
+  WhiteboardAction, 
+  ValidationIssue,
+  updateElementVersion,
+  updateBoundArrows,
+  getConnectionPoint,
+  isBindableElement,
+  isLinearElement,
+  generateCurvedArrowPath
+} from "../../packages/whiteboard-schema";
 
 // ==========================================
 // REAL-TIME WHITEBOARD OBJECTS
@@ -40,27 +54,157 @@ export const getWhiteboardObjects = query({
     return objects.map(obj => {
       const spec = JSON.parse(obj.object_spec);
       
-      // Special handling for LINE objects to extract coordinates from points array
-      if (obj.object_kind === 'line' && spec.points && Array.isArray(spec.points) && spec.points.length >= 4) {
+      // Add version if missing (for backward compatibility)
+      if (!spec.version) {
+        spec.version = 1;
+      }
+      
+      // Ensure metadata structure
+      if (!spec.metadata) {
+        spec.metadata = {};
+      }
+      if (!spec.metadata.groupId) {
+        spec.metadata.groupId = obj.object_id;
+      }
+      if (!spec.metadata.source) {
+        spec.metadata.source = 'ai';
+      }
+      
+      // Handle coordinate system migration
+      if (obj.object_kind === 'line' || obj.object_kind === 'arrow') {
+        // For line/arrow objects with points array
+        if (spec.points && Array.isArray(spec.points)) {
+          // Check if points are absolute coordinates (old system)
+          if (spec.points.length >= 4 && typeof spec.points[0] === 'number') {
         const [x1, y1, x2, y2] = spec.points;
+            
+            // Convert to new system: element position + relative points
         return {
           id: obj.object_id,
           ...spec,
-          points: spec.points, // Keep original points array
-          // Add derived properties for backward compatibility
-          x: x1,
+              x: x1,                              // Element position at first point
           y: y1,
-          x2: x2,
-          y2: y2,
+              points: [[0, 0], [x2 - x1, y2 - y1]], // Points relative to element position
+              createdAt: obj.created_at,
+              updatedAt: obj.updated_at,
+            };
+          } else if (spec.points.length >= 2 && Array.isArray(spec.points[0])) {
+            // Already in new format with tuple points
+            return {
+              id: obj.object_id,
+              ...spec,
+              x: spec.x || 0,                    // Use element position from spec
+              y: spec.y || 0,
+              points: spec.points,               // Keep relative points as-is
+          createdAt: obj.created_at,
+          updatedAt: obj.updated_at,
+        };
+          }
+      }
+      
+        // Fallback for lines without proper points
+      return {
+        id: obj.object_id,
+        ...spec,
+          x: spec.x || 0,
+          y: spec.y || 0,
+          points: spec.points || [[0, 0], [100, 0]], // Default horizontal line
           createdAt: obj.created_at,
           updatedAt: obj.updated_at,
         };
       }
       
-      // Default handling for all other object types
+      // Default handling for all other object types (rect, ellipse, text, etc.)
       return {
         id: obj.object_id,
         ...spec,
+        x: spec.x || 0,                         // Ensure x,y are present
+        y: spec.y || 0,
+        createdAt: obj.created_at,
+        updatedAt: obj.updated_at,
+      };
+    });
+  },
+});
+
+/**
+ * Internal version of getWhiteboardObjects for use by actions/skills
+ */
+export const getWhiteboardObjectsInternal = internalQuery({
+  args: { 
+    sessionId: v.id("sessions"),
+    userId: v.union(v.string(), v.null())
+  },
+  handler: async (ctx, { sessionId, userId }) => {
+    // Verify session ownership
+    const session = await ctx.db.get(sessionId);
+    if (!session) {
+      throw new Error("Session not found");
+    }
+    
+    // If userId present, enforce ownership; if null, assume assistant context is allowed
+    if (userId && session.user_id !== userId) {
+      throw new Error("Access denied");
+    }
+    
+    // Get all persistent whiteboard objects for this session
+    const objects = await ctx.db
+      .query("whiteboard_objects")
+      .withIndex("by_session", (q) => q.eq("session_id", sessionId))
+      .collect();
+    
+    return objects.map(obj => {
+      const spec = JSON.parse(obj.object_spec);
+      
+      // Add version if missing (for backward compatibility)
+      if (!spec.version) {
+        spec.version = 1;
+      }
+      
+      // Ensure metadata structure
+      if (!spec.metadata) {
+        spec.metadata = {};
+      }
+      if (!spec.metadata.groupId) {
+        spec.metadata.groupId = obj.object_id;
+      }
+      if (!spec.metadata.source) {
+        spec.metadata.source = 'ai';
+      }
+      
+      // Handle coordinate system migration
+      if (obj.object_kind === 'line' || obj.object_kind === 'arrow') {
+        // For line/arrow objects with points array
+        if (spec.points && Array.isArray(spec.points)) {
+          // Check if points are absolute coordinates (old system)
+          if (spec.points.length >= 4 && typeof spec.points[0] === 'number') {
+        const [x1, y1, x2, y2] = spec.points;
+            
+            // Convert to new relative coordinate system
+            spec.x = x1;
+            spec.y = y1;
+            spec.points = [[0, 0], [x2 - x1, y2 - y1]];
+          }
+        }
+        
+        // Return line/arrow with normalized structure
+        return {
+          id: obj.object_id,
+          ...spec,
+          x: spec.x || 0,
+          y: spec.y || 0,
+          points: spec.points || [[0, 0], [100, 0]], // Default horizontal line
+          createdAt: obj.created_at,
+          updatedAt: obj.updated_at,
+        };
+      }
+      
+      // Default handling for all other object types (rect, ellipse, text, etc.)
+      return {
+        id: obj.object_id,
+        ...spec,
+        x: spec.x || 0,                         // Ensure x,y are present
+        y: spec.y || 0,
         createdAt: obj.created_at,
         updatedAt: obj.updated_at,
       };
@@ -680,8 +824,8 @@ export const addObjectsBulk = mutation({
 });
 
 /**
- * applyWhiteboardPatch – handles percentage-based coordinates only.
- * Accepts creates-only patches for now; updates & deletes are ignored.
+ * applyWhiteboardPatch – handles the new coordinate system with absolute coordinates
+ * Supports creates, updates, and deletes operations with element versioning
  */
 export const applyWhiteboardPatch = mutation({
   args: {
@@ -695,124 +839,269 @@ export const applyWhiteboardPatch = mutation({
     const session = await ctx.db.get(sessionId);
     if (!session) throw new Error("Session not found");
 
-    const { creates = [] } = patch ?? {};
-    let inserted = 0;
+    const { creates = [], updates = [], deletes = [] } = patch ?? {};
+    let inserted = 0, updated = 0, deleted = 0;
     const issues = [];
 
-    for (let obj of creates) {
-      if (obj.kind === "rectangle") obj = { ...obj, kind: "rect" };
-      if (!obj.id || !obj.kind) {
-        issues.push({ level: "warning", message: `Skipping object without id or kind: ${obj.id}` });
+    // Process deletes first
+    for (const objectId of deletes) {
+      try {
+        const existing = await ctx.db
+          .query("whiteboard_objects")
+          .withIndex("by_session_object", (q) => 
+            q.eq("session_id", sessionId).eq("object_id", objectId)
+          )
+          .first();
+        
+        if (existing) {
+          await ctx.db.delete(existing._id);
+          deleted++;
+        } else {
+          issues.push({ level: "warning", message: `Object ${objectId} not found for deletion` });
+        }
+      } catch (e) {
+        issues.push({ level: "error", message: `Failed to delete object ${objectId}: ${e}` });
+      }
+    }
+
+    // Process updates
+    for (const updateItem of updates) {
+      if (!updateItem.id) {
+        issues.push({ level: "error", message: "Update item missing id" });
         continue;
       }
 
-      // Validate percentage-based coordinates
-      if (typeof obj.xPct !== "number" || obj.xPct < 0 || obj.xPct > 1) {
-        issues.push({ level: "error", message: `Invalid xPct for object ${obj.id}: must be between 0 and 1` });
-        continue;
-      }
-      if (typeof obj.yPct !== "number" || obj.yPct < 0 || obj.yPct > 1) {
-        issues.push({ level: "error", message: `Invalid yPct for object ${obj.id}: must be between 0 and 1` });
-        continue;
-      }
-
-      // Validate optional percentage dimensions (ignore if null or undefined)
-      if (obj.widthPct != null && (typeof obj.widthPct !== "number" || obj.widthPct < 0 || obj.widthPct > 1)) {
-        issues.push({ level: "error", message: `Invalid widthPct for object ${obj.id}: must be between 0 and 1` });
-        continue;
-      }
-      if (obj.heightPct != null && (typeof obj.heightPct !== "number" || obj.heightPct < 0 || obj.heightPct > 1)) {
-        issues.push({ level: "error", message: `Invalid heightPct for object ${obj.id}: must be between 0 and 1` });
+      try {
+        const existing = await ctx.db
+          .query("whiteboard_objects")
+          .withIndex("by_session_object", (q) => 
+            q.eq("session_id", sessionId).eq("object_id", updateItem.id)
+          )
+          .first();
+        
+        if (!existing) {
+          issues.push({ level: "error", message: `Object ${updateItem.id} not found for update` });
         continue;
       }
 
-      // Validate optional percentage radii for ellipses (ignore if null or undefined)
-      if (obj.rxPct != null && (typeof obj.rxPct !== "number" || obj.rxPct < 0 || obj.rxPct > 1)) {
-        issues.push({ level: "error", message: `Invalid rxPct for object ${obj.id}: must be between 0 and 1` });
-        continue;
+        const currentSpec = JSON.parse(existing.object_spec);
+        const updatedSpec = { 
+          ...currentSpec, 
+          ...updateItem.diff,
+          version: (currentSpec.version || 1) + 1, // Increment version
+          metadata: {
+            ...currentSpec.metadata,
+            ...updateItem.diff.metadata
+          }
+        };
+
+        await ctx.db.patch(existing._id, {
+          object_spec: JSON.stringify(updatedSpec),
+          object_kind: updatedSpec.kind,
+          updated_at: Date.now(),
+        });
+        updated++;
+      } catch (e) {
+        issues.push({ level: "error", message: `Failed to update object ${updateItem.id}: ${e}` });
       }
-      if (obj.ryPct != null && (typeof obj.ryPct !== "number" || obj.ryPct < 0 || obj.ryPct > 1)) {
-        issues.push({ level: "error", message: `Invalid ryPct for object ${obj.id}: must be between 0 and 1` });
+    }
+
+    // Process creates
+    for (const objectSpec of creates) {
+      if (!objectSpec.id || !objectSpec.kind) {
+        issues.push({ level: "error", message: "Create item missing id or kind" });
         continue;
       }
 
+      try {
       await ctx.db.insert("whiteboard_objects", {
         session_id: sessionId,
-        object_id: obj.id,
-        object_spec: JSON.stringify(obj),
-        object_kind: obj.kind,
+          object_id: objectSpec.id,
+          object_spec: JSON.stringify(objectSpec),
+          object_kind: objectSpec.kind,
         created_at: Date.now(),
         updated_at: Date.now(),
       });
       inserted++;
+      } catch (e) {
+        issues.push({ level: "error", message: `Failed to create object ${objectSpec.id}: ${e}` });
+      }
     }
 
-    const newVersion = ((session as any).board_version ?? 0) + 1;
-    await ctx.db.patch(session._id, { board_version: newVersion });
+    // Process binding updates
+    const bindingUpdates = await processElementBindingUpdates(ctx, sessionId, creates.concat(updates.map((u: { diff: WBObject }) => u.diff)));
 
     return { 
-      success: true, 
-      newBoardVersion: newVersion, 
+      success: issues.length === 0,
+      newBoardVersion: (creates.length > 0 ? (creates[0].version || 1) : (updates.length > 0 ? (updates[0].diff.version || 1) : -1)),
       issues, 
-      summary: `Inserted ${inserted} objects with percentage-based coordinates` 
+      summary: `Inserted: ${inserted}, Updated: ${updated}, Deleted: ${deleted}, Binding Updates: ${bindingUpdates.length}`,
     };
   },
 });
 
 /**
- * Internal version of getWhiteboardObjects that can be called from internalActions
- * and handles authentication gracefully for system/assistant calls
+ * Helper to get all whiteboard elements for a session
  */
-export const getWhiteboardObjectsInternal = internalQuery({
-  args: { 
-    sessionId: v.id("sessions"),
-    userId: v.union(v.string(), v.null()),
-  },
-  handler: async (ctx, { sessionId, userId }) => {
-    // Verify session ownership if userId is provided
-    const session = await ctx.db.get(sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
-    
-    // If userId is provided, enforce ownership; if null, assume assistant context is allowed
-    if (userId && session.user_id !== userId) {
-      throw new Error("Access denied");
-    }
-    
-    // Get all persistent whiteboard objects for this session
+async function getWhiteboardElements(ctx: any, sessionId: Id<"sessions">): Promise<WBObject[]> {
     const objects = await ctx.db
       .query("whiteboard_objects")
-      .withIndex("by_session", (q) => q.eq("session_id", sessionId))
+    .withIndex("by_session", (q: any) => q.eq("session_id", sessionId))
       .collect();
     
-    return objects.map(obj => {
+  return objects.map((obj: any) => {
       const spec = JSON.parse(obj.object_spec);
       
-      // Special handling for LINE objects to extract coordinates from points array
-      if (obj.object_kind === 'line' && spec.points && Array.isArray(spec.points) && spec.points.length >= 4) {
-        const [x1, y1, x2, y2] = spec.points;
-        return {
-          id: obj.object_id,
-          ...spec,
-          points: spec.points, // Keep original points array
-          // Add derived properties for backward compatibility
-          x: x1,
-          y: y1,
-          x2: x2,
-          y2: y2,
-          createdAt: obj.created_at,
-          updatedAt: obj.updated_at,
-        };
-      }
-      
-      // Default handling for all other object types
+    // Add version if missing
+    if (!spec.version) {
+      spec.version = 1;
+    }
+    
+    // Return as WBObject with database id stored in metadata
       return {
-        id: obj.object_id,
         ...spec,
-        createdAt: obj.created_at,
-        updatedAt: obj.updated_at,
-      };
-    });
-  },
-}); 
+      id: obj.object_id,
+      _id: obj._id,  // Store database ID for updates
+      _creationTime: obj.created_at,
+    } as WBObject & { _id: Id<"whiteboard_objects">; _creationTime: number };
+  });
+}
+
+/**
+ * Process element binding updates after a patch is applied
+ * This ensures arrows stay connected to shapes when they move
+ */
+async function processElementBindingUpdates(
+  ctx: any,
+  sessionId: Id<"sessions">,
+  updatedElements: WBObject[]
+): Promise<WBObject[]> {
+  const allElements = await getWhiteboardElements(ctx, sessionId);
+  const bindingUpdates: WBObject[] = [];
+  
+  // Find elements that have been moved/updated and might affect bound arrows
+  for (const updatedElement of updatedElements) {
+    if (isBindableElement(updatedElement)) {
+      console.log(`[WhiteboardDB] Processing binding updates for element ${updatedElement.id}`);
+      
+      // Find all arrows/lines that are bound to this element
+      const boundArrows = allElements.filter((el: WBObject) => {
+        if (!isLinearElement(el)) return false;
+        
+        const hasStartBinding = el.startBinding?.elementId === updatedElement.id;
+        const hasEndBinding = el.endBinding?.elementId === updatedElement.id;
+        
+        return hasStartBinding || hasEndBinding;
+      });
+      
+      // Update each bound arrow
+      for (const arrow of boundArrows) {
+        // Type guard to ensure we're working with linear elements
+        if (!isLinearElement(arrow)) continue;
+        
+        let needsUpdate = false;
+        let updatedArrow = { ...arrow };
+        
+        // Update start binding connection
+        if (arrow.startBinding?.elementId === updatedElement.id) {
+          const connectionPoint = getConnectionPoint(
+            updatedElement,
+            arrow.startBinding.focus,
+            arrow.startBinding.connectionPoint
+          );
+          
+          // Calculate new relative point
+          const newStartPoint: [number, number] = [
+            connectionPoint[0] - arrow.x,
+            connectionPoint[1] - arrow.y
+          ];
+          
+          const newPoints = [...arrow.points];
+          newPoints[0] = newStartPoint;
+          updatedArrow.points = newPoints;
+          needsUpdate = true;
+          
+          console.log(`[WhiteboardDB] Updated start binding for arrow ${arrow.id}`);
+        }
+        
+        // Update end binding connection
+        if (arrow.endBinding?.elementId === updatedElement.id) {
+          const connectionPoint = getConnectionPoint(
+            updatedElement,
+            arrow.endBinding.focus,
+            arrow.endBinding.connectionPoint
+          );
+          
+          // Calculate new relative point
+          const newEndPoint: [number, number] = [
+            connectionPoint[0] - arrow.x,
+            connectionPoint[1] - arrow.y
+          ];
+          
+          const newPoints = [...arrow.points];
+          const lastIndex = newPoints.length - 1;
+          newPoints[lastIndex] = newEndPoint;
+          updatedArrow.points = newPoints;
+          needsUpdate = true;
+          
+          // Regenerate curved arrow path if needed
+          if (arrow.kind === "arrow" && arrow.arrowType === "curved" && arrow.curvature) {
+            const startPoint = newPoints[0];
+            const endPoint = newPoints[lastIndex];
+            
+            const curvedPath = generateCurvedArrowPath(
+              [arrow.x + startPoint[0], arrow.y + startPoint[1]],
+              [arrow.x + endPoint[0], arrow.y + endPoint[1]],
+              arrow.curvature,
+              arrow.arrowType
+            );
+            
+            updatedArrow.points = curvedPath.points.map((point, index) => {
+              if (index === 0) return [0, 0] as [number, number]; // First point always [0,0]
+              return [point[0] - arrow.x, point[1] - arrow.y] as [number, number];
+            });
+            
+            if (arrow.kind === "arrow") {
+              (updatedArrow as WBArrow).controlPoints = curvedPath.controlPoints?.map((point) => 
+                [point[0] - arrow.x, point[1] - arrow.y] as [number, number]
+              );
+            }
+            
+            console.log(`[WhiteboardDB] Regenerated curved path for arrow ${arrow.id}`);
+          }
+          
+          console.log(`[WhiteboardDB] Updated end binding for arrow ${arrow.id}`);
+        }
+        
+        if (needsUpdate) {
+          bindingUpdates.push(updateElementVersion(updatedArrow));
+        }
+      }
+    }
+  }
+  
+  // Store binding updates if any
+  if (bindingUpdates.length > 0) {
+    console.log(`[WhiteboardDB] Applying ${bindingUpdates.length} binding updates`);
+    
+    for (const element of bindingUpdates) {
+      // Find the database record for this element
+      const dbRecord = await ctx.db
+        .query("whiteboard_objects")
+        .withIndex("by_session_object", (q: any) => 
+          q.eq("session_id", sessionId).eq("object_id", element.id)
+        )
+        .first();
+        
+      if (dbRecord) {
+        // Update the object spec with the new binding data
+        await ctx.db.patch(dbRecord._id, {
+          object_spec: JSON.stringify(element),
+          updated_at: Date.now(),
+        });
+      }
+    }
+  }
+  
+  return bindingUpdates;
+}

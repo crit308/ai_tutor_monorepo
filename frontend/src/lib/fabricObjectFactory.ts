@@ -346,34 +346,80 @@ function createFabricObjectInternal(spec: CanvasObjectSpec, canvas?: Canvas): Fa
                 break;
             }
             case 'line': {
-                let linePoints: [number, number, number, number] | null = null;
+                console.log(`[FabricFactory] Creating line: ${spec.id}`, { points: spec.points, coords });
+                
+                let fabricLinePoints: [number, number, number, number] = [0, 0, 0, 0];
 
                 if (Array.isArray(spec.points)) {
-                    if (spec.points.length === 4 && typeof spec.points[0] === 'number') {
-                        linePoints = spec.points as [number, number, number, number];
+                    if (spec.points.length >= 4 && typeof spec.points[0] === 'number') {
+                        // Points as flat array: [x1, y1, x2, y2, ...]
+                        // Convert to normalized points (relative to first point)
+                        const [x1, y1, x2, y2] = spec.points as number[];
+                        fabricLinePoints = [0, 0, x2 - x1, y2 - y1];
+                        
+                        // Update element position to first point
+                        coords.x = x1;
+                        coords.y = y1;
+                        
+                        console.log(`[FabricFactory] Line from flat points:`, {
+                            originalPoints: [x1, y1, x2, y2],
+                            normalizedPoints: fabricLinePoints,
+                            elementPosition: [coords.x, coords.y]
+                        });
                     } else if (
-                        spec.points.length === 2 &&
+                        spec.points.length >= 2 &&
                         typeof spec.points[0] === 'object' &&
                         spec.points[0] !== null &&
                         'x' in spec.points[0]
                     ) {
+                        // Points as objects: [{x, y}, {x, y}]
                         const p1 = spec.points[0] as { x: number; y: number };
                         const p2 = spec.points[1] as { x: number; y: number };
-                        linePoints = [p1.x, p1.y, p2.x, p2.y];
+                        
+                        fabricLinePoints = [0, 0, p2.x - p1.x, p2.y - p1.y];
+                        coords.x = p1.x;
+                        coords.y = p1.y;
+                        
+                        console.log(`[FabricFactory] Line from point objects:`, {
+                            originalPoints: [p1, p2],
+                            normalizedPoints: fabricLinePoints,
+                            elementPosition: [coords.x, coords.y]
+                        });
+                    } else if (spec.points.length >= 2 && Array.isArray(spec.points[0])) {
+                        // Points as tuple arrays: [[x1, y1], [x2, y2]] (Excalidraw format)
+                        const [x1, y1] = spec.points[0] as [number, number];
+                        const [x2, y2] = spec.points[1] as [number, number];
+                        
+                        fabricLinePoints = [0, 0, x2 - x1, y2 - y1];
+                        coords.x = (coords.x || 0) + x1; // Add offset to element position
+                        coords.y = (coords.y || 0) + y1;
+                        
+                        console.log(`[FabricFactory] Line from tuple points:`, {
+                            originalPoints: [[x1, y1], [x2, y2]],
+                            normalizedPoints: fabricLinePoints,
+                            elementPosition: [coords.x, coords.y]
+                        });
                     }
                 }
 
-                // If explicit points not supplied, build symmetrical points around (0,0)
-                if (!linePoints) {
-                    const w = coords.width ?? 50;
-                    const h = coords.height ?? 50;
-                    if (h >= w) {
-                        // vertical
-                        linePoints = [0, h / 2, 0, -h / 2];
+                // Fallback: create default line if no valid points
+                if (fabricLinePoints[2] === 0 && fabricLinePoints[3] === 0) {
+                    const w = coords.width ?? 100;
+                    const h = coords.height ?? 2;
+                    
+                    if (Math.abs(h) >= Math.abs(w)) {
+                        // Vertical line
+                        fabricLinePoints = [0, 0, 0, h];
                     } else {
-                        // horizontal
-                        linePoints = [-w / 2, 0, w / 2, 0];
+                        // Horizontal line  
+                        fabricLinePoints = [0, 0, w, 0];
                     }
+                    
+                    console.log(`[FabricFactory] Line fallback to default:`, {
+                        dimensions: [w, h],
+                        fabricLinePoints,
+                        elementPosition: [coords.x, coords.y]
+                    });
                 }
 
                 const resolvedStrokeWidth = (() => {
@@ -385,17 +431,25 @@ function createFabricObjectInternal(spec: CanvasObjectSpec, canvas?: Canvas): Fa
                     return spec.strokeWidth;
                 })();
 
-                fabricObject = new Line(linePoints, {
+                fabricObject = new Line(fabricLinePoints, {
                     stroke: spec.stroke ?? 'black',
                     strokeWidth: resolvedStrokeWidth,
+                    left: coords.x ?? 0,
+                    top: coords.y ?? 0,
                     angle: spec.angle ?? 0,
-                    left: coords.x,
-                    top: coords.y,
                     selectable: spec.selectable ?? true,
                     evented: spec.evented ?? false,
-                    originX: 'center',
-                    originY: 'center',
+                    originX: 'left',
+                    originY: 'top',
                 });
+                
+                console.log(`[FabricFactory] Created line fabric object:`, {
+                    id: spec.id,
+                    fabricPoints: fabricLinePoints,
+                    position: [fabricObject.left, fabricObject.top],
+                    angle: fabricObject.angle
+                });
+                
                 break;
             }
             case 'path': { 
@@ -533,8 +587,132 @@ function createFabricObjectInternal(spec: CanvasObjectSpec, canvas?: Canvas): Fa
                  break;
             }
             case 'arrow': {
-                // Arrow objects are handled at the outer factory to avoid recursion loops
-                return null;
+                console.log(`[fabricFactory] Creating arrow: ${spec.id}`, { 
+                  points: spec.points, 
+                  width: spec.width, 
+                  height: spec.height,
+                  position: { x, y, width, height }
+                });
+                
+                let arrowPoints: [number, number, number, number] = [0, 0, 100, 0]; // Default horizontal
+                let elementX = coords.x;
+                let elementY = coords.y;
+
+                // Handle arrow points similar to line
+                if (Array.isArray(spec.points)) {
+                  if (spec.points.length >= 4 && typeof spec.points[0] === 'number') {
+                    // Points as flat array: [x1, y1, x2, y2, ...]
+                    const [x1, y1, x2, y2] = spec.points as number[];
+                    arrowPoints = [0, 0, x2 - x1, y2 - y1];
+                    elementX = x1;
+                    elementY = y1;
+                    
+                    console.log(`[fabricFactory] Arrow from flat points:`, {
+                      originalPoints: [x1, y1, x2, y2],
+                      normalizedPoints: arrowPoints,
+                      elementPosition: [elementX, elementY]
+                    });
+                  } else if (spec.points.length >= 2 && Array.isArray(spec.points[0])) {
+                    // Points as tuple arrays: [[x1, y1], [x2, y2]]
+                    const [x1, y1] = spec.points[0] as [number, number];
+                    const [x2, y2] = spec.points[1] as [number, number];
+                    arrowPoints = [0, 0, x2 - x1, y2 - y1];
+                    elementX = (elementX || 0) + x1;
+                    elementY = (elementY || 0) + y1;
+                    
+                    console.log(`[fabricFactory] Arrow from tuple points:`, {
+                      originalPoints: [[x1, y1], [x2, y2]],
+                      normalizedPoints: arrowPoints,
+                      elementPosition: [elementX, elementY]
+                    });
+                  }
+                } else {
+                  // Fallback to width/height based arrow
+                  const isVertical = (spec.height ?? 0) >= (spec.width ?? 0);
+                  const shaftLen = Math.max(
+                    spec.width ?? coords.width ?? 100,
+                    spec.height ?? coords.height ?? 100
+                  );
+                  
+                  arrowPoints = isVertical 
+                    ? [0, 0, 0, shaftLen]      // Vertical arrow
+                    : [0, 0, shaftLen, 0];    // Horizontal arrow
+                    
+                  console.log(`[fabricFactory] Arrow fallback to dimensions:`, {
+                    isVertical,
+                    shaftLen,
+                    arrowPoints,
+                    elementPosition: [elementX, elementY]
+                  });
+                }
+
+                const shaftStroke = spec.stroke ?? 'black';
+                const strokeW = (() => {
+                  if (spec.strokeWidth === undefined) return 2;
+                  if (spec.strokeWidth > 0 && spec.strokeWidth < 1) {
+                    return Math.max(1, spec.strokeWidth * canvas.getWidth());
+                  }
+                  return spec.strokeWidth;
+                })();
+
+                // Create arrow shaft (line)
+                const shaft = new Line(arrowPoints, {
+                  stroke: shaftStroke,
+                  strokeWidth: strokeW,
+                  originX: 'left',
+                  originY: 'top',
+                  selectable: spec.selectable ?? true,
+                  evented: spec.evented ?? false,
+                });
+
+                // Create arrow head (triangle)
+                const headLength = strokeW * 6;
+                const arrowLength = Math.sqrt(
+                  Math.pow(arrowPoints[2] - arrowPoints[0], 2) + 
+                  Math.pow(arrowPoints[3] - arrowPoints[1], 2)
+                );
+                
+                // Calculate arrow direction
+                const angle = Math.atan2(
+                  arrowPoints[3] - arrowPoints[1], 
+                  arrowPoints[2] - arrowPoints[0]
+                );
+                
+                const head = new Triangle({
+                  width: headLength,
+                  height: headLength,
+                  fill: shaftStroke,
+                  left: arrowPoints[2], // Position at end of shaft
+                  top: arrowPoints[3],
+                  angle: (angle * 180 / Math.PI) + 90, // Convert to degrees
+                  originX: 'center',
+                  originY: 'center',
+                  selectable: spec.selectable ?? true,
+                  evented: spec.evented ?? false,
+                });
+
+                // Group shaft and head together
+                const arrowGroup = new Group([shaft, head], {
+                  left: elementX,
+                  top: elementY,
+                  angle: spec.angle ?? 0,
+                  originX: 'left',
+                  originY: 'top',
+                  selectable: spec.selectable ?? true,
+                  evented: spec.evented ?? false,
+                });
+
+                fabricObject = arrowGroup;
+                
+                console.log(`[fabricFactory] Created arrow group:`, {
+                  id: spec.id,
+                  shaftPoints: arrowPoints,
+                  headPosition: [arrowPoints[2], arrowPoints[3]],
+                  groupPosition: [elementX, elementY],
+                  angle: spec.angle ?? 0
+                });
+                
+                break;
             }
             // IMPORTANT: Exclude 'group', 'image', 'arrow', 'radio', 'checkbox' or any complex/async types here
             default:
@@ -710,51 +888,131 @@ export function createFabricObject(canvas: Canvas, spec: CanvasObjectSpec): void
         return; // Exit void function - handled async
       }
       case 'arrow': {
-          // Build vertical/horizontal shaft centred at (0,0)
-          const isVertical = (spec.heightPct ?? 0) >= (spec.widthPct ?? 0);
-          const shaftLen = isVertical ? (spec.height ?? (spec.heightPct ?? 0.1) * canvasHeight) : (spec.width ?? (spec.widthPct ?? 0.1) * canvasWidth);
+          console.log(`[fabricFactory] Creating arrow: ${spec.id}`, { 
+            points: spec.points, 
+            width: spec.width, 
+            height: spec.height,
+            position: { x, y, width, height }
+          });
+          
+          let arrowPoints: [number, number, number, number] = [0, 0, 100, 0]; // Default horizontal
+          let elementX = x;
+          let elementY = y;
+
+          // Handle arrow points similar to line
+          if (Array.isArray(spec.points)) {
+            if (spec.points.length >= 4 && typeof spec.points[0] === 'number') {
+              // Points as flat array: [x1, y1, x2, y2, ...]
+              const [x1, y1, x2, y2] = spec.points as number[];
+              arrowPoints = [0, 0, x2 - x1, y2 - y1];
+              elementX = x1;
+              elementY = y1;
+              
+              console.log(`[fabricFactory] Arrow from flat points:`, {
+                originalPoints: [x1, y1, x2, y2],
+                normalizedPoints: arrowPoints,
+                elementPosition: [elementX, elementY]
+              });
+            } else if (spec.points.length >= 2 && Array.isArray(spec.points[0])) {
+              // Points as tuple arrays: [[x1, y1], [x2, y2]]
+              const [x1, y1] = spec.points[0] as [number, number];
+              const [x2, y2] = spec.points[1] as [number, number];
+              arrowPoints = [0, 0, x2 - x1, y2 - y1];
+              elementX = (elementX || 0) + x1;
+              elementY = (elementY || 0) + y1;
+              
+              console.log(`[fabricFactory] Arrow from tuple points:`, {
+                originalPoints: [[x1, y1], [x2, y2]],
+                normalizedPoints: arrowPoints,
+                elementPosition: [elementX, elementY]
+              });
+            }
+          } else {
+            // Fallback to width/height based arrow
+            const isVertical = (spec.height ?? 0) >= (spec.width ?? 0);
+            const shaftLen = Math.max(
+              spec.width ?? width ?? 100,
+              spec.height ?? height ?? 100
+            );
+            
+            arrowPoints = isVertical 
+              ? [0, 0, 0, shaftLen]      // Vertical arrow
+              : [0, 0, shaftLen, 0];    // Horizontal arrow
+              
+            console.log(`[fabricFactory] Arrow fallback to dimensions:`, {
+              isVertical,
+              shaftLen,
+              arrowPoints,
+              elementPosition: [elementX, elementY]
+            });
+          }
+
           const shaftStroke = spec.stroke ?? 'black';
           const strokeW = (() => {
             if (spec.strokeWidth === undefined) return 2;
-            if (spec.strokeWidth > 0 && spec.strokeWidth < 1) return Math.max(1, spec.strokeWidth * canvasWidth);
+            if (spec.strokeWidth > 0 && spec.strokeWidth < 1) {
+              return Math.max(1, spec.strokeWidth * canvasWidth);
+            }
             return spec.strokeWidth;
           })();
 
-          const linePoints: [number, number, number, number] = isVertical ? [0, -shaftLen / 2, 0, shaftLen / 2] : [-shaftLen / 2, 0, shaftLen / 2, 0];
-          const shaft = new Line(linePoints, {
+          // Create arrow shaft (line)
+          const shaft = new Line(arrowPoints, {
             stroke: shaftStroke,
             strokeWidth: strokeW,
-            originX: 'center',
-            originY: 'center',
+            originX: 'left',
+            originY: 'top',
             selectable: spec.selectable ?? true,
             evented: spec.evented ?? false,
           });
 
-          const angleRad = isVertical ? (shaftLen >= 0 ? Math.PI / 2 : -Math.PI / 2) : 0;
+          // Create arrow head (triangle)
           const headLength = strokeW * 6;
+          const arrowLength = Math.sqrt(
+            Math.pow(arrowPoints[2] - arrowPoints[0], 2) + 
+            Math.pow(arrowPoints[3] - arrowPoints[1], 2)
+          );
+          
+          // Calculate arrow direction
+          const angle = Math.atan2(
+            arrowPoints[3] - arrowPoints[1], 
+            arrowPoints[2] - arrowPoints[0]
+          );
+          
           const head = new Triangle({
             width: headLength,
             height: headLength,
             fill: shaftStroke,
+            left: arrowPoints[2], // Position at end of shaft
+            top: arrowPoints[3],
+            angle: (angle * 180 / Math.PI) + 90, // Convert to degrees
             originX: 'center',
             originY: 'center',
             selectable: spec.selectable ?? true,
             evented: spec.evented ?? false,
           });
-          // Position head at end of shaft
-          head.set({ left: linePoints[2], top: linePoints[3], angle: (isVertical ? 180 : 90) + (isVertical ? 0 : 0) });
 
+          // Group shaft and head together
           const arrowGroup = new Group([shaft, head], {
-            left: x,
-            top: y,
-            originX: 'center',
-            originY: 'center',
+            left: elementX,
+            top: elementY,
             angle: spec.angle ?? 0,
+            originX: 'left',
+            originY: 'top',
             selectable: spec.selectable ?? true,
             evented: spec.evented ?? false,
           });
 
           fabricObject = arrowGroup;
+          
+          console.log(`[fabricFactory] Created arrow group:`, {
+            id: spec.id,
+            shaftPoints: arrowPoints,
+            headPosition: [arrowPoints[2], arrowPoints[3]],
+            groupPosition: [elementX, elementY],
+            angle: spec.angle ?? 0
+          });
+          
           break;
       }
       case 'radio': {
