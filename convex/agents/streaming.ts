@@ -235,12 +235,22 @@ export const generateStreamingResponse = internalAction({
     try {
       console.log(`[Agent Streaming] Starting OpenAI stream for thread: ${args.threadId}, followUp: ${args.followUpForVisionAnalysis || false}`);
       
+      // Helper to convert an OpenAI file (file-XXXX) into a base64 data URI PNG so it can be placed in a vision message.
+      const fileIdToDataUri = async (fileId: string): Promise<string> => {
+        try {
+          return await ctx.runAction(internal.actions.fileDataUri.getFileDataUri, { fileId });
+        } catch (err) {
+          console.error("[Agent Streaming] Failed to fetch data URI for", fileId, err);
+          return fileId;
+        }
+      };
+
       // Get enhanced system prompt with knowledge base context
       let customInstructions = "You are a helpful AI tutor. Provide clear, educational responses that help students learn effectively.";
       
       // If this is a follow-up for vision analysis, provide specific instructions
       if (args.followUpForVisionAnalysis) {
-        customInstructions = `You are a helpful AI tutor. You just sent an image-only message containing a whiteboard screenshot. 
+        customInstructions = `You are a helpful AI tutor. The previous user message contains a whiteboard screenshot of the shared canvas. 
 
 **CRITICAL INSTRUCTION**: You must now provide visual analysis of the whiteboard image that was just embedded in the previous message. The image is already in the conversation context, so you can see it and should analyze it.
 
@@ -426,19 +436,20 @@ Begin the tutoring session now with a warm welcome and introduction to the topic
                   const fileId = match[1];
                   console.log("[Agent Streaming] Found whiteboard screenshot in tool result:", fileId);
                   
+                  // Use helper declared at top of handler to fetch data URI
                   // Inject the screenshot as an image message
                   const addRes = await ctx.runMutation(components.agent.messages.addMessages, {
                     threadId: args.threadId,
                     messages: [
                       {
+                        files: [],
                         message: {
-                          role: "assistant",
+                          role: "user",
                           content: [
                             {
-                              type: "file",
-                              data: fileId,
+                              type: "image",
+                              image: await fileIdToDataUri(fileId),
                               mimeType: "image/png",
-                              filename: "whiteboard.png",
                             },
                             {
                               type: "text",
@@ -468,6 +479,64 @@ Begin the tutoring session now with a warm welcome and introduction to the topic
           }
         } catch (e) {
           console.log("[Agent Streaming] Error accessing tool calls:", e);
+        }
+      }
+      
+      // === NEW: use toolResultsPromise to catch screenshot result even if assistant text omits it ===
+      if ((result as any).toolResultsPromise) {
+        try {
+          const toolResults = await (result as any).toolResultsPromise;
+          console.log("[Agent Streaming] toolResultsPromise resolved:", JSON.stringify(toolResults));
+          if (Array.isArray(toolResults)) {
+            for (const tr of toolResults) {
+              if (tr?.name === "inspect_whiteboard" && typeof tr.result === "string") {
+                const m = tr.result.match(/\[WHITEBOARD_SCREENSHOT:([^\]]+)\]/);
+                if (m) {
+                  const fileId = m[1];
+                  console.log("[Agent Streaming] Found screenshot marker in tool result (toolResultsPromise):", fileId);
+
+                  // Use helper declared at top of handler to fetch data URI
+                  // Inject the screenshot as an image message
+                  const addRes = await ctx.runMutation(components.agent.messages.addMessages, {
+                    threadId: args.threadId,
+                    messages: [
+                      {
+                        files: [],
+                        message: {
+                          role: "user",
+                          content: [
+                            {
+                              type: "image",
+                              image: await fileIdToDataUri(fileId),
+                              mimeType: "image/png",
+                            },
+                            {
+                              type: "text",
+                              text: "(whiteboard screenshot)",
+                            },
+                          ],
+                        },
+                      },
+                    ],
+                  });
+
+                  const injectedId = addRes?.messages?.[0]?._id ?? args.promptMessageId;
+
+                  await ctx.scheduler.runAfter(0, internal.agents.streaming.generateStreamingResponse, {
+                    threadId: args.threadId,
+                    sessionId: args.sessionId,
+                    promptMessageId: injectedId,
+                    followUpForVisionAnalysis: true,
+                  });
+
+                  console.log("[Agent Streaming] Follow-up scheduled via toolResultsPromise path");
+                  return null;
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.log("[Agent Streaming] Error awaiting toolResultsPromise", err);
         }
       }
       

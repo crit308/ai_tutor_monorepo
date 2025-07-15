@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { createTool } from "@convex-dev/agent";
 import { z } from "zod";
-import { api, internal } from "../_generated/api";
+import { api, internal, components } from "../_generated/api";
 import { Id } from "../_generated/dataModel";
 
 // --- NEW PRIMARY VISION TOOL ---
@@ -20,80 +20,69 @@ export const inspectWhiteboardTool = createTool({
     threadId: z.string().describe("The ID of the current thread."),
   }),
   async handler(ctx: any, args) {
-    // Fetch screenshot via existing inspection action (reuse implementation)
     const inspectionResult = await ctx.runAction(internal.skills.whiteboard_inspection.inspectWhiteboard, {
       sessionId: args.sessionId as Id<"sessions">,
       userId: ctx.userId || null,
     });
 
-    const screenshotFileId = inspectionResult.screenshotFileId || "(no screenshot)";
-    
-    // If we have a screenshot, analyze it immediately with vision service
-    if (screenshotFileId && screenshotFileId !== "(no screenshot)" && screenshotFileId.startsWith("file-")) {
-      try {
-        console.log(`[inspect_whiteboard] Analyzing screenshot with vision service: ${screenshotFileId}`);
-        
-        // Call vision service directly to get real-time analysis
-        const visionResult = await ctx.runAction(internal.agents.visionService.analyzeWhiteboardImage, {
-          fileId: screenshotFileId,
-          threadId: args.threadId || "temp-thread", // Provide a fallback if threadId is not available
-          sessionId: args.sessionId,
-          contextMessages: [], // We don't need context for immediate analysis
-        });
-        
-        if (visionResult.success && visionResult.analysis) {
-          console.log(`[inspect_whiteboard] Vision analysis successful`);
-          
-          // Return the actual vision analysis combined with board metadata
-          return `${visionResult.analysis}
+    const screenshotFileId = inspectionResult.screenshotFileId || null;
 
-**Board Metadata:**
-- Total objects: ${inspectionResult.boardSummary.objectCount}
-- Board version: ${inspectionResult.boardSummary.boardVersion}
-- Canvas dimensions: ${inspectionResult.boardSummary.canvasDimensions.width}x${inspectionResult.boardSummary.canvasDimensions.height}
-${inspectionResult.boardSummary.warnings.length > 0 ? `- Warnings: ${inspectionResult.boardSummary.warnings.join(", ")}` : ""}`;
-        } else {
-          console.error(`[inspect_whiteboard] Vision analysis failed: ${visionResult.error}`);
-          // Fall back to object list if vision fails
-          return `I captured a screenshot but had trouble analyzing it visually. Here's what I can tell from the object data:
+    if (screenshotFileId && screenshotFileId.startsWith("file-")) {
+      // Convert the OpenAI file ID to a data URI via Node action
+      const dataUri: string = await ctx.runAction(internal.actions.fileDataUri.getFileDataUri, {
+        fileId: screenshotFileId,
+      });
 
-Board Summary:
-- Total objects: ${inspectionResult.boardSummary.objectCount}
-- Board version: ${inspectionResult.boardSummary.boardVersion}
-- Canvas size: ${inspectionResult.boardSummary.canvasDimensions.width}x${inspectionResult.boardSummary.canvasDimensions.height}
+      // 1. Inject a USER message containing the image so GPT-4o can see it next turn
+      const addRes = await ctx.runMutation(components.agent.messages.addMessages, {
+        threadId: args.threadId,
+        userId: ctx.userId ?? undefined,
+        messages: [
+          {
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "image",
+                  image: dataUri,
+                  mimeType: "image/png",
+                },
+                {
+                  type: "text",
+                  text: "(whiteboard screenshot)",
+                },
+              ],
+            },
+          },
+        ],
+      });
 
-Objects on the whiteboard:
-${inspectionResult.objectList.length === 0 ? "- No objects currently on the whiteboard" : 
-  inspectionResult.objectList.map(obj => 
-    `- ${obj.id} (${obj.kind}): ${obj.text || "no text"} at (${obj.bbox.x}, ${obj.bbox.y})`
-  ).join("\n")}`;
-        }
-      } catch (error) {
-        console.error(`[inspect_whiteboard] Error calling vision service:`, error);
-        // Fall back to object list
-        return `I captured a screenshot but encountered an error analyzing it. Here's the object data:
+      const injectedId = addRes?.messages?.[0]?._id || args.threadId;
 
-Board Summary:
-- Total objects: ${inspectionResult.boardSummary.objectCount}
-- Canvas size: ${inspectionResult.boardSummary.canvasDimensions.width}x${inspectionResult.boardSummary.canvasDimensions.height}
+      // 2. Schedule an immediate follow-up so the tutor model evaluates the image now
+      await ctx.scheduler.runAfter(0, internal.agents.streaming.generateStreamingResponse, {
+        threadId: args.threadId,
+        sessionId: args.sessionId,
+        promptMessageId: injectedId,
+        followUpForVisionAnalysis: true,
+      });
 
-Objects: ${inspectionResult.objectList.length === 0 ? "No objects on whiteboard" : inspectionResult.objectList.length + " objects present"}`;
-      }
-    } else {
-      // No screenshot available, return object list
-      return `No screenshot was captured. Here's the current whiteboard state:
-
-Board Summary:
-- Total objects: ${inspectionResult.boardSummary.objectCount}
-- Board version: ${inspectionResult.boardSummary.boardVersion}
-- Canvas size: ${inspectionResult.boardSummary.canvasDimensions.width}x${inspectionResult.boardSummary.canvasDimensions.height}
-
-Objects on the whiteboard:
-${inspectionResult.objectList.length === 0 ? "- No objects currently on the whiteboard" : 
-  inspectionResult.objectList.map(obj => 
-    `- ${obj.id} (${obj.kind}): ${obj.text || "no text"} at (${obj.bbox.x}, ${obj.bbox.y})`
-  ).join("\n")}`;
+      // 3. Return a brief status text for the current step
+      return `Screenshot captured and uploaded. Analysing now…`;
     }
+
+    // Fallback when no screenshot is available – provide textual whiteboard state.
+    return `No screenshot was captured. Here's the current whiteboard state:\n\n` +
+      `Board Summary:\n` +
+      `- Total objects: ${inspectionResult.boardSummary.objectCount}\n` +
+      `- Board version: ${inspectionResult.boardSummary.boardVersion}\n` +
+      `- Canvas dimensions: ${inspectionResult.boardSummary.canvasDimensions.width}x${inspectionResult.boardSummary.canvasDimensions.height}\n\n` +
+      `Objects on the whiteboard:\n` +
+      (inspectionResult.objectList.length === 0
+        ? "- No objects currently on the whiteboard"
+        : inspectionResult.objectList
+            .map(obj => `- ${obj.id} (${obj.kind}): ${obj.text || "no text"} at (${obj.bbox.x}, ${obj.bbox.y})`)
+            .join("\n"));
   },
 });
 

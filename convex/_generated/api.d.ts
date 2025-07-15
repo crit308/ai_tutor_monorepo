@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as actions_fileDataUri from "../actions/fileDataUri.js";
 import type * as agents_actions from "../agents/actions.js";
 import type * as agents_analyzerAgent from "../agents/analyzerAgent.js";
 import type * as agents_base from "../agents/base.js";
@@ -80,6 +81,7 @@ import type {
  * ```
  */
 declare const fullApi: ApiFromModules<{
+  "actions/fileDataUri": typeof actions_fileDataUri;
   "agents/actions": typeof agents_actions;
   "agents/analyzerAgent": typeof agents_analyzerAgent;
   "agents/base": typeof agents_base;
