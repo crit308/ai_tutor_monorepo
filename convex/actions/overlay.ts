@@ -1,34 +1,39 @@
 "use node";
 
-import { action } from "../_generated/server";
+import { internalAction } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 
 /**
  * Apply a single overlay file change to an active sandbox (if any).
  */
-export const applyPatch = action({
+export const applyPatch = internalAction({
   args: {
     sessionId: v.id("sessions"),
     path: v.string(),
   },
   handler: async (ctx, { sessionId, path }) => {
-    const session = await ctx.runQuery(internal.sessions.getSessionInternal, {
+    const session = await ctx.runQuery(internal.database.sessions.getSessionInternal, {
       sessionId,
+      userId: null,
       includeContext: false,
     });
-    if (!session || !session.sandbox_id) return null;
+    const s = session as any;
+    if (!s || !s.sandbox_id) return null;
 
     const tokenId = process.env.MODAL_TOKEN_ID;
     const tokenSecret = process.env.MODAL_TOKEN_SECRET;
-    // @ts-ignore
+    if (!tokenId || !tokenSecret) {
+      throw new Error("Missing MODAL_TOKEN_ID / MODAL_TOKEN_SECRET environment variables");
+    }
+    // @ts-ignore – Modal types not available in Convex action runtime
     const modal = await import("modal");
-    modal.initializeClient({ tokenId, tokenSecret });
+    modal.initializeClient({ tokenId: tokenId!, tokenSecret: tokenSecret! });
 
-    const sb = new modal.Sandbox(session.sandbox_id);
+    const sb = new modal.Sandbox(s.sandbox_id);
 
     // Fetch overlay row
-    const overlay = await ctx.runQuery(internal.code_overlays.getByProjectPath, {
+    const overlay = await ctx.runQuery(internal.database.code_overlays.getByProjectPath, {
       projectId: sessionId,
       path,
     });

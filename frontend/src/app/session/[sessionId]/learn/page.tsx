@@ -13,7 +13,7 @@ import { useShallow } from 'zustand/react/shallow';
 import type { SessionState, ChatMessage, StructuredError } from '@/store/sessionStore';
 import { Button } from '@/components/ui/button';
 import { useToast } from "@/components/ui/use-toast";
-import Whiteboard from '@/components/whiteboard/Whiteboard';
+import { SandboxWhiteboard } from '@/components/whiteboard/SandboxWhiteboard';
 import { Textarea } from '@/components/ui/textarea';
 import { Send } from 'lucide-react';
 import ChatHistory from '@/components/ChatHistory';
@@ -23,7 +23,6 @@ import {
   ResizableHandle,
 } from "@/components/ui/resizable"
 import { WhiteboardProvider, useWhiteboard } from '@/contexts/WhiteboardProvider';
-import WhiteboardTools from '@/components/whiteboard/WhiteboardTools';
 import { WhiteboardModeToggle } from '@/components/ui/WhiteboardModeToggle';
 import { fetchSessionMessages } from '@/lib/api';
 import { useQuery } from 'convex/react';
@@ -67,11 +66,11 @@ function InnerLearnPage() {
     console.log('[LearnPage] Received message:', message);
   }, []);
 
-  const onWhiteboardAction = useCallback((actions: WhiteboardAction[]) => {
+  const onWhiteboardAction = useCallback((actions: any[]) => {
     console.log('[LearnPage] Received whiteboard actions:', actions);
     if (actions && actions.some(action => 
         action.type === "ADD_OBJECTS" && 
-        action.objects.some(obj => obj.metadata?.role === 'option_selector'))
+        action.objects.some((obj: any) => obj.metadata?.role === 'option_selector'))
     ) {
         console.log('[LearnPage] Whiteboard actions include new option_selectors. UNLOCKING options via direct store call.');
         useSessionStore.getState().setIsQuestionLocked(false);
@@ -343,12 +342,11 @@ function InnerLearnPage() {
       {whiteboardMode === 'chat_and_whiteboard' && (
         <>
           <ResizablePanel defaultSize={67} minSize={30} className="flex flex-col">
-            {/* Whiteboard Tools Bar */}
-            <WhiteboardTools />
-            
-            {/* Whiteboard Canvas */}
-            <div className="flex-1 p-4 overflow-y-auto relative">
-              <Whiteboard />
+            {/* Sandbox-powered Whiteboard */}
+            <div className="flex-1 overflow-hidden relative">
+              {sessionId && (
+                <SandboxWhiteboard sessionId={sessionId as string} className="w-full h-full" />
+              )}
             </div>
 
             {/* Footer Controls */}

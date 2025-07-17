@@ -21,7 +21,7 @@ export const launchSandbox = action({
     url: v.string(),
   }),
   handler: async (ctx, { sessionId }) => {
-    const session = await ctx.runQuery(api.sessions.getSession, {
+    const session = await ctx.runQuery(api.database.sessions.getSession, {
       sessionId,
       includeContext: false,
     });
@@ -54,11 +54,17 @@ export const launchSandbox = action({
       "sh",
       "-c",
       [
+        // Ensure git is available in the Alpine image
+        "apk add --no-cache git",
+        // Clone template repo and checkout exact commit
         `git clone ${repoUrl} /app`,
         `cd /app`,
         `git checkout ${templateCommit}`,
-        "npm install --omit=dev --silent",
-        "npx next dev -p 3000 --hostname 0.0.0.0",
+        // Install all dependencies (incl. dev) needed for Next.js compilation
+        "npm install --silent",
+        // Build once for stable production server (avoids dev-connection resets)
+        "npm run build --if-present || npx next build",
+        "npx next start -p 3000 --hostname 0.0.0.0",
       ].join(" && "),
     ];
 
@@ -79,7 +85,7 @@ export const launchSandbox = action({
     // Sync overlay files into the fresh sandbox
     // -----------------------------------------
 
-    const overlays = await ctx.runQuery(api.code_overlays.listFiles, {
+    const overlays = await ctx.runQuery(api.database.code_overlays.listFiles, {
       projectId: sessionId, // project_id == session id in current design
     });
 
@@ -109,12 +115,14 @@ export const launchSandbox = action({
     }
 
     // Persist sandboxId to session (optional)
-    await ctx.runMutation(internal.sessions.setSandboxUrl, {
+    await ctx.runMutation(internal.database.sessions.setSandboxInfo, {
       sessionId,
+      sandboxId: sb.sandboxId,
       url: tunnel.url,
     });
 
-    await ctx.runMutation(internal.sessions.updateSessionStatus, {
+    // Update session status via the public mutation (no internal version exists)
+    await ctx.runMutation(api.database.sessions.updateSessionStatus, {
       sessionId,
       status: "active",
     });

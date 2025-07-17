@@ -1057,4 +1057,20 @@ export const setSandboxUrl = internalMutation({
     });
     return null;
   },
+});
+
+export const setSandboxInfo = internalMutation({
+  args: {
+    sessionId: v.id("sessions"),
+    sandboxId: v.string(),
+    url: v.string(),
+  },
+  handler: async (ctx, { sessionId, sandboxId, url }) => {
+    await ctx.db.patch(sessionId, {
+      sandbox_id: sandboxId,
+      sandbox_url: url,
+      updated_at: Date.now(),
+    });
+    return null;
+  },
 }); 

@@ -1,4 +1,4 @@
-import { query, mutation } from "../_generated/server";
+import { query, mutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 
@@ -57,7 +57,7 @@ export const upsertFile = mutation({
       });
 
       // Schedule sandbox write
-      await ctx.scheduler.runAfter(0, internal.overlay.applyPatch, {
+      await ctx.scheduler.runAfter(0, internal.actions.overlay.applyPatch, {
         sessionId: projectId,
         path,
       });
@@ -74,7 +74,7 @@ export const upsertFile = mutation({
       updated_at: now,
     });
 
-    await ctx.scheduler.runAfter(0, internal.overlay.applyPatch, {
+    await ctx.scheduler.runAfter(0, internal.actions.overlay.applyPatch, {
       sessionId: projectId,
       path,
     });
@@ -107,11 +107,27 @@ export const deleteFile = mutation({
         updated_at: now,
       });
 
-      await ctx.scheduler.runAfter(0, internal.overlay.applyPatch, {
+      await ctx.scheduler.runAfter(0, internal.actions.overlay.applyPatch, {
         sessionId: projectId,
         path,
       });
     }
     return null;
+  },
+});
+
+export const getByProjectPath = internalQuery({
+  args: {
+    projectId: v.id("sessions"),
+    path: v.string(),
+  },
+  handler: async (ctx, { projectId, path }) => {
+    const existing = await ctx.db
+      .query("code_overlays")
+      .withIndex("by_project_path", (q) =>
+        q.eq("project_id", projectId).eq("path", path),
+      )
+      .unique();
+    return existing ?? null;
   },
 }); 

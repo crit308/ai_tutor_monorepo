@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useAction } from "convex/react";
 import { api } from "convex_generated/api";
 
 export type SandboxStatus = "idle" | "starting" | "ready" | "error";
@@ -7,8 +7,27 @@ export type SandboxStatus = "idle" | "starting" | "ready" | "error";
 export function useSandbox(sessionId: string | undefined) {
   const [status, setStatus] = useState<SandboxStatus>("idle");
   const [url, setUrl] = useState<string | null>(null);
-  const launch = useMutation(api.actions.sandbox.launchSandbox);
-  const session = useQuery(api.sessions.getSession, sessionId ? { sessionId, includeContext: false } : "skip");
+  const launchSandbox = useAction(api.actions.sandbox.launchSandbox);
+  const session = useQuery(api.database.sessions.getSession, sessionId ? { sessionId, includeContext: false } : "skip");
+
+  // Helper: wait until /api/health returns ok:true (or give up after 90s)
+  const waitForHealth = useCallback(async (baseUrl: string) => {
+    const deadline = Date.now() + 90_000;
+    while (Date.now() < deadline) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 4000);
+        const res = await fetch(`${baseUrl}/api/health`, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (res.ok) {
+          const json: any = await res.json();
+          if (json && json.ok) return true;
+        }
+      } catch (_) {}
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    return false; // timeout
+  }, []);
 
   // Launch sandbox if needed
   useEffect(() => {
@@ -19,8 +38,17 @@ export function useSandbox(sessionId: string | undefined) {
     }
 
     if (session.sandbox_url) {
-      setUrl(session.sandbox_url);
-      if (status === "idle") setStatus("ready");
+      (async () => {
+        if (status === "idle") setStatus("starting");
+        const healthy = await waitForHealth(session.sandbox_url);
+        if (healthy) {
+          setUrl(session.sandbox_url);
+          setStatus("ready");
+        } else {
+          // Keep spinner instead of error; let user retry later
+          setStatus("starting");
+        }
+      })();
       return;
     }
 
@@ -28,16 +56,21 @@ export function useSandbox(sessionId: string | undefined) {
       (async () => {
         try {
           setStatus("starting");
-          const resp = await launch({ sessionId });
-          setUrl(resp.url);
-          setStatus("ready");
+          const resp = await launchSandbox({ sessionId });
+          const healthy = await waitForHealth(resp.url);
+          if (healthy) {
+            setUrl(resp.url);
+            setStatus("ready");
+          } else {
+            setStatus("starting");
+          }
         } catch (err) {
           console.error("Sandbox launch failed", err);
           setStatus("error");
         }
       })();
     }
-  }, [sessionId, session, status, launch]);
+  }, [sessionId, session, status, launchSandbox, waitForHealth]);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
