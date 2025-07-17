@@ -21,13 +21,10 @@ export const createSession = mutation({
   args: { 
     folderId: v.optional(v.id("folders")),
     initialContext: v.optional(v.any()),
-    metadata: v.optional(v.object({
-      clientVersion: v.optional(v.string()),
-      userAgent: v.optional(v.string()),
-      timezone: v.optional(v.string()),
-    }))
+    metadata: v.optional(v.any()),
+    templateCommitSha: v.optional(v.string()),
   },
-  handler: async (ctx, { folderId, initialContext, metadata }) => {
+  handler: async (ctx, { folderId, initialContext, metadata, templateCommitSha }) => {
     console.log("=== CREATE SESSION CALLED ===");
     console.log("Args:", { folderId, initialContext: !!initialContext, metadata });
     
@@ -115,6 +112,7 @@ export const createSession = mutation({
         created_at: now,
         updated_at: now,
         analysis_status: undefined,
+        template_commit_sha: templateCommitSha,
       });
       
       console.log("Session created successfully:", sessionId);

@@ -28,6 +28,8 @@ export default defineSchema({
     // Phase 4 additions
     analytics: v.optional(v.any()),
     context: v.optional(v.any()), // Alias for context_data compatibility
+    // Whiteboard Sandbox: pinned template commit for reproducible sandboxes
+    template_commit_sha: v.optional(v.string()),
   })
     .index("by_user", ["user_id"])
     .index("by_folder", ["folder_id"]),
@@ -440,4 +442,25 @@ export default defineSchema({
     cleanedUp: v.boolean(),
   }).index("by_session", ["sessionId"])
     .index("by_file_id", ["fileId"]),
-}); 
+
+  // ==========================================
+  // SANDBOX CODE OVERLAY TABLES (Phase 0)
+  // ==========================================
+
+  code_overlays: defineTable({
+    /** Owner project/session that this overlay belongs to */
+    project_id: v.string(),
+    /** File path relative to the repository root (e.g., "app/page.tsx") */
+    path: v.string(),
+    /** UTF-8 text content of the file. Null means the file is deleted in overlay */
+    content: v.optional(v.string()),
+    /** Storage blob id for large/binary assets (>1 MB). Mutually exclusive with `content`. */
+    blob_id: v.optional(v.id("_storage")),
+    /** Convenience SHA-256 hash of the content for caching/diffing */
+    sha: v.optional(v.string()),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_project_path", ["project_id", "path"])
+    .index("by_project", ["project_id"])
+  }); 
