@@ -2,7 +2,6 @@
 
 import { action } from "../_generated/server";
 import { v } from "convex/values";
-import { App, initializeClient } from "modal";
 import { api, internal } from "../_generated/api";
 
 /**
@@ -22,7 +21,7 @@ export const launchSandbox = action({
     url: v.string(),
   }),
   handler: async (ctx, { sessionId }) => {
-    const session = await ctx.runQuery(api.sessions.getSession, {
+    const session = await ctx.runQuery(api.database.sessions.getSession, {
       sessionId,
       includeContext: false,
     });
@@ -36,12 +35,13 @@ export const launchSandbox = action({
     if (!tokenId || !tokenSecret) {
       throw new Error("Missing MODAL_TOKEN_ID / MODAL_TOKEN_SECRET env vars");
     }
-    initializeClient({ tokenId, tokenSecret });
+    const modal = await import("modal");
+    modal.initializeClient({ tokenId, tokenSecret });
 
     const appName = process.env.TEMPLATE_APP_NAME || "ai-tutor-whiteboard";
 
     // Ensure an App exists (idempotent)
-    const app = await App.lookup(appName, { createIfMissing: true });
+    const app = await modal.App.lookup(appName, { createIfMissing: true });
 
     // Use a lightweight Node image; repository will be cloned at runtime
     const image = await app.imageFromRegistry("node:20-alpine");
@@ -73,6 +73,39 @@ export const launchSandbox = action({
     const tunnels = await sb.tunnels(30_000);
     const tunnel = tunnels[3000];
     if (!tunnel) throw new Error("Tunnel for port 3000 not available");
+
+    // -----------------------------------------
+    // Sync overlay files into the fresh sandbox
+    // -----------------------------------------
+
+    const overlays = await ctx.runQuery(api.code_overlays.listFiles, {
+      projectId: sessionId, // project_id == session id in current design
+    });
+
+    for (const file of overlays) {
+      const targetPath = `/app/${file.path}`;
+
+      if (file.content !== undefined && file.content !== null) {
+        // Ensure parent directory exists and write content via stdin
+        const proc = await sb.exec(
+          [
+            "sh",
+            "-c",
+            `mkdir -p $(dirname '${targetPath}') && cat > '${targetPath}'`,
+          ],
+          { stdout: "ignore", stderr: "ignore" },
+        );
+        await proc.stdin.writeText(file.content);
+        await proc.stdin.close();
+        await proc.wait();
+      } else {
+        // Deleted file – remove from FS if present
+        await sb.exec(["sh", "-c", `rm -f '${targetPath}'`], {
+          stdout: "ignore",
+          stderr: "ignore",
+        });
+      }
+    }
 
     // Persist sandboxId to session (optional)
     await ctx.runMutation(internal.sessions.updateSessionStatus, {
