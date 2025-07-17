@@ -1,4 +1,4 @@
-import { query, mutation, internalQuery } from "../_generated/server";
+import { query, mutation, internalQuery, internalMutation } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { ConvexError } from "convex/values";
@@ -113,6 +113,7 @@ export const createSession = mutation({
         updated_at: now,
         analysis_status: undefined,
         template_commit_sha: templateCommitSha,
+        sandbox_url: undefined,
       });
       
       console.log("Session created successfully:", sessionId);
@@ -169,6 +170,7 @@ export const getSession = query({
       ended_at: session.ended_at,
       analysis_status: session.analysis_status,
       context_data: includeContext ? session.context_data : undefined,
+      sandbox_url: (session as any).sandbox_url,
     };
     
     return result;
@@ -1036,8 +1038,23 @@ export const getSessionInternal = internalQuery({
       analysis_status: session.analysis_status,
       board_version: (session as any).board_version || 0,
       context_data: includeContext ? session.context_data : undefined,
+      sandbox_url: (session as any).sandbox_url,
     };
     
     return result;
+  },
+});
+
+export const setSandboxUrl = internalMutation({
+  args: {
+    sessionId: v.id("sessions"),
+    url: v.string(),
+  },
+  handler: async (ctx, { sessionId, url }) => {
+    await ctx.db.patch(sessionId, {
+      sandbox_url: url,
+      updated_at: Date.now(),
+    });
+    return null;
   },
 }); 

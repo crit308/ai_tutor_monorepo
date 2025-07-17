@@ -21,7 +21,7 @@ export const launchSandbox = action({
     url: v.string(),
   }),
   handler: async (ctx, { sessionId }) => {
-    const session = await ctx.runQuery(api.database.sessions.getSession, {
+    const session = await ctx.runQuery(api.sessions.getSession, {
       sessionId,
       includeContext: false,
     });
@@ -35,6 +35,7 @@ export const launchSandbox = action({
     if (!tokenId || !tokenSecret) {
       throw new Error("Missing MODAL_TOKEN_ID / MODAL_TOKEN_SECRET env vars");
     }
+    // @ts-ignore - Modal types live in frontend; ignore for action build
     const modal = await import("modal");
     modal.initializeClient({ tokenId, tokenSecret });
 
@@ -108,6 +109,11 @@ export const launchSandbox = action({
     }
 
     // Persist sandboxId to session (optional)
+    await ctx.runMutation(internal.sessions.setSandboxUrl, {
+      sessionId,
+      url: tunnel.url,
+    });
+
     await ctx.runMutation(internal.sessions.updateSessionStatus, {
       sessionId,
       status: "active",

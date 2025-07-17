@@ -30,6 +30,8 @@ export default defineSchema({
     context: v.optional(v.any()), // Alias for context_data compatibility
     // Whiteboard Sandbox: pinned template commit for reproducible sandboxes
     template_commit_sha: v.optional(v.string()),
+    // Cached URL of the running sandbox tunnel
+    sandbox_url: v.optional(v.string()),
   })
     .index("by_user", ["user_id"])
     .index("by_folder", ["folder_id"]),
