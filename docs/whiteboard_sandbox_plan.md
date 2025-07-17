@@ -1,5 +1,23 @@
 # Whiteboard Sandbox Persistence Plan
 
+## Implementation Progress (July 2025)
+
+| Area | Status | Notes |
+|------|--------|-------|
+| Convex schema (`code_overlays`, session sandbox fields) | **✓ Done** | Deployed in production, migrations applied |
+| Modal sandbox launcher (`convex/actions/sandbox.ts`) | **✓ Done** | Builds template, polls health, returns tunnel URL |
+| Front-end hook & iframe (`useSandbox`, `SandboxWhiteboard`) | **✓ Done** | Health-polling + error handling implemented |
+| Base template repo<br/>• root route (`/`) placeholder<br/>• `/api/health` endpoint<br/>• `postMessage('ready')` | **✓ Done** | Verified in running sandbox |
+| Real-time file bridge (Convex ↔ sandbox FS) | **✗ Todo** | Needs WS/SSE listener inside template + overlay file mutations |
+| Whiteboard UI inside sandbox | **✗ Todo** | Current placeholder only; needs Fabric canvas & widget support |
+| Guard-rails (lint / tsc / allow-list) | **✗ Todo** | Not started |
+| Undo/Redo, snapshots, new postMessage commands | **✗ Todo** | Legacy system only |
+| CSP, quotas, security polish | **✗ Todo** | Pending |
+
+> Legend: **✓ Done**     **✗ Todo / Not started**
+
+The remainder of this document (goals, architecture, roadmap) is kept unchanged for reference.
+
 ## 1. Goals & Requirements
 
 • Allow the AI to run custom, untrusted Next.js code inside **Modal Sandbox** for each learning session (EU region selectable).  

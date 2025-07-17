@@ -9,6 +9,7 @@ export function useSandbox(sessionId: string | undefined) {
   const [url, setUrl] = useState<string | null>(null);
   const launchSandbox = useAction(api.actions.sandbox.launchSandbox);
   const session = useQuery(api.database.sessions.getSession, sessionId ? { sessionId, includeContext: false } : "skip");
+  const insertSnapshot = useAction(api.database.whiteboard.insertSnapshot);
 
   // Helper: wait until /api/health returns ok:true (or give up after 90s)
   const waitForHealth = useCallback(async (baseUrl: string) => {
@@ -83,11 +84,41 @@ export function useSandbox(sessionId: string | undefined) {
         if (ev.origin !== origin) return;
         const data = ev.data;
         if (data && data.ns === "ai-tutor/wb" && data.type === "ready") {
+          // Send init handshake back to the iframe with session & (optionally) user info.
+          try {
+            const originUrl = new URL(url);
+            iframeRef.current?.contentWindow?.postMessage(
+              {
+                ns: "ai-tutor/wb",
+                v: 1,
+                type: "init",
+                payload: {
+                  sessionId,
+                },
+              },
+              originUrl.origin,
+            );
+          } catch (_err) {
+            // ignore
+          }
           setStatus("ready");
+          return;
+        }
+
+        if (data && data.ns === "ai-tutor/wb" && data.type === "snapshot") {
+          if (!sessionId) return;
+          const { payload } = data;
+          const index = payload?.index ?? 0;
+          const objects = payload?.objects ?? [];
+          const actionsJson = JSON.stringify(objects);
+          insertSnapshot({ sessionId, snapshotIndex: index, actionsJson }).catch(
+            (err) => console.error("Snapshot insert failed", err),
+          );
+          return;
         }
       } catch (_) {}
     },
-    [url],
+    [url, sessionId, insertSnapshot],
   );
 
   useEffect(() => {

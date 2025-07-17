@@ -42,6 +42,21 @@ export const upsertFile = mutation({
   },
   returns: v.id("code_overlays"),
   handler: async (ctx, { projectId, path, content, blobId, sha }) => {
+    // Guard-rails: simple allow-list + traversal check
+    const allowedPrefixes = [
+      "app/",
+      "pages/",
+      "components/",
+      "lib/",
+      "public/",
+    ];
+    if (path.includes("..")) {
+      throw new Error("Invalid path: traversal is not allowed");
+    }
+    if (!allowedPrefixes.some((p) => path.startsWith(p))) {
+      throw new Error(`Path '${path}' is not in the allowed whiteboard template directories`);
+    }
+
     const now = Date.now();
     const existing = await ctx.db
       .query("code_overlays")
@@ -93,6 +108,15 @@ export const deleteFile = mutation({
   },
   returns: v.null(),
   handler: async (ctx, { projectId, path }) => {
+    // Guard-rails: path validation same as upsertFile
+    const allowedPrefixes = ["app/", "pages/", "components/", "lib/", "public/"];
+    if (path.includes("..")) {
+      throw new Error("Invalid path: traversal is not allowed");
+    }
+    if (!allowedPrefixes.some((p) => path.startsWith(p))) {
+      throw new Error(`Path '${path}' is not in the allowed whiteboard template directories`);
+    }
+
     const existing = await ctx.db
       .query("code_overlays")
       .withIndex("by_project_path", (q) => q.eq("project_id", projectId).eq("path", path))
@@ -122,6 +146,15 @@ export const getByProjectPath = internalQuery({
     path: v.string(),
   },
   handler: async (ctx, { projectId, path }) => {
+    // Guard-rails: path validation same as upsertFile
+    const allowedPrefixes = ["app/", "pages/", "components/", "lib/", "public/"];
+    if (path.includes("..")) {
+      throw new Error("Invalid path: traversal is not allowed");
+    }
+    if (!allowedPrefixes.some((p) => path.startsWith(p))) {
+      throw new Error(`Path '${path}' is not in the allowed whiteboard template directories`);
+    }
+
     const existing = await ctx.db
       .query("code_overlays")
       .withIndex("by_project_path", (q) =>
