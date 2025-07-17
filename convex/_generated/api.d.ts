@@ -9,6 +9,8 @@
  */
 
 import type * as actions_fileDataUri from "../actions/fileDataUri.js";
+import type * as actions_overlay from "../actions/overlay.js";
+import type * as actions_sandbox from "../actions/sandbox.js";
 import type * as agents_actions from "../agents/actions.js";
 import type * as agents_analyzerAgent from "../agents/analyzerAgent.js";
 import type * as agents_base from "../agents/base.js";
@@ -41,6 +43,7 @@ import type * as core_serviceUtils from "../core/serviceUtils.js";
 import type * as core_sessionManager from "../core/sessionManager.js";
 import type * as core_utils from "../core/utils.js";
 import type * as database_analytics from "../database/analytics.js";
+import type * as database_code_overlays from "../database/code_overlays.js";
 import type * as database_concepts from "../database/concepts.js";
 import type * as database_files from "../database/files.js";
 import type * as database_folders from "../database/folders.js";
@@ -82,6 +85,8 @@ import type {
  */
 declare const fullApi: ApiFromModules<{
   "actions/fileDataUri": typeof actions_fileDataUri;
+  "actions/overlay": typeof actions_overlay;
+  "actions/sandbox": typeof actions_sandbox;
   "agents/actions": typeof agents_actions;
   "agents/analyzerAgent": typeof agents_analyzerAgent;
   "agents/base": typeof agents_base;
@@ -114,6 +119,7 @@ declare const fullApi: ApiFromModules<{
   "core/sessionManager": typeof core_sessionManager;
   "core/utils": typeof core_utils;
   "database/analytics": typeof database_analytics;
+  "database/code_overlays": typeof database_code_overlays;
   "database/concepts": typeof database_concepts;
   "database/files": typeof database_files;
   "database/folders": typeof database_folders;
