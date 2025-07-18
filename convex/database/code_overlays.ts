@@ -56,6 +56,9 @@ export const upsertFile = mutation({
     if (!allowedPrefixes.some((p) => path.startsWith(p))) {
       throw new Error(`Path '${path}' is not in the allowed whiteboard template directories`);
     }
+    if (path === "app/api/health/route.ts") {
+      throw new Error("The health route is part of the base template and cannot be patched via overlays");
+    }
 
     const now = Date.now();
     const existing = await ctx.db
@@ -70,6 +73,16 @@ export const upsertFile = mutation({
         sha,
         updated_at: now,
       });
+
+      // If this file belongs to a widget, bump its whiteboard object version for cache-busting
+      if (path.startsWith("app/widgets/")) {
+        const parts = path.split("/");
+        // Expected: ["app", "widgets", <entry>, ...]
+        if (parts.length >= 3) {
+          const entry = parts[2];
+          await bumpWidgetVersion(ctx, projectId, entry);
+        }
+      }
 
       // Schedule sandbox write
       await ctx.scheduler.runAfter(0, internal.actions.overlay.applyPatch, {
@@ -88,6 +101,14 @@ export const upsertFile = mutation({
       created_at: now,
       updated_at: now,
     });
+
+    if (path.startsWith("app/widgets/")) {
+      const parts = path.split("/");
+      if (parts.length >= 3) {
+        const entry = parts[2];
+        await bumpWidgetVersion(ctx, projectId, entry);
+      }
+    }
 
     await ctx.scheduler.runAfter(0, internal.actions.overlay.applyPatch, {
       sessionId: projectId,
@@ -163,4 +184,23 @@ export const getByProjectPath = internalQuery({
       .unique();
     return existing ?? null;
   },
-}); 
+});
+
+async function bumpWidgetVersion(ctx: any, sessionId: string, entry: string) {
+  // Iterate all widget objects for this session and matching entry
+  const objs = await ctx.db
+    .query("whiteboard_objects")
+    .withIndex("by_session", (q: any) => q.eq("session_id", sessionId))
+    .collect();
+
+  for (const o of objs) {
+    if (o.object_kind !== "widget") continue;
+    try {
+      const spec = JSON.parse(o.object_spec);
+      if (spec.entry === entry) {
+        spec.version = (spec.version || 1) + 1;
+        await ctx.db.patch(o._id, { object_spec: JSON.stringify(spec), updated_at: Date.now() });
+      }
+    } catch {}
+  }
+} 

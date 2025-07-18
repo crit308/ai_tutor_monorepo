@@ -90,6 +90,7 @@ export const launchSandbox = action({
     });
 
     for (const file of overlays) {
+      if (file.path === "app/api/health/route.ts") continue; // preserve built-in health route
       const targetPath = `/app/${file.path}`;
 
       if (file.content !== undefined && file.content !== null) {

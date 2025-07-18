@@ -198,6 +198,15 @@ const wbPathSchema = wbBaseSchema.extend({
   fill: z.union([z.string(), z.null()]),
 });
 
+// Widget schema (mini React component rendered inside sandbox)
+const wbWidgetSchema = wbBaseSchema.extend({
+  kind: z.literal('widget'),
+  entry: z.string(),               // Folder name under /app/widgets
+  props: z.string(), // JSON stringified props
+  width: z.union([z.number(), z.null()]),
+  height: z.union([z.number(), z.null()]),
+}).strict();
+
 // Union of all object types
 const wbObjectSchema = z.discriminatedUnion('kind', [
   wbRectSchema,
@@ -206,6 +215,7 @@ const wbObjectSchema = z.discriminatedUnion('kind', [
   wbLineSchema,
   wbArrowSchema,
   wbPathSchema,
+  wbWidgetSchema,
 ]);
 
 // NEW: Explicit diff schema for updates (strict mode compliant)
@@ -283,6 +293,7 @@ export const createWhiteboardObjectsTool = createTool({
 - text: requires text content
 - line: requires points array (min 2 points)
 - arrow: requires points array (min 2 points)
+- widget: requires entry string; props object optional
 
 **Enhanced Arrow Features:**
 - arrowType: "straight" (default), "elbow" (90-degree turns), or "curved" (smooth curves)
