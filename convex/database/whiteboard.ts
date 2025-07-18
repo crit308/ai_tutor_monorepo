@@ -243,6 +243,15 @@ export const addWhiteboardObject = mutation({
     if (!objectSpec.id || !objectSpec.kind) {
       throw new Error("Invalid object spec: missing id or kind");
     }
+
+    // Enforce size cap (≤100 kB JSON)
+    const jsonStr = JSON.stringify(objectSpec);
+    if (jsonStr.length > 100 * 1024) {
+      throw new Error("Object spec exceeds 100 kB limit");
+    }
+
+    // Initialise version if absent
+    objectSpec.version = objectSpec.version ?? 1;
     
     // Ensure metadata.source is user for security
     if (!objectSpec.metadata) {
@@ -305,6 +314,23 @@ export const updateWhiteboardObject = mutation({
       throw new Error("Object not found");
     }
     
+    // Enforce version conflict handling
+    const currentSpec = JSON.parse(existing.object_spec);
+    const incomingVersion = objectSpec.version ?? 0;
+    const currentVersion = currentSpec.version ?? 0;
+    if (incomingVersion < currentVersion) {
+      throw new Error("Version conflict: outdated objectSpec");
+    }
+
+    // Bump version
+    objectSpec.version = currentVersion + 1;
+
+    // Size cap check
+    const newJson = JSON.stringify(objectSpec);
+    if (newJson.length > 100 * 1024) {
+      throw new Error("Updated object spec exceeds 100 kB limit");
+    }
+
     // Ensure metadata.source is user for security
     if (!objectSpec.metadata) {
       objectSpec.metadata = {};
@@ -314,7 +340,7 @@ export const updateWhiteboardObject = mutation({
     
     // Update the object
     await ctx.db.patch(existing._id, {
-      object_spec: JSON.stringify(objectSpec),
+      object_spec: newJson,
       object_kind: objectSpec.kind,
       updated_at: Date.now(),
     });
@@ -440,6 +466,13 @@ export const insertSnapshot = mutation({
       throw new Error("Access denied");
     }
     
+    let actionsField: any = actionsJson;
+    let blobId: string | undefined = undefined;
+    // TODO: Offload to storage via action if needed. Currently keep JSON inline.
+    if (actionsJson.length > 200 * 1024) {
+      console.warn("Snapshot exceeds 200kB; consider offloading to storage");
+    }
+
     // Check if snapshot already exists
     const existing = await ctx.db
       .query("whiteboard_snapshots")
@@ -451,7 +484,8 @@ export const insertSnapshot = mutation({
     if (existing) {
       // Update existing snapshot
       await ctx.db.patch(existing._id, {
-        actions_json: actionsJson,
+        actions_json: actionsField,
+        blob_id: blobId,
       });
       return { id: existing._id, updated: true };
     } else {
@@ -459,7 +493,8 @@ export const insertSnapshot = mutation({
       const snapshotId = await ctx.db.insert("whiteboard_snapshots", {
         session_id: sessionId,
         snapshot_index: snapshotIndex,
-        actions_json: actionsJson,
+        actions_json: actionsField,
+        blob_id: blobId,
         created_at: Date.now(),
       });
       return { id: snapshotId, updated: false };

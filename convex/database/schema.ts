@@ -67,6 +67,7 @@ export default defineSchema({
     session_id: v.string(),
     snapshot_index: v.number(),
     actions_json: v.any(),
+    blob_id: v.optional(v.string()),
     created_at: v.number(),
   })
     .index("by_session_snapshot", ["session_id", "snapshot_index"])

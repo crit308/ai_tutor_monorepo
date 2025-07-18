@@ -75,18 +75,34 @@ export function useSandbox(sessionId: string | undefined) {
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
+  // Determine Convex URL once
+  const [convexUrl, setConvexUrl] = useState<string | undefined>(process.env.NEXT_PUBLIC_CONVEX_URL);
+
+  useEffect(() => {
+    if (convexUrl !== undefined) return;
+    // Fetch from API route fallback
+    fetch("/api/convex-url")
+      .then((res) => res.json())
+      .then((json) => {
+        if (json?.convexUrl) setConvexUrl(json.convexUrl as string);
+      })
+      .catch(() => {});
+  }, [convexUrl]);
+
   // Listen for ready postMessage from iframe
   const handleMessage = useCallback(
-    (ev: MessageEvent) => {
+    async (ev: MessageEvent) => {
       if (!url) return;
       try {
-        const origin = new URL(url).origin;
-        if (ev.origin !== origin) return;
         const data = ev.data;
         if (data && data.ns === "ai-tutor/wb" && data.type === "ready") {
-          // Send init handshake back to the iframe with session & (optionally) user info.
+          // Send init handshake back to the iframe with session id, Convex URL and the current auth token (read-only).
           try {
             const originUrl = new URL(url);
+
+            // Runtime-safe import to avoid circular deps inside Node tests
+            const { getAuthToken } = await import("@/lib/authToken");
+
             iframeRef.current?.contentWindow?.postMessage(
               {
                 ns: "ai-tutor/wb",
@@ -94,12 +110,14 @@ export function useSandbox(sessionId: string | undefined) {
                 type: "init",
                 payload: {
                   sessionId,
+                  convexUrl: convexUrl,
+                  token: getAuthToken(),
                 },
               },
               originUrl.origin,
             );
           } catch (_err) {
-            // ignore
+            // ignore – sandbox might have been closed or navigated away
           }
           setStatus("ready");
           return;
@@ -118,7 +136,7 @@ export function useSandbox(sessionId: string | undefined) {
         }
       } catch (_) {}
     },
-    [url, sessionId, insertSnapshot],
+    [url, sessionId, insertSnapshot, convexUrl],
   );
 
   useEffect(() => {
@@ -126,5 +144,42 @@ export function useSandbox(sessionId: string | undefined) {
     return () => window.removeEventListener("message", handleMessage);
   }, [handleMessage]);
 
-  return { url, status, iframeRef, retry: () => setStatus("idle") } as const;
+  // Jump to a specific snapshot index
+  const jumpToSnapshot = useCallback((index: number, objects: any[]) => {
+    if (!url || !iframeRef.current?.contentWindow) return;
+    iframeRef.current.contentWindow.postMessage(
+      {
+        ns: "ai-tutor/wb",
+        v: 1,
+        type: "jump",
+        payload: { index, objects },
+      },
+    );
+  }, [url]);
+
+  // Proactively ping init every 2s until ready
+  useEffect(() => {
+    if (!url || !iframeRef.current || !convexUrl || !sessionId) return;
+    const interval = setInterval(async () => {
+      try {
+        const { getAuthToken } = await import("@/lib/authToken");
+        iframeRef.current?.contentWindow?.postMessage(
+          {
+            ns: "ai-tutor/wb",
+            v: 1,
+            type: "init",
+            payload: {
+              sessionId,
+              convexUrl,
+              token: getAuthToken(),
+            },
+          },
+          "*",
+        );
+      } catch {}
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [url, convexUrl, sessionId]);
+
+  return { url, status, iframeRef, retry: () => setStatus("idle"), jumpToSnapshot } as const;
 } 
