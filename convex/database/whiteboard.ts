@@ -1,4 +1,5 @@
 import { query, mutation, internalQuery } from "../_generated/server";
+import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { requireAuth } from "../auth/middleware";
@@ -25,8 +26,8 @@ import {
  * Get all persistent whiteboard objects for a session
  */
 export const getWhiteboardObjects = query({
-  args: { sessionId: v.id("sessions") },
-  handler: async (ctx, { sessionId }) => {
+  args: { sessionId: v.id("sessions"), boardId: v.optional(v.number()) },
+  handler: async (ctx, { sessionId, boardId }) => {
     let userId: string | null = null;
     try {
       userId = await requireAuth(ctx);
@@ -46,10 +47,15 @@ export const getWhiteboardObjects = query({
     }
     
     // Get all persistent whiteboard objects for this session
-    const objects = await ctx.db
+    let objects = await ctx.db
       .query("whiteboard_objects")
       .withIndex("by_session", (q) => q.eq("session_id", sessionId))
       .collect();
+    
+    // Filter by board_id if provided (legacy rows have board_id undefined → treated as 0)
+    if (boardId !== undefined) {
+      objects = objects.filter((o: any) => (o.board_id ?? 0) === boardId);
+    }
     
     return objects.map(obj => {
       const spec = JSON.parse(obj.object_spec);
@@ -133,9 +139,10 @@ export const getWhiteboardObjects = query({
 export const getWhiteboardObjectsInternal = internalQuery({
   args: { 
     sessionId: v.id("sessions"),
-    userId: v.union(v.string(), v.null())
+    userId: v.union(v.string(), v.null()),
+    boardId: v.optional(v.number()),
   },
-  handler: async (ctx, { sessionId, userId }) => {
+  handler: async (ctx, { sessionId, userId, boardId }) => {
     // Verify session ownership
     const session = await ctx.db.get(sessionId);
     if (!session) {
@@ -148,10 +155,14 @@ export const getWhiteboardObjectsInternal = internalQuery({
     }
     
     // Get all persistent whiteboard objects for this session
-    const objects = await ctx.db
+    let objects = await ctx.db
       .query("whiteboard_objects")
       .withIndex("by_session", (q) => q.eq("session_id", sessionId))
       .collect();
+    
+    if (boardId !== undefined) {
+      objects = objects.filter((o: any) => (o.board_id ?? 0) === boardId);
+    }
     
     return objects.map(obj => {
       const spec = JSON.parse(obj.object_spec);
@@ -219,8 +230,9 @@ export const addWhiteboardObject = mutation({
   args: { 
     sessionId: v.id("sessions"),
     objectSpec: v.any(), // CanvasObjectSpec as JSON
+    boardId: v.optional(v.number()),
   },
-  handler: async (ctx, { sessionId, objectSpec }) => {
+  handler: async (ctx, { sessionId, objectSpec, boardId }) => {
     let userId: string | null = null;
     try {
       userId = await requireAuth(ctx);
@@ -244,6 +256,33 @@ export const addWhiteboardObject = mutation({
       throw new Error("Invalid object spec: missing id or kind");
     }
 
+    // --- Additional validation for widget objects ---
+    if (objectSpec.kind === "widget") {
+      const entry = (objectSpec as any).entry as string | undefined;
+      if (!entry) {
+        throw new Error("Widget object must include 'entry' directory name");
+      }
+      if (!/^[a-zA-Z0-9_-]+$/.test(entry)) {
+        throw new Error("Widget entry must use alphanumeric, hyphen or underscore characters (no spaces)");
+      }
+
+      // Verify widget code exists in overlay table (client component)
+      const clientTsx = `app/widgets/${entry}/client.tsx`;
+      const clientJs  = `app/widgets/${entry}/client.js`;
+      const widgetFileTsx = await ctx.db
+        .query("code_overlays")
+        .withIndex("by_project_path", (q: any) => q.eq("project_id", sessionId).eq("path", clientTsx))
+        .unique();
+      const widgetFileJs = await ctx.db
+        .query("code_overlays")
+        .withIndex("by_project_path", (q: any) => q.eq("project_id", sessionId).eq("path", clientJs))
+        .unique();
+
+      if (!widgetFileTsx && !widgetFileJs) {
+        throw new Error(`Widget '${entry}' has no client code. Create '${clientJs}' or '${clientTsx}' via overlay first.`);
+      }
+    }
+
     // Enforce size cap (≤100 kB JSON)
     const jsonStr = JSON.stringify(objectSpec);
     if (jsonStr.length > 100 * 1024) {
@@ -263,6 +302,7 @@ export const addWhiteboardObject = mutation({
     // Insert the object
     const objectId = await ctx.db.insert("whiteboard_objects", {
       session_id: sessionId,
+      board_id: boardId ?? 0,
       object_id: objectSpec.id,
       object_spec: JSON.stringify(objectSpec),
       object_kind: objectSpec.kind,
@@ -508,41 +548,22 @@ export const insertSnapshot = mutation({
 export const getWhiteboardSnapshots = query({
   args: {
     sessionId: v.id("sessions"),
-    maxIndex: v.optional(v.number()),
     limit: v.optional(v.number()),
   },
-  handler: async (ctx, { sessionId, maxIndex, limit = 100 }) => {
-    let userId: string | null = null;
-    try {
-      userId = await requireAuth(ctx);
-    } catch (e) {
-      // allow unauthenticated system/assistant calls
-    }
-    
-    // Verify session ownership
-    const session = await ctx.db.get(sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
-    
-    // If userId present, enforce ownership; if null, assume assistant context is allowed
-    if (userId && session.user_id !== userId) {
-      throw new Error("Access denied");
-    }
-    
-    let query = ctx.db
+  returns: v.array(
+    v.object({ snapshotIndex: v.number(), objects: v.array(v.any()) })
+  ),
+  handler: async (ctx, { sessionId, limit = 50 }) => {
+    const rows = await ctx.db
       .query("whiteboard_snapshots")
-      .withIndex("by_session_snapshot", (q) => q.eq("session_id", sessionId));
-    
-    if (maxIndex !== undefined) {
-      query = query.filter((q) => q.lte(q.field("snapshot_index"), maxIndex));
-    }
-    
-    const snapshots = await query
-      .order("asc")
+      .withIndex("by_session_created", (q) => q.eq("session_id", sessionId))
+      .order("desc")
       .take(limit);
-    
-    return snapshots;
+
+    return rows.map((r) => ({
+      snapshotIndex: (r as any).snapshot_index ?? 0,
+      objects: JSON.parse(r.actions_json ?? "[]"),
+    }));
   },
 });
 
@@ -948,6 +969,30 @@ export const applyWhiteboardPatch = mutation({
         continue;
       }
 
+      if (objectSpec.kind === "widget") {
+        const entry = (objectSpec as any).entry as string | undefined;
+        if (!entry || !/^[a-zA-Z0-9_-]+$/.test(entry)) {
+          issues.push({ level: "error", message: `Invalid widget entry '${entry}'. Use alphanumeric, hyphen or underscore, no spaces.` });
+          continue;
+        }
+
+        // Ensure widget client code exists
+        const tsxPath = `app/widgets/${entry}/client.tsx`;
+        const jsPath  = `app/widgets/${entry}/client.js`;
+        const widgetFileTsx = await ctx.db
+          .query("code_overlays")
+          .withIndex("by_project_path", (q: any) => q.eq("project_id", sessionId).eq("path", tsxPath))
+          .unique();
+        const widgetFileJs = await ctx.db
+          .query("code_overlays")
+          .withIndex("by_project_path", (q: any) => q.eq("project_id", sessionId).eq("path", jsPath))
+          .unique();
+        if (!widgetFileTsx && !widgetFileJs) {
+          issues.push({ level: "error", message: `Widget '${entry}' has no client code in overlay.` });
+          continue;
+        }
+      }
+
       try {
       await ctx.db.insert("whiteboard_objects", {
         session_id: sessionId,
@@ -1140,3 +1185,45 @@ async function processElementBindingUpdates(
   
   return bindingUpdates;
 }
+
+// ==========================================
+// BOARD CONTEXT SNAPSHOT
+// ==========================================
+export const getWhiteboardContext = query({
+  args: {
+    sessionId: v.id("sessions"),
+    boardId: v.optional(v.number()),
+    // Optional list of fields to return per object for compactness
+    fields: v.optional(v.array(v.string())),
+  },
+  returns: v.object({
+    boardId: v.number(),
+    boardVersion: v.number(),
+    objects: v.array(v.any()),
+  }),
+  handler: async (ctx, { sessionId, boardId, fields }) => {
+    // Re-use getWhiteboardObjectsInternal to respect auth semantics
+    const objects: any[] = await ctx.runQuery(
+      internal.database.whiteboard.getWhiteboardObjectsInternal as any,
+      { sessionId, userId: null, boardId },
+    );
+
+    const boardVersion: number = objects.reduce((max: number, o: any) => Math.max(max, o.version ?? 1), 0);
+
+    const projected: any[] = objects.map((spec: any) => {
+      if (fields && fields.length) {
+        const out: any = {};
+        for (const f of fields) {
+          if (spec[f] !== undefined) out[f] = spec[f];
+        }
+        // Always include id & kind for context
+        out.id = spec.id;
+        out.kind = spec.kind;
+        return out;
+      }
+      return spec;
+    });
+
+    return { boardId: boardId ?? 0, boardVersion, objects: projected } as { boardId: number; boardVersion: number; objects: any[] };
+  },
+});

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { useQuery, useAction } from "convex/react";
+import { useQuery, useAction, useMutation } from "convex/react";
 import { api } from "convex_generated/api";
 
 export type SandboxStatus = "idle" | "starting" | "ready" | "error";
@@ -9,7 +9,7 @@ export function useSandbox(sessionId: string | undefined) {
   const [url, setUrl] = useState<string | null>(null);
   const launchSandbox = useAction(api.actions.sandbox.launchSandbox);
   const session = useQuery(api.database.sessions.getSession, sessionId ? { sessionId, includeContext: false } : "skip");
-  const insertSnapshot = useAction(api.database.whiteboard.insertSnapshot);
+  const insertSnapshot = useMutation(api.database.whiteboard.insertSnapshot);
 
   // Helper: wait until /api/health returns ok:true (or give up after 90s)
   const waitForHealth = useCallback(async (baseUrl: string) => {

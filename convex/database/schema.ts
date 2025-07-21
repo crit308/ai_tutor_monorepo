@@ -75,6 +75,8 @@ export default defineSchema({
 
   whiteboard_objects: defineTable({
     session_id: v.string(),
+    // Board (page) identifier – default 0 for legacy objects
+    board_id: v.optional(v.number()),
     object_id: v.string(),
     object_spec: v.string(), // JSON string of CanvasObjectSpec
     object_kind: v.string(),  // e.g., 'circle', 'text', 'latex_svg'
@@ -82,6 +84,7 @@ export default defineSchema({
     updated_at: v.number(),
   })
     .index("by_session", ["session_id"])
+    .index("by_session_board", ["session_id", "board_id"])
     .index("by_session_object", ["session_id", "object_id"])
     .index("by_session_created", ["session_id", "created_at"]),
 

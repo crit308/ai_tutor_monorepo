@@ -201,7 +201,7 @@ const wbPathSchema = wbBaseSchema.extend({
 // Widget schema (mini React component rendered inside sandbox)
 const wbWidgetSchema = wbBaseSchema.extend({
   kind: z.literal('widget'),
-  entry: z.string(),               // Folder name under /app/widgets
+  'entry': z.string(),               // Folder name under /app/widgets
   props: z.string(), // JSON stringified props
   width: z.union([z.number(), z.null()]),
   height: z.union([z.number(), z.null()]),
@@ -293,7 +293,7 @@ export const createWhiteboardObjectsTool = createTool({
 - text: requires text content
 - line: requires points array (min 2 points)
 - arrow: requires points array (min 2 points)
-- widget: requires entry string; props object optional
+- widget: requires 'entry' string (directory name with no spaces, only letters, numbers, - or _ ); props object optional
 
 **Enhanced Arrow Features:**
 - arrowType: "straight" (default), "elbow" (90-degree turns), or "curved" (smooth curves)
@@ -614,6 +614,76 @@ Auto-connect with curved arrow: {arrowId: "arrow1", targetId: "rect1", bindEnd: 
   },
 });
 
+// Tool: get_whiteboard_context
+export const getWhiteboardContextTool = createTool({
+  name: "get_whiteboard_context",
+  description: `Return a compact snapshot of the current board including version counter.
+
+Args:
+- sessionId: Convex session id.
+- boardId: optional numeric board/page identifier (0-based). If omitted returns board 0.
+- fields: optional list of field names to include for each object (e.g. ["id","kind","x","y","text"]) to reduce token usage.`,
+  args: z.object({
+    sessionId: z.string(),
+    boardId: z.union([z.number(), z.null()]), // required but can be null
+    fields: z.union([z.array(z.string()), z.null()]), // required but can be null
+  }),
+  async handler(ctx: any, { sessionId, boardId, fields }) {
+    const res = await ctx.runQuery(api.database.whiteboard.getWhiteboardContext as any, {
+      sessionId,
+      boardId: boardId ?? undefined,
+      fields: fields ?? undefined,
+    });
+    return res;
+  },
+});
+
+// Tool: get_overlay_file
+export const getOverlayFileTool = createTool({
+  name: "get_overlay_file",
+  description: "Check if an overlay file exists and return its current content (if small). Use this before creating widgets to see if code already exists.",
+  args: z.object({
+    sessionId: z.string(),
+    path: z.string(), // e.g. app/widgets/mywidget/client.tsx
+  }),
+  async handler(ctx: any, { sessionId, path }) {
+    const row = await ctx.runQuery(internal.database.code_overlays.getByProjectPath as any, {
+      projectId: sessionId,
+      path,
+    });
+    if (!row || row.content === undefined) return { exists: false };
+    const preview = row.content.length > 2000 ? row.content.slice(0, 2000) + "…" : row.content;
+    return { exists: true, preview };
+  },
+});
+
+// Tool: upsert_overlay_file
+export const upsertOverlayFileTool = createTool({
+  name: "upsert_overlay_file",
+  description: "Create or update a text overlay file inside the sandbox.\nIf you are creating a widget client component just pass the *entry* name (e.g. 'water-cycle-facts') and this tool will automatically write to 'app/widgets/<entry>/client.tsx'.\nOtherwise supply a full path starting with one of the allowed prefixes: app/, pages/, components/, lib/, public/.",
+  args: z.object({
+    sessionId: z.string(),
+    path: z.string(),
+    content: z.string(),
+  }),
+  async handler(ctx: any, { sessionId, path, content }) {
+    let finalPath = path;
+    // If caller provided only widget entry name (no slash) assume widget client file
+    if (!path.includes("/") && /^[a-zA-Z0-9_-]+$/.test(path)) {
+      finalPath = `app/widgets/${path}/client.js`;
+    }
+    // Normalize .tsx to .js because sandbox skips build step
+    if (finalPath.endsWith(".tsx")) finalPath = finalPath.replace(/\.tsx$/, ".js");
+    await ctx.runMutation(api.database.code_overlays.upsertFile as any, {
+      projectId: sessionId,
+      path: finalPath,
+      content,
+    });
+    return { ok: true };
+  },
+});
+
+// Export tool list
 export const whiteboardTools = {
   // --- PRIMARY VISION TOOL (OpenAI Vision API compliant) ---
   inspect_whiteboard: inspectWhiteboardTool,
@@ -627,4 +697,10 @@ export const whiteboardTools = {
   show_whiteboard_image: showWhiteboardImageTool,
   // --- NEW TOOL (bind_elements) ---
   bind_elements: bindElementsTool,
+  // --- NEW TOOL (get_whiteboard_context) ---
+  get_whiteboard_context: getWhiteboardContextTool,
+  // --- NEW TOOL (get_overlay_file) ---
+  get_overlay_file: getOverlayFileTool,
+  // --- NEW TOOL (upsert_overlay_file) ---
+  upsert_overlay_file: upsertOverlayFileTool,
 };

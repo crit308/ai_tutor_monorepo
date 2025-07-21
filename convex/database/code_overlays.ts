@@ -1,6 +1,7 @@
 import { query, mutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
+import { Id } from "../_generated/dataModel";
 
 /**
  * Fetch all overlay files for a given project (session).
@@ -86,7 +87,7 @@ export const upsertFile = mutation({
 
       // Schedule sandbox write
       await ctx.scheduler.runAfter(0, internal.actions.overlay.applyPatch, {
-        sessionId: projectId,
+        sessionId: projectId as Id<"sessions">,
         path,
       });
       return existing._id;
@@ -111,7 +112,7 @@ export const upsertFile = mutation({
     }
 
     await ctx.scheduler.runAfter(0, internal.actions.overlay.applyPatch, {
-      sessionId: projectId,
+      sessionId: projectId as Id<"sessions">,
       path,
     });
 
@@ -153,7 +154,7 @@ export const deleteFile = mutation({
       });
 
       await ctx.scheduler.runAfter(0, internal.actions.overlay.applyPatch, {
-        sessionId: projectId,
+        sessionId: projectId as Id<"sessions">,
         path,
       });
     }
