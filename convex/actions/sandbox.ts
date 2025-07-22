@@ -283,6 +283,8 @@ export const launchSandbox = action({
         "npm install --silent",
         // Ensure esbuild is available for widget compilation
         "npm install --silent esbuild",
+        // Expose overlay secret to Next.js runtime (process.env)
+        `export OVERLAY_SECRET=${overlaySecret} NEXT_PUBLIC_OVERLAY_SECRET=${overlaySecret}`,
         // Run Next.js in development mode so Fast Refresh picks up overlay changes
         "npx next dev -p 3000 --hostname 0.0.0.0",
       ].join(" && "),
