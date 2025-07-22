@@ -9,7 +9,6 @@
  */
 
 import type * as actions_fileDataUri from "../actions/fileDataUri.js";
-import type * as actions_overlay from "../actions/overlay.js";
 import type * as actions_sandbox from "../actions/sandbox.js";
 import type * as agents_actions from "../agents/actions.js";
 import type * as agents_analyzerAgent from "../agents/analyzerAgent.js";
@@ -85,7 +84,6 @@ import type {
  */
 declare const fullApi: ApiFromModules<{
   "actions/fileDataUri": typeof actions_fileDataUri;
-  "actions/overlay": typeof actions_overlay;
   "actions/sandbox": typeof actions_sandbox;
   "agents/actions": typeof agents_actions;
   "agents/analyzerAgent": typeof agents_analyzerAgent;

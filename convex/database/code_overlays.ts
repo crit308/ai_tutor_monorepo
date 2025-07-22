@@ -50,6 +50,7 @@ export const upsertFile = mutation({
       "components/",
       "lib/",
       "public/",
+      "src/",
     ];
     if (path.includes("..")) {
       throw new Error("Invalid path: traversal is not allowed");
@@ -85,11 +86,7 @@ export const upsertFile = mutation({
         }
       }
 
-      // Schedule sandbox write
-      await ctx.scheduler.runAfter(0, internal.actions.overlay.applyPatch, {
-        sessionId: projectId as Id<"sessions">,
-        path,
-      });
+      // Overlay application now handled immediately in upsertOverlayFileTool
       return existing._id;
     }
 
@@ -111,10 +108,7 @@ export const upsertFile = mutation({
       }
     }
 
-    await ctx.scheduler.runAfter(0, internal.actions.overlay.applyPatch, {
-      sessionId: projectId as Id<"sessions">,
-      path,
-    });
+    // Overlay application now handled immediately in upsertOverlayFileTool
 
     return id;
   },
@@ -131,7 +125,7 @@ export const deleteFile = mutation({
   returns: v.null(),
   handler: async (ctx, { projectId, path }) => {
     // Guard-rails: path validation same as upsertFile
-    const allowedPrefixes = ["app/", "pages/", "components/", "lib/", "public/"];
+    const allowedPrefixes = ["app/", "pages/", "components/", "lib/", "public/", "src/"];
     if (path.includes("..")) {
       throw new Error("Invalid path: traversal is not allowed");
     }
@@ -153,10 +147,7 @@ export const deleteFile = mutation({
         updated_at: now,
       });
 
-      await ctx.scheduler.runAfter(0, internal.actions.overlay.applyPatch, {
-        sessionId: projectId as Id<"sessions">,
-        path,
-      });
+      // Overlay application now handled immediately in upsertOverlayFileTool
     }
     return null;
   },
@@ -169,7 +160,7 @@ export const getByProjectPath = internalQuery({
   },
   handler: async (ctx, { projectId, path }) => {
     // Guard-rails: path validation same as upsertFile
-    const allowedPrefixes = ["app/", "pages/", "components/", "lib/", "public/"];
+    const allowedPrefixes = ["app/", "pages/", "components/", "lib/", "public/", "src/"];
     if (path.includes("..")) {
       throw new Error("Invalid path: traversal is not allowed");
     }

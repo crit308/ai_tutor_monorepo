@@ -670,15 +670,21 @@ export const upsertOverlayFileTool = createTool({
     let finalPath = path;
     // If caller provided only widget entry name (no slash) assume widget client file
     if (!path.includes("/") && /^[a-zA-Z0-9_-]+$/.test(path)) {
-      finalPath = `app/widgets/${path}/client.js`;
+      finalPath = `app/widgets/${path}/client.tsx`;
     }
-    // Normalize .tsx to .js because sandbox skips build step
-    if (finalPath.endsWith(".tsx")) finalPath = finalPath.replace(/\.tsx$/, ".js");
+    
+    // Save to database - will be compiled during next sandbox launch
     await ctx.runMutation(api.database.code_overlays.upsertFile as any, {
       projectId: sessionId,
       path: finalPath,
       content,
     });
+    
+    console.log(`[upsertOverlayFile] Saved overlay file: ${finalPath} (will be compiled on next sandbox launch)`);
+    
+    // TODO: In the future, we could trigger a refresh of the existing sandbox here
+    // For now, the user will need to refresh the page to launch a new sandbox with the widget
+    
     return { ok: true };
   },
 });
