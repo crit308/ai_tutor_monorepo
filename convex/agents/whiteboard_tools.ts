@@ -680,10 +680,32 @@ export const upsertOverlayFileTool = createTool({
       content,
     });
     
-    console.log(`[upsertOverlayFile] Saved overlay file: ${finalPath} (will be compiled on next sandbox launch)`);
-    
-    // TODO: In the future, we could trigger a refresh of the existing sandbox here
-    // For now, the user will need to refresh the page to launch a new sandbox with the widget
+    console.log(`[upsertOverlayFile] Saved overlay file: ${finalPath}`);
+
+    // Attempt to push overlay into running sandbox (best-effort)
+    try {
+      const session = await ctx.runQuery(internal.database.sessions.getSessionInternal as any, {
+        sessionId,
+        userId: null,
+        includeContext: false
+      });
+      const s: any = session;
+      if (s?.sandbox_url && s?.overlay_secret) {
+        await fetch(`${s.sandbox_url}/api/overlay`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${s.overlay_secret}`,
+          },
+          body: JSON.stringify({ path: finalPath, content }),
+        });
+        console.log(`[upsertOverlayFile] Overlay pushed to sandbox via /api/overlay`);
+      }
+    } catch (err) {
+      console.warn(`[upsertOverlayFile] Push to sandbox failed (sandbox may not be up yet)`, err);
+    }
+
+    // Widget will still compile on next sandbox launch if push failed
     
     return { ok: true };
   },

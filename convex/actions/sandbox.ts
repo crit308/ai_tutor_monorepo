@@ -3,6 +3,7 @@
 import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "../_generated/api";
+import crypto from "crypto";
 
 // Global registry to keep sandbox objects alive for overlay operations
 const sandboxRegistry = new Map<string, any>();
@@ -266,6 +267,8 @@ export const launchSandbox = action({
     // Command will clone repo at commit and start next dev
     const repoUrl = process.env.TEMPLATE_REPO || "https://github.com/your-org/whiteboard-template.git";
 
+    const overlaySecret = crypto.randomBytes(32).toString("hex");
+
     const command = [
       "sh",
       "-c",
@@ -291,6 +294,8 @@ export const launchSandbox = action({
       memory: 512,
       encryptedPorts: [3000],
       timeout: 45 * 60 * 1000, // 45 min per plan
+      // @ts-ignore - env is supported by Modal but not in types yet
+      env: { OVERLAY_SECRET: overlaySecret },
     });
 
     // Wait briefly for tunnel metadata; throw if not available in time
@@ -308,6 +313,7 @@ export const launchSandbox = action({
       sessionId,
       sandboxId: sb.sandboxId,
       url: tunnel.url,
+      overlaySecret,
     });
 
     // -----------------------------------------

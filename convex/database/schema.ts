@@ -33,6 +33,7 @@ export default defineSchema({
     // Cached URL of the running sandbox tunnel
     sandbox_url: v.optional(v.string()),
     sandbox_id: v.optional(v.string()),
+    overlay_secret: v.optional(v.string()),
   })
     .index("by_user", ["user_id"])
     .index("by_folder", ["folder_id"]),

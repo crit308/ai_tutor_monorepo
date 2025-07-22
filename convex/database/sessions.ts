@@ -171,6 +171,7 @@ export const getSession = query({
       analysis_status: session.analysis_status,
       context_data: includeContext ? session.context_data : undefined,
       sandbox_url: (session as any).sandbox_url,
+      overlay_secret: (session as any).overlay_secret,
     };
     
     return result;
@@ -1039,6 +1040,7 @@ export const getSessionInternal = internalQuery({
       board_version: (session as any).board_version || 0,
       context_data: includeContext ? session.context_data : undefined,
       sandbox_url: (session as any).sandbox_url,
+      overlay_secret: (session as any).overlay_secret,
     };
     
     return result;
@@ -1064,11 +1066,13 @@ export const setSandboxInfo = internalMutation({
     sessionId: v.id("sessions"),
     sandboxId: v.string(),
     url: v.string(),
+    overlaySecret: v.string(),
   },
-  handler: async (ctx, { sessionId, sandboxId, url }) => {
+  handler: async (ctx, { sessionId, sandboxId, url, overlaySecret }) => {
     await ctx.db.patch(sessionId, {
       sandbox_id: sandboxId,
       sandbox_url: url,
+      overlay_secret: overlaySecret,
       updated_at: Date.now(),
     });
     return null;
